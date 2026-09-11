@@ -5,10 +5,10 @@ Last updated: 2026-09-11
 ## Current position
 
 - Project phase: planning complete; application implementation has not started.
-- Implemented: project documentation and agent continuity system only.
+- Implemented: project documentation, agent continuity system, and local Git source control.
 - Application scaffold, dependencies, executable, tests, and model integration: absent.
-- Repository: initialized locally on `main`; no remote configured. Baseline commit is in progress.
-- Active task: D01 — establish Git source control.
+- Repository: initialized locally on `main`; initial commit `c0743bf`; no remote configured.
+- Active task: none.
 - Next task: T01 — scaffold the desktop application.
 - Blockers: none known for starting T01. Toolchains and local model availability have not been inspected.
 
@@ -21,7 +21,7 @@ The plan contains dependencies and acceptance criteria. This table is the author
 | ID | Task | State | Evidence / remaining work |
 | --- | --- | --- | --- |
 | D00 | Project planning and continuity | done | Specification, plan, status, decisions, handoff, and AGENTS entry point created; documentation checks recorded below |
-| D01 | Git source control | in_progress | Verify ignore rules and commit the initial documentation baseline |
+| D01 | Git source control | done | Initial commit `c0743bf`; ignore/whitespace checks passed; working tree verified clean after baseline commit |
 | T01 | Desktop scaffold | todo | Inspect toolchains; create and verify the shell |
 | T02 | Provider contracts/configuration | todo | No implementation |
 | T03 | Character/transcript storage | todo | Proposed schema only |
@@ -43,7 +43,7 @@ The plan contains dependencies and acceptance criteria. This table is the author
 
 ## Active work and resumption
 
-Owner/session: Codex, Git setup, 2026-09-11. Scope: Git configuration and project documentation. Next step for this session: verify ignore rules and commit the baseline.
+Owner/session: none. D01 is complete; T01 remains the next implementation task. Its Git initialization portion is already handled.
 
 Next concrete action: read `AGENTS.md` and the linked project documents, inspect Node/npm, Rust/Cargo, and Windows Tauri prerequisites, then begin T01. Use current official documentation to select compatible versions. Record missing prerequisites and actual validation commands.
 
@@ -59,6 +59,10 @@ No partial application files need to be recovered. No background development job
 | 2026-09-11 | Task consistency | PowerShell: extract plan/status IDs and compare uniqueness, membership, declared dependencies, and initial states | PASS: 19 matching unique IDs; dependencies exist and are acyclic in plan order; all 18 implementation tasks are `todo` |
 
 Application tests/builds are not applicable yet because application code does not exist.
+
+Git verification (2026-09-11): `git check-ignore -q` passed for nine ignored runtime/build paths and seven trackable source/lockfile/sample paths. `git diff --cached --check` passed. Initial commit `c0743bf` contains the nine intended files; `git status --short --branch` showed a clean `main`; `git remote -v` returned no remotes.
+
+Local environment note: the initial sandbox-created `.git` directory is owned by the sandbox account. Git's exact-path `safe.directory` setting was added to the user's global configuration for `E:/Home/Documents/Programming/tz-chatter` so normal Git commands work. No wildcard trust or identity settings were changed. The sandbox filesystem helper intermittently failed, so Git setup and patching were completed through approved execution outside the sandbox.
 
 ## Known constraints and unresolved choices
 

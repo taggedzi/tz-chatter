@@ -16,6 +16,16 @@ Verification: documentation checks and their outcomes are recorded in STATUS.md.
 
 Next action: T01. Inspect the actual toolchains and Tauri prerequisites, then scaffold and verify the desktop shell using the specification. T03 will formalize data formats; do not mistake the proposed vault layout for existing code.
 
+## 2026-09-11 — D01: local Git source control
+
+Outcome: initialized `main` and committed the nine project files in `c0743bf` (`chore: initialize project planning and source control`). Added `.gitignore`, `.gitattributes`, README source-control guidance, and a D01 plan/status entry. Application scaffolding remains unstarted.
+
+Verification: nine representative runtime/build paths are ignored; seven source, lockfile, environment-example, and sample paths remain trackable. Staged whitespace checks passed; the tree was clean after the baseline commit; no remote is configured. This entry and the completed status are recorded in a subsequent documentation commit.
+
+Environment recovery: sandbox ownership of `.git` triggered Git's ownership check and the sandbox helper failed intermittently. Attempts to transfer ownership and move the directory did not resolve directory ownership. Empty initialization metadata was preserved at `C:/Users/tagge/AppData/Local/Temp/tz-chatter-git-init-2b53cd5605854fd1963fa88d20dde334`; it contains no project history. Reinitialized metadata in place and added only this project's exact path to the user's Git `safe.directory` setting. Existing Git author identity was used unchanged. No project files or prior commits were deleted.
+
+Next action: T01 — inspect toolchains and scaffold the desktop application. Use the existing repository; no further Git initialization is needed.
+
 ## Entry template
 
 ```text
