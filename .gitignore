@@ -1,0 +1,31 @@
+# Dependencies and builds; keep application lockfiles tracked.
+node_modules/
+target/
+/dist/
+/coverage/
+*.tsbuildinfo
+/src-tauri/gen/schemas/
+
+# Local configuration (sanitized examples may be tracked).
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local
+
+# Private runtime vaults and model weights.
+# Track sample characters under examples/ and synthetic test vaults under tests/fixtures/.
+/characters/
+/models/
+.tz-chatter/
+*.gguf
+*.safetensors
+
+# Logs and editor/OS artifacts.
+*.log
+.DS_Store
+Thumbs.db
+Desktop.ini
+/.idea/
+*.swp
+*.swo
