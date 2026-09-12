@@ -1,8 +1,9 @@
 import { useState } from "react";
+import { activeSessionStorageKeys } from "./activeSession";
 import { portabilityClient } from "./portability";
 
 export function PortabilityPanel() {
-  const [vaultRoot, setVaultRoot] = useState("");
+  const [vaultRoot, setVaultRoot] = useState(() => localStorage.getItem(activeSessionStorageKeys.vaultRoot) ?? "");
   const [packDestination, setPackDestination] = useState("");
   const [packRoot, setPackRoot] = useState("");
   const [restoreDestination, setRestoreDestination] = useState("");
@@ -44,7 +45,7 @@ export function PortabilityPanel() {
   }
 
   return (
-    <section className="settings-panel">
+    <section className="settings-section">
       <div className="section-heading">
         <div>
           <span className="section-kicker">PORTABLE CHARACTER DATA</span>

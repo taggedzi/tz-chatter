@@ -111,6 +111,45 @@ pub struct ConversationResume {
     pub transcript: Option<TranscriptDocument>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SessionSummary {
+    pub session_id: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub turn_count: usize,
+    pub preview: String,
+}
+
+impl From<TranscriptDocument> for SessionSummary {
+    fn from(transcript: TranscriptDocument) -> Self {
+        let preview = transcript
+            .turns
+            .iter()
+            .rev()
+            .find(|turn| !turn.content.trim().is_empty())
+            .map(|turn| truncate_preview(turn.content.trim()))
+            .unwrap_or_default();
+        Self {
+            session_id: transcript.session_id,
+            created_at: transcript.created_at,
+            updated_at: transcript.updated_at,
+            turn_count: transcript.turns.len(),
+            preview,
+        }
+    }
+}
+
+fn truncate_preview(content: &str) -> String {
+    let flattened = content.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = flattened.chars();
+    let shortened: String = chars.by_ref().take(80).collect();
+    if chars.next().is_some() {
+        format!("{shortened}…")
+    } else {
+        shortened
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct InitiativeOutcome {
     pub transcript: TranscriptDocument,
@@ -210,6 +249,65 @@ impl ConversationService {
         Ok(ConversationResume {
             character,
             transcript,
+        })
+    }
+
+    pub fn list_sessions(vault: &Vault) -> Result<Vec<SessionSummary>, ConversationError> {
+        let character = vault.load_character()?;
+        let mut sessions: Vec<SessionSummary> = vault
+            .list_transcripts()?
+            .into_iter()
+            .filter(|transcript| transcript.character_id == character.id)
+            .map(SessionSummary::from)
+            .collect();
+        sessions.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| right.session_id.cmp(&left.session_id))
+        });
+        Ok(sessions)
+    }
+
+    pub fn open_session(
+        vault: &Vault,
+        session_id: &str,
+    ) -> Result<ConversationResume, ConversationError> {
+        let character = vault.load_character()?;
+        let path = vault.transcript_path(session_id)?;
+        let transcript = if path.exists() {
+            let loaded = vault.load_transcript(session_id)?;
+            if loaded.character_id != character.id {
+                return Err(ConversationError::Invalid(
+                    "session belongs to a different character".into(),
+                ));
+            }
+            loaded
+        } else {
+            let timestamp = now_timestamp();
+            let mut started = TranscriptDocument::new(session_id, character.id.clone());
+            started.created_at = timestamp.clone();
+            started.updated_at = timestamp;
+            started
+        };
+        remember_session(vault, session_id)?;
+        Ok(ConversationResume {
+            character,
+            transcript: Some(transcript),
+        })
+    }
+
+    pub fn start_session(vault: &Vault) -> Result<ConversationResume, ConversationError> {
+        let character = vault.load_character()?;
+        let session_id = crate::storage::new_stable_id();
+        remember_session(vault, &session_id)?;
+        let timestamp = now_timestamp();
+        let mut transcript = TranscriptDocument::new(session_id, character.id.clone());
+        transcript.created_at = timestamp.clone();
+        transcript.updated_at = timestamp;
+        Ok(ConversationResume {
+            character,
+            transcript: Some(transcript),
         })
     }
 
@@ -990,6 +1088,94 @@ mod tests {
         assert!(matches!(
             ConversationService::resume(&vault, Some("nova")),
             Err(ConversationError::Invalid(message)) if message.contains("does not match")
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn lists_opens_and_starts_sessions_without_mixing_characters() {
+        let root = root("sessions");
+        let vault = Vault::create(&root).unwrap();
+        vault
+            .save_character(&CharacterDefinition::new("lyra", "Lyra", "You are Lyra."))
+            .unwrap();
+
+        let mut older = TranscriptDocument::new("session-older", "lyra");
+        older.created_at = "100".into();
+        older.updated_at = "100".into();
+        older.turns.push(TranscriptTurn {
+            id: "user-old".into(),
+            timestamp: "100".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "Earlier talk".into(),
+        });
+        vault.save_transcript(&older).unwrap();
+
+        let mut newer = TranscriptDocument::new("session-newer", "lyra");
+        newer.created_at = "200".into();
+        newer.updated_at = "200".into();
+        newer.turns.push(TranscriptTurn {
+            id: "user-new".into(),
+            timestamp: "200".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "Latest talk".into(),
+        });
+        vault.save_transcript(&newer).unwrap();
+
+        let mut foreign = TranscriptDocument::new("session-foreign", "nova");
+        foreign.created_at = "300".into();
+        foreign.updated_at = "300".into();
+        foreign.turns.push(TranscriptTurn {
+            id: "user-foreign".into(),
+            timestamp: "300".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "Wrong character".into(),
+        });
+        vault.save_transcript(&foreign).unwrap();
+
+        let listed = ConversationService::list_sessions(&vault).unwrap();
+        assert_eq!(
+            listed
+                .iter()
+                .map(|session| session.session_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["session-newer", "session-older"]
+        );
+        assert_eq!(listed[0].preview, "Latest talk");
+        assert_eq!(listed[0].turn_count, 1);
+
+        let opened = ConversationService::open_session(&vault, "session-older").unwrap();
+        assert_eq!(opened.transcript.unwrap().session_id, "session-older");
+        assert_eq!(
+            vault
+                .load_state()
+                .unwrap()
+                .last_opened_session_id
+                .as_deref(),
+            Some("session-older")
+        );
+
+        let started = ConversationService::start_session(&vault).unwrap();
+        let started_id = started.transcript.as_ref().unwrap().session_id.clone();
+        assert_ne!(started_id, "session-older");
+        assert_eq!(started.transcript.as_ref().unwrap().turns.len(), 0);
+        assert_eq!(
+            vault
+                .load_state()
+                .unwrap()
+                .last_opened_session_id
+                .as_deref(),
+            Some(started_id.as_str())
+        );
+        let reopened = ConversationService::open_session(&vault, &started_id).unwrap();
+        assert_eq!(reopened.transcript.unwrap().turns.len(), 0);
+        assert_eq!(ConversationService::list_sessions(&vault).unwrap().len(), 2);
+        assert!(matches!(
+            ConversationService::open_session(&vault, "session-foreign"),
+            Err(ConversationError::Invalid(message)) if message.contains("different character")
         ));
         fs::remove_dir_all(root).unwrap();
     }

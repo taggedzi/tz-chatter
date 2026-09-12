@@ -364,6 +364,30 @@ impl Vault {
         Ok(transcript)
     }
 
+    pub fn list_transcripts(&self) -> Result<Vec<TranscriptDocument>, StorageError> {
+        let chats = self.root.join("chats");
+        if !chats.is_dir() {
+            return Ok(Vec::new());
+        }
+        let mut transcripts = Vec::new();
+        for entry in fs::read_dir(&chats)? {
+            let path = entry?.path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("md") {
+                continue;
+            }
+            let Some(session_id) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            if validate_id(session_id).is_err() {
+                continue;
+            }
+            if let Ok(transcript) = self.load_transcript(session_id) {
+                transcripts.push(transcript);
+            }
+        }
+        Ok(transcripts)
+    }
+
     pub fn save_state(&self, state: &OperationalState) -> Result<(), StorageError> {
         validate_state(state)?;
         let path = self.state_path()?;

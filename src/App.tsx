@@ -1,10 +1,18 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ConversationPanel } from "./ConversationPanel";
-import { InitiativePanel } from "./InitiativePanel";
-import { PortabilityPanel } from "./PortabilityPanel";
 import { MemoryPanel } from "./MemoryPanel";
-import { activeCharacterName, activeSessionChangedEvent } from "./activeSession";
+import { SettingsPanel, type SettingsSection } from "./SettingsPanel";
+import {
+  activeCharacterName,
+  activeSessionChangedEvent,
+  activeSessionId,
+  activeSessionStorageKeys,
+  requestNewSession,
+  requestOpenSession,
+  shellEvents,
+} from "./activeSession";
+import type { SessionSummary } from "./conversation";
 import "./App.css";
 
 type AppInfo = {
@@ -13,13 +21,40 @@ type AppInfo = {
   stage: string;
 };
 
-const navItems = ["Conversation", "Memories", "Settings"];
+type AppView = "chat" | "memories";
+
+function formatSessionTime(value: string) {
+  if (!value) return "";
+  const asNumber = Number(value);
+  const date = Number.isFinite(asNumber) && asNumber > 1e12
+    ? new Date(asNumber)
+    : Number.isFinite(asNumber) && asNumber > 1e9
+      ? new Date(asNumber)
+      : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "tz";
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
+}
 
 function App() {
-  const [activeView, setActiveView] = useState("Conversation");
+  const [activeView, setActiveView] = useState<AppView>("chat");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("provider");
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [shellError, setShellError] = useState<string | null>(null);
   const [activeCharacter, setActiveCharacter] = useState(() => activeCharacterName());
+  const [vaultRoot, setVaultRoot] = useState(() => localStorage.getItem(activeSessionStorageKeys.vaultRoot) ?? "");
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionId, setSessionId] = useState(() => activeSessionId() ?? "");
 
   useEffect(() => {
     invoke<AppInfo>("app_info")
@@ -28,14 +63,30 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const update = () => setActiveCharacter(activeCharacterName());
+    const update = () => {
+      setActiveCharacter(activeCharacterName());
+      setVaultRoot(localStorage.getItem(activeSessionStorageKeys.vaultRoot) ?? "");
+      setSessionId(activeSessionId() ?? "");
+    };
+    const onSessions = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessions: SessionSummary[]; sessionId: string }>).detail;
+      if (!detail) return;
+      setSessions(detail.sessions);
+      setSessionId(detail.sessionId);
+    };
     window.addEventListener(activeSessionChangedEvent, update);
-    return () => window.removeEventListener(activeSessionChangedEvent, update);
+    window.addEventListener(shellEvents.sessionsUpdated, onSessions);
+    return () => {
+      window.removeEventListener(activeSessionChangedEvent, update);
+      window.removeEventListener(shellEvents.sessionsUpdated, onSessions);
+    };
   }, []);
+
+  const characterLabel = activeCharacter ?? "No character loaded";
 
   return (
     <div className="app-shell">
-      <aside className="sidebar" aria-label="Primary navigation">
+      <aside className="sidebar" aria-label="Workspace">
         <div className="brand">
           <div className="brand-mark" aria-hidden="true">tz</div>
           <div>
@@ -45,28 +96,83 @@ function App() {
         </div>
 
         <section className="character-card" aria-label="Active character">
-          <div className="avatar">—</div>
+          <div className="avatar">{activeCharacter ? initials(activeCharacter) : "—"}</div>
           <div>
             <p className="eyebrow">ACTIVE CHARACTER</p>
-            <h2>{activeCharacter ?? "No character loaded"}</h2>
-            <p className="muted">{activeCharacter ? "Active local vault" : "Choose a vault to begin"}</p>
+            <h2>{characterLabel}</h2>
+            <p className="muted">{activeCharacter ? "History stays in this vault" : "Open a vault to begin"}</p>
           </div>
         </section>
 
-        <nav className="nav-list">
-          {navItems.map((item) => (
+        <nav className="nav-list" aria-label="Primary">
+          <button
+            className={activeView === "chat" && !settingsOpen ? "nav-item active" : "nav-item"}
+            onClick={() => { setSettingsOpen(false); setActiveView("chat"); }}
+            type="button"
+          >
+            <span className="nav-icon" aria-hidden="true">#</span>
+            Chat
+          </button>
+          <button
+            className={activeView === "memories" && !settingsOpen ? "nav-item active" : "nav-item"}
+            onClick={() => { setSettingsOpen(false); setActiveView("memories"); }}
+            type="button"
+          >
+            <span className="nav-icon" aria-hidden="true">M</span>
+            Memories
+          </button>
+          <button
+            className={settingsOpen ? "nav-item active" : "nav-item"}
+            onClick={() => setSettingsOpen(true)}
+            type="button"
+          >
+            <span className="nav-icon" aria-hidden="true">S</span>
+            Settings
+          </button>
+        </nav>
+
+        <section className="session-list" aria-label="Conversation history">
+          <div className="session-list-header">
+            <span className="eyebrow">Conversations</span>
             <button
-              className={activeView === item ? "nav-item active" : "nav-item"}
-              key={item}
-              onClick={() => setActiveView(item)}
-              aria-current={activeView === item ? "page" : undefined}
+              className="text-button"
+              disabled={!vaultRoot.trim() || !activeCharacter}
+              onClick={() => {
+                setSettingsOpen(false);
+                setActiveView("chat");
+                requestNewSession();
+              }}
               type="button"
             >
-              <span className="nav-icon" aria-hidden="true">{item.slice(0, 1)}</span>
-              {item}
+              New
+            </button>
+          </div>
+          {sessions.length === 0 && (
+            <p className="muted session-empty">
+              {activeCharacter ? "No saved chats yet. Send a message to start one." : "Open a vault to see past chats."}
+            </p>
+          )}
+          {sessions.map((session) => (
+            <button
+              className={session.session_id === sessionId ? "session-row selected" : "session-row"}
+              key={session.session_id}
+              onClick={() => {
+                setSettingsOpen(false);
+                setActiveView("chat");
+                if (session.session_id !== sessionId) requestOpenSession(session.session_id);
+              }}
+              type="button"
+            >
+              <span className="session-row-top">
+                <strong>{session.preview || "New conversation"}</strong>
+                <time>{formatSessionTime(session.updated_at)}</time>
+              </span>
+              <span className="session-row-meta">
+                {session.turn_count} message{session.turn_count === 1 ? "" : "s"}
+              </span>
             </button>
           ))}
-        </nav>
+        </section>
 
         <div className="sidebar-footer">
           <span className={shellError ? "status-dot warning" : "status-dot"} />
@@ -75,65 +181,21 @@ function App() {
       </aside>
 
       <main className="main-content">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">{activeView.toUpperCase()}</p>
-            <p className="topbar-title">Your private space for persistent conversations.</p>
-          </div>
-          <button className="outline-button" onClick={() => setActiveView("Conversation")} type="button">Open conversation</button>
-          </header>
-        {activeView === "Conversation" && <ConversationPanel />}
-        {activeView === "Memories" && <MemoryPanel />}
-        {activeView === "Settings" && (
-          <>
-            <InitiativePanel />
-            <PortabilityPanel />
-          </>
-        )}
-
-        <section className="welcome-panel">
-          <div className="welcome-copy">
-            <span className="section-kicker">{appInfo?.stage ?? "INITIAL SETUP"}</span>
-            <h2>Bring a character to life.</h2>
-            <p>
-              Connect a local model, load a portable character vault, and build a conversation
-              that remembers what matters.
-            </p>
-            <div className="action-row">
-              <button className="primary-button" onClick={() => setActiveView("Conversation")} type="button">Open a character vault</button>
-              <button className="text-button" onClick={() => setActiveView("Settings")} type="button">Learn about vaults <span aria-hidden="true">→</span></button>
-            </div>
-          </div>
-          <div className="welcome-orbit" aria-hidden="true">
-            <div className="orbit orbit-one" />
-            <div className="orbit orbit-two" />
-            <div className="orbit-core">✦</div>
-          </div>
-        </section>
-
-        <section className="workspace-grid" aria-label="Getting started">
-          <article className="info-card">
-            <div className="card-number">01</div>
-            <h3>Connect locally</h3>
-            <p>Use Ollama, llama.cpp, or LM Studio without sending your character data to the cloud.</p>
-          </article>
-          <article className="info-card highlighted">
-            <div className="card-number">02</div>
-            <h3>Keep memories portable</h3>
-            <p>Identity, memories, and transcripts stay readable in Markdown inside your vault.</p>
-          </article>
-          <article className="info-card">
-            <div className="card-number">03</div>
-            <h3>Stay in control</h3>
-            <p>Inspect context, correct memories, and decide when optional initiative is enabled.</p>
-          </article>
-        </section>
-
-        <footer className="app-footer">
-          <span>Local-first by design</span>
-          <span>{appInfo ? `v${appInfo.version}` : "Preparing shell"}</span>
-        </footer>
+        <div className={activeView === "chat" ? "main-view" : "main-view hidden"} hidden={activeView !== "chat"}>
+          <ConversationPanel />
+        </div>
+        <div className={activeView === "memories" ? "main-view" : "main-view hidden"} hidden={activeView !== "memories"}>
+          <MemoryPanel active={!settingsOpen && activeView === "memories"} />
+        </div>
       </main>
+
+      {settingsOpen && (
+        <SettingsPanel
+          onClose={() => setSettingsOpen(false)}
+          onSection={setSettingsSection}
+          section={settingsSection}
+        />
+      )}
     </div>
   );
 }

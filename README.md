@@ -54,24 +54,24 @@ npm run tauri build
 
 The current build includes provider contracts and local connections, Markdown-backed vault persistence, lexical and hybrid retrieval, memory review/extraction, bounded initiative delivery, native tray/notification hooks, and validated portable character packs. Check `docs/STATUS.md` before relying on any feature claim; T18 release validation remains in progress.
 
-Portable character packs are created from the Settings view. Export writes a new directory containing canonical Markdown and durable operational state; import validates the manifest, rejects traversal and unrelated-vault overwrite, rebuilds the search index, and keeps a backup when explicitly replacing the same character.
+Portable character packs are created from Settings → Vault. Export writes a new directory containing canonical Markdown and durable operational state; import validates the manifest, rejects traversal and unrelated-vault overwrite, rebuilds the search index, and keeps a backup when explicitly replacing the same character.
 
 ## First run
 
 1. Start a local provider. For Ollama, run `ollama serve` and make sure the configured model is available, for example `ollama run llama3.2`.
-2. Launch tz-chatter and open the Conversation view. Enter a vault folder containing `character.md`; `examples/characters/lyra` is a small sample vault.
-3. Click `Load conversation`. The app loads the character definition and the last persisted transcript session, if one exists. The selected vault path is remembered locally for the next launch.
-4. Send a message. Turns are written to Markdown under `chats/`, retrieved memory sources are shown below the transcript when available, and completed assistant turns are queued for conservative background memory extraction.
-5. Use Memories to review or correct Markdown memories, and Settings for initiative controls or portable-pack export/import. Provider selection, saving, health checks, and model discovery are available in the Conversation toolbar; credentials are kept in app configuration rather than character packs.
-6. To enable spontaneous initiative, open Settings after loading a conversation, enable it, and save. This starts the local 30-second scheduler for the active character/session and resumes it after restart; loading another vault stops the old scheduler. Disable the setting and save to stop it. Initiative is disabled by default and respects inactivity, quiet hours, cooldowns, unanswered messages, and daily caps.
+2. Launch tz-chatter. Chat is the default view. Open a vault folder that contains `character.md`; `examples/characters/lyra` is a small sample vault. The path is remembered for the next launch.
+3. The sidebar lists saved conversations from `chats/`. Click one to reopen it, or **New** to start a distinct session. The transcript is the chat history.
+4. Send a message with Enter (Shift+Enter for a new line). Turns are written to Markdown under `chats/`. Retrieved memory sources appear in the Sources panel when available, and completed assistant turns are queued for conservative background memory extraction.
+5. Use **Memories** to review or correct Markdown memories. Open **Settings** for provider connection, initiative, and portable-pack export/import. Credentials stay in application configuration rather than character packs.
+6. To enable spontaneous initiative, open Settings → Initiative after loading a conversation, enable it, and save. This starts the local 30-second scheduler for the active character/session and resumes it after restart; loading another vault stops the old scheduler. Disable the setting and save to stop it. Initiative is disabled by default and respects inactivity, quiet hours, cooldowns, unanswered messages, and daily caps.
 
 The Windows release is currently validated with a live Ollama smoke test. Ollama and OpenAI-compatible protocol paths have deterministic coverage, but a live llama.cpp/LM Studio endpoint has not been available for this release. MSI and NSIS bundles are produced under `src-tauri/target/release/bundle/`.
 
 ## Troubleshooting and release notes
 
 - `Rust core is unavailable`: close and relaunch the desktop executable, or run `npm run tauri dev` from a development checkout.
-- `Load conversation` fails: select the vault directory itself, not its parent; it must contain a valid `character.md`. Portable-pack import can restore a validated vault into a new directory.
-- Provider failures: verify the endpoint and model name in Conversation, and confirm the local server is running. tz-chatter does not download models or silently fall back to a cloud provider.
+- Opening a vault fails: select the vault directory itself, not its parent; it must contain a valid `character.md`. Portable-pack import can restore a validated vault into a new directory.
+- Provider failures: verify the endpoint and model name in Settings → Provider, and confirm the local server is running. tz-chatter does not download models or silently fall back to a cloud provider.
 - Notifications are opt-in in Settings and can also be restricted by Windows notification permissions. Initiative is disabled by default.
 - The local MSI and NSIS artifacts are unsigned and are not externally published. Windows may show the normal SmartScreen warning for an unsigned local build.
 

@@ -693,6 +693,31 @@ fn conversation_resume(
 }
 
 #[tauri::command]
+fn conversation_list_sessions(
+    vault_root: String,
+) -> Result<Vec<conversation::SessionSummary>, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    conversation::ConversationService::list_sessions(&vault).map_err(String::from)
+}
+
+#[tauri::command]
+fn conversation_open_session(
+    vault_root: String,
+    session_id: String,
+) -> Result<conversation::ConversationResume, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    conversation::ConversationService::open_session(&vault, &session_id).map_err(String::from)
+}
+
+#[tauri::command]
+fn conversation_start_session(
+    vault_root: String,
+) -> Result<conversation::ConversationResume, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    conversation::ConversationService::start_session(&vault).map_err(String::from)
+}
+
+#[tauri::command]
 async fn conversation_retry(
     app: AppHandle,
     state: tauri::State<'_, RuntimeState>,
@@ -1161,6 +1186,9 @@ pub fn run() {
             initiative_record_resume,
             conversation_send,
             conversation_resume,
+            conversation_list_sessions,
+            conversation_open_session,
+            conversation_start_session,
             conversation_retry,
             conversation_cancel,
             initiative_send,

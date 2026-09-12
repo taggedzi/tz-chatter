@@ -174,6 +174,14 @@ Resolve every finding in `docs/AUDIT.md`, including canonical-memory edit safety
 
 Acceptance: every audit row is resolved with evidence; regression tests cover data integrity and character isolation; hybrid retrieval is reachable with visible lexical fallback; incremental stream events reach the UI; pending extraction drains on resume without delaying chat; initiative persists one labelled turn and updates the active UI; lint, typecheck, Rust tests, strict Clippy, packaging, and executable launch pass. Actual Windows tray/notification/keyboard interaction must be recorded separately.
 
+### T20 — Consolidate the chat layout
+
+Depends on: T19.
+
+Replace the landing-page shell and scattered controls with a chat-program layout. The default surface is the conversation: a selectable session list, a full-height transcript, and a composer. Provider, initiative, and portability controls move into a dedicated Settings overlay. Memories remain a secondary view that uses the loaded character instead of duplicate vault fields.
+
+Acceptance: Conversation is the default view and shows history without provider forms; Settings contains provider, initiative, and vault/portability sections; the sidebar lists persisted sessions and opening one loads that transcript; a new conversation starts a distinct session; frontend lint/typecheck/build pass; Rust tests cover session list/open/start.
+
 ## Milestone exit policy
 
 A milestone is complete only when its tasks are `done`. Mark task criteria separately if an implementation is ready but a required runtime check is unavailable. Do not infer tested operating systems, models, or providers from shared code paths.

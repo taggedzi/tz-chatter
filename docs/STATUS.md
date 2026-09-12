@@ -4,11 +4,11 @@ Last updated: 2026-09-12
 
 ## Current position
 
-- Project phase: Milestone 7 in progress (T19 complete; T16/T18 remain open only for environment-limited checks).
+- Project phase: Milestone 7 in progress (T19 and T20 complete; T16/T18 remain open only for environment-limited checks).
 - Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, and T19 completion-audit remediations A01-A15.
 - T01 delivered: React/TypeScript shell, Rust command boundary, frontend/Rust lockfiles, validation scripts, and a Windows launch check.
 - Repository: initialized locally on `main`; no remote configured. T19/A13 commit `6a08a51` contains the reviewed application sources.
-- Active task: none. T19 is done.
+- Active task: none. T20 is done.
 - Next task: retain T16/T18 in progress for visual Windows tray/keyboard interaction and live llama.cpp/LM Studio checks if those become available.
 - Blockers: no known implementation blockers. Native Computer Use visual inspection remains unavailable; process/window inspection verified launch and responsiveness.
 
@@ -41,17 +41,18 @@ The plan contains dependencies and acceptance criteria. This table is the author
 | T17 | Portability/recovery | done | Validated directory-based character packs, durable-state backup/restore, legacy manifest migration, traversal protection, no-overwrite restore, same-character backup preservation, and rebuildable-index recovery are implemented and tested |
 | T18 | Windows validation/package | in_progress | Restart-resume journey, automatic extraction, provider selection/settings/health/discovery UI, live Ollama-native and Ollama OpenAI-compatible smoke tests, static UI checks, responsive launch, and MSI/NSIS package validation pass; visual Windows interaction and live llama.cpp/LM Studio evidence remain limited |
 | T19 | Completion-audit remediation | done | A01-A15 resolved with tests/evidence in `docs/AUDIT.md`; 79 Rust tests passed and 2 ignored; strict Clippy, frontend lint/typecheck/build, MSI/NSIS rebuild, and two packaged launches passed. A11 live tray/keyboard Computer Use remains environment-limited. |
+| T20 | Consolidate the chat layout | done | Chat is the default full-height transcript; sidebar lists sessions and starts new ones; Settings overlay holds provider, initiative, and vault/portability; Memories uses the loaded character. 80 Rust tests passed and 2 ignored; frontend lint/typecheck/build passed. |
 
 ## Active work and resumption
 
-Task: T19 — remediate completion-audit findings (complete)
+Task: T20 — consolidate the chat layout (complete)
 Owner/session and date: Grok / current session — 2026-09-12
-Scope / files being edited: src-tauri/src/lib.rs, src-tauri/src/conversation.rs, src-tauri/src/prompt.rs, src-tauri/src/retrieval.rs, src/ConversationPanel.tsx, src/MemoryPanel.tsx, src/PortabilityPanel.tsx, docs/AUDIT.md, docs/STATUS.md, and docs/HANDOFF.md. No overlapping work reported.
-Completed in this session: T19 finished every `docs/AUDIT.md` row A01-A15. Search edits load canonical Markdown; character-scoped commands validate `character.md`; the composer cannot send on an unloaded vault; UI identity follows the loaded character; hybrid retrieval is reachable with lexical fallback; stream deltas reach the UI; extraction drains on resume and yields to chat; natural-language lexical search no longer requires every term; quiet hours use local offset and resume suppression is recorded; initiative persists one labelled spontaneous turn and updates the open UI; the dead Context nav is gone and the inspector shows omissions/budget plus safe source opening; close-to-tray is implemented; strict Clippy and real newline memory separators pass; reviewed sources are committed; context-limit errors retry once with a smaller prompt; memory type changes rename instead of duplicating.
-Remaining acceptance criteria: T18 still lacks visual accessibility/keyboard interaction evidence and a live non-Ollama provider smoke test; the release support claim is explicitly narrowed to live Ollama plus protocol-level OpenAI-compatible coverage. T16 visual verification remains unavailable. A11 close-to-tray exists; live Computer Use interaction was not possible here.
-Verification commands and outcomes: `cargo test --manifest-path src-tauri/Cargo.toml` — PASS, 79 passed and 2 ignored; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` — PASS; `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` — PASS; `npm run lint`, `npm run typecheck`, `npm run build` — PASS; `npx tauri build` — PASS, MSI 4,485,120 bytes and NSIS 3,294,811 bytes; packaged `tz-chatter.exe` launched twice with `MainWindowTitle=tz-chatter` and `Responding=True`, then those processes were stopped.
-Blocker and unblock action (if any): No implementation blocker. Computer Use helper is unavailable; rerun tray/keyboard interaction if it initializes.
-Exact next step: retain T16/T18 in progress for the remaining visual/tool and live non-Ollama provider limitations; if those become available, rerun the corresponding checks.
+Scope / files being edited: `src/App.tsx`, `src/App.css`, `src/ConversationPanel.tsx`, `src/MemoryPanel.tsx`, `src/InitiativePanel.tsx`, `src/PortabilityPanel.tsx`, `src/ProviderPanel.tsx`, `src/SettingsPanel.tsx`, `src/activeSession.ts`, `src/conversation.ts`, `src-tauri/src/conversation.rs`, `src-tauri/src/storage.rs`, `src-tauri/src/lib.rs`, `src-tauri/tauri.conf.json`, `docs/PLAN.md`, `docs/STATUS.md`, `docs/HANDOFF.md`, and `README.md`. No overlapping work reported.
+Completed in this session: Confirmed prior T19 work was already committed (`8abe734`); `.vscode/` was left untracked. Rebuilt the desktop shell as a chat program: sidebar conversations, full-height transcript, composer, Settings overlay for provider/initiative/vault, and Memories bound to the loaded character. Added list/open/start session commands.
+Remaining acceptance criteria: none for T20. T18 still lacks visual accessibility/keyboard interaction evidence and a live non-Ollama provider smoke test. T16 visual tray verification remains unavailable.
+Verification commands and outcomes: `cargo test --manifest-path src-tauri/Cargo.toml` — PASS, 80 passed and 2 ignored; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` — PASS; `npm run lint`, `npm run typecheck`, `npm run build` — PASS. Native window interaction was not re-run in this session.
+Blocker and unblock action (if any): none.
+Exact next step: retain T16/T18 in progress for remaining visual/tool and live non-Ollama provider limitations.
 
 No background development jobs or running application servers remain.
 
@@ -136,3 +137,4 @@ Update the task board and append a handoff entry in the same change. Keep this f
 | 2026-09-12 | T18 provider controls | frontend lint/typecheck/build; final package; source audit | PASS: Conversation exposes persisted provider selection, optional bearer token, health check, model discovery, and OpenAI-compatible transport choice; final bundle includes the controls; live non-Ollama endpoint remains unavailable |
 | 2026-09-12 | T16 scheduler connection | cargo fmt/check; full Rust suite; live Ollama smoke; frontend lint/typecheck/build; npx tauri build; packaged launch | PASS: cancellable 30-second scheduler start/stop commands share the active conversation session, persisted user activity/retry cancellation, explicit ignored/silence state updates, restart resume, provider-save refresh, and Initiative-panel controls compile and test; 62 Rust tests passed and 2 ignored, native Ollama passed in 2.56s and OpenAI-compatible Ollama passed in 2.49s; MSI 4,415,488 bytes and NSIS 3,248,865 bytes rebuilt; packaged executable responsive; visual tray verification remains |
 | 2026-09-12 | T19 completion-audit remediation | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build; npx tauri build; two packaged launches | PASS: A01-A15 resolved with shipped-path tests; 79 passed and 2 ignored; strict Clippy passed; frontend checks passed; MSI 4,485,120 bytes and NSIS 3,294,811 bytes; exe launched twice with MainWindowTitle=tz-chatter Responding=True; A11 Computer Use interaction remains environment-limited |
+| 2026-09-12 | T20 chat layout | cargo test; cargo fmt --check; npm lint/typecheck/build | PASS: 80 Rust tests passed and 2 ignored including session list/open/start; frontend checks passed; native window interaction not re-run |

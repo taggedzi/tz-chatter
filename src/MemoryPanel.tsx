@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { memoryClient, type MemoryProposal, type MemoryRecord, type MemoryReviewStatus, type MemoryType } from "./memory";
-import { activeCharacterId, activeSessionStorageKeys } from "./activeSession";
+import { activeCharacterId, activeSessionChangedEvent, activeSessionStorageKeys } from "./activeSession";
 
 function newMemory(): MemoryRecord {
   const now = new Date().toISOString();
@@ -22,7 +22,7 @@ function newMemory(): MemoryRecord {
   };
 }
 
-export function MemoryPanel() {
+export function MemoryPanel({ active }: { active: boolean }) {
   const [vaultRoot, setVaultRoot] = useState(() => localStorage.getItem(activeSessionStorageKeys.vaultRoot) ?? "");
   const [characterId, setCharacterId] = useState(() => activeCharacterId() ?? "");
   const [query, setQuery] = useState("");
@@ -171,23 +171,33 @@ export function MemoryPanel() {
     window.localStorage.setItem("tz-chatter.auto-commit-proposals", String(value));
   }
 
+  useEffect(() => {
+    const sync = () => {
+      setVaultRoot(localStorage.getItem(activeSessionStorageKeys.vaultRoot) ?? "");
+      setCharacterId(activeCharacterId() ?? "");
+    };
+    window.addEventListener(activeSessionChangedEvent, sync);
+    return () => window.removeEventListener(activeSessionChangedEvent, sync);
+  }, []);
+
+  useEffect(() => {
+    if (!active || !vaultRoot.trim() || !characterId.trim()) return undefined;
+    const timer = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(timer);
+    // Refresh when the view or loaded character changes, not on each search keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, vaultRoot, characterId]);
+
   return (
     <section className="memory-panel" aria-label="Memory browser">
       <div className="memory-toolbar">
         <label>
-          <span>Vault folder</span>
-          <input value={vaultRoot} onChange={(event) => setVaultRoot(event.target.value)} placeholder="C:\\Users\\you\\character-vault" />
-        </label>
-        <label>
-          <span>Character ID</span>
-          <input value={characterId} onChange={(event) => setCharacterId(event.target.value)} placeholder="Load a conversation first" />
-        </label>
-        <label>
           <span>Search memories</span>
           <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void refresh(); }} placeholder="Try a name or fact" />
         </label>
-        <button className="outline-button" disabled={busy || !vaultRoot.trim()} onClick={() => void refresh()} type="button">{busy ? "Loading…" : "Refresh"}</button>
+        <button className="outline-button" disabled={busy || !vaultRoot.trim() || !characterId.trim()} onClick={() => void refresh()} type="button">{busy ? "Loading…" : "Refresh"}</button>
       </div>
+      {!characterId.trim() && <p className="inline-status">Open a character vault from the sidebar to browse memories.</p>}
 
       <section className="proposal-queue" aria-label="Memory proposal review">
         <div className="memory-list-header">

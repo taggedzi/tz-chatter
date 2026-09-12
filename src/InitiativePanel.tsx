@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { initiativeClient, type InitiativeSettings, type InitiativeSnapshot } from "./initiative";
-import { activeCharacterId, activeSessionId, activeSessionStorageKeys } from "./activeSession";
+import { activeCharacterId, activeSessionChangedEvent, activeSessionId, activeSessionStorageKeys } from "./activeSession";
 
 const defaultSettings: InitiativeSettings = {
   schema_version: 1,
@@ -24,22 +24,28 @@ function parseMinute(value: string) {
 }
 
 export function InitiativePanel() {
-  const [initialContext] = useState(() => ({
-    vaultRoot: localStorage.getItem(activeSessionStorageKeys.vaultRoot) ?? "",
-    characterId: activeCharacterId() ?? "",
-  }));
-  const [vaultRoot, setVaultRoot] = useState(initialContext.vaultRoot);
-  const [characterId, setCharacterId] = useState(initialContext.characterId);
-  const [sessionId] = useState<string>(() => activeSessionId() ?? "");
+  const [vaultRoot, setVaultRoot] = useState(() => localStorage.getItem(activeSessionStorageKeys.vaultRoot) ?? "");
+  const [characterId, setCharacterId] = useState(() => activeCharacterId() ?? "");
+  const [sessionId, setSessionId] = useState(() => activeSessionId() ?? "");
   const [settings, setSettings] = useState(defaultSettings);
   const [snapshot, setSnapshot] = useState<InitiativeSnapshot | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!initialContext.vaultRoot.trim() || !initialContext.characterId.trim()) return undefined;
+    const sync = () => {
+      setVaultRoot(localStorage.getItem(activeSessionStorageKeys.vaultRoot) ?? "");
+      setCharacterId(activeCharacterId() ?? "");
+      setSessionId(activeSessionId() ?? "");
+    };
+    window.addEventListener(activeSessionChangedEvent, sync);
+    return () => window.removeEventListener(activeSessionChangedEvent, sync);
+  }, []);
+
+  useEffect(() => {
+    if (!vaultRoot.trim() || !characterId.trim()) return undefined;
     let disposed = false;
     void initiativeClient
-      .snapshot(initialContext.vaultRoot, initialContext.characterId, Math.floor(Date.now() / 1000))
+      .snapshot(vaultRoot, characterId, Math.floor(Date.now() / 1000))
       .then((result) => {
         if (disposed) return;
         setSnapshot(result);
@@ -51,7 +57,7 @@ export function InitiativePanel() {
     return () => {
       disposed = true;
     };
-  }, [initialContext]);
+  }, [vaultRoot, characterId]);
 
   async function save() {
     if (!vaultRoot.trim() || !characterId.trim()) {
@@ -96,7 +102,7 @@ export function InitiativePanel() {
   }
 
   return (
-    <section className="settings-panel">
+    <section className="settings-section">
       <div className="section-heading">
         <div>
           <span className="section-kicker">OPTIONAL INITIATIVE</span>
@@ -105,18 +111,11 @@ export function InitiativePanel() {
         <span className="pill">Off by default</span>
       </div>
       <p className="panel-description">
-        Eligibility is checked in the desktop core before inference. Quiet hours, inactivity,
+        Applies to the loaded character. Eligibility is checked before inference. Quiet hours, inactivity,
         cooldowns, caps, unanswered messages, and ignored-message backoff remain enforced after restart.
       </p>
+      {!characterId.trim() && <p className="inline-status">Open a vault from the sidebar before enabling initiative.</p>}
       <div className="settings-grid">
-        <label>
-          Vault folder
-          <input value={vaultRoot} onChange={(event) => setVaultRoot(event.target.value)} placeholder="C:\path\to\vault" />
-        </label>
-        <label>
-          Character ID
-          <input value={characterId} onChange={(event) => setCharacterId(event.target.value)} />
-        </label>
         <label className="checkbox-row">
           <input
             checked={settings.enabled}

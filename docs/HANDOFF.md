@@ -406,3 +406,17 @@ Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.tom
 Incomplete work / blockers: T16/T18 visual tray/notification/keyboard Computer Use interaction remains unavailable (no helper in this session). Live llama.cpp/LM Studio coverage remains unavailable. Packages are local and unsigned.
 
 Next concrete action: retain T16/T18 in progress for those environment-limited checks; T19 is complete.
+
+## 2026-09-12 — T20: chat-program layout
+
+Scope and outcome: the previous working tree was already clean on `8abe734`; only untracked `.vscode/extensions.json` was present and was left untracked. Replaced the landing-page shell and scattered provider/initiative/portability forms with a Discord/Slack-style layout. Chat is the default surface: a sidebar of saved sessions, a full-height transcript, and a composer. Provider, initiative, and vault/portability live in a Settings overlay. Memories uses the loaded character instead of duplicate vault fields. Added `conversation_list_sessions`, `conversation_open_session`, and `conversation_start_session`.
+
+Files changed: `src/App.tsx`, `src/App.css`, `src/ConversationPanel.tsx`, `src/MemoryPanel.tsx`, `src/InitiativePanel.tsx`, `src/PortabilityPanel.tsx`, `src/ProviderPanel.tsx`, `src/SettingsPanel.tsx`, `src/activeSession.ts`, `src/conversation.ts`, `src-tauri/src/conversation.rs`, `src-tauri/src/storage.rs`, `src-tauri/src/lib.rs`, `src-tauri/tauri.conf.json`, `README.md`, `docs/PLAN.md`, `docs/STATUS.md`, and this handoff.
+
+Decisions added/superseded: none. One-active-character remains; sessions are listed from `chats/*.md` inside the loaded vault.
+
+Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.toml` — 80 passed, 2 ignored, including `lists_opens_and_starts_sessions_without_mixing_characters`; `cargo fmt --all -- --check` passed; `npm run lint`, `npm run typecheck`, and `npm run build` passed. Native window / Computer Use visual inspection was not run in this session.
+
+Incomplete work / blockers: T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: retain T16/T18 in progress; T20 is complete.

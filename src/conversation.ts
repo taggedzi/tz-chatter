@@ -72,6 +72,14 @@ export type ConversationResume = {
   transcript: TranscriptDocument | null;
 };
 
+export type SessionSummary = {
+  session_id: string;
+  created_at: string;
+  updated_at: string;
+  turn_count: number;
+  preview: string;
+};
+
 export type RetrievedMemory = {
   memory_id: string;
   source_path: string;
@@ -90,6 +98,15 @@ export const conversationClient = {
       vaultRoot,
       expectedCharacterId: expectedCharacterId ?? null,
     });
+  },
+  listSessions(vaultRoot: string) {
+    return invoke<SessionSummary[]>("conversation_list_sessions", { vaultRoot });
+  },
+  openSession(vaultRoot: string, sessionId: string) {
+    return invoke<ConversationResume>("conversation_open_session", { vaultRoot, sessionId });
+  },
+  startSession(vaultRoot: string) {
+    return invoke<ConversationResume>("conversation_start_session", { vaultRoot });
   },
   send(vaultRoot: string, snapshot: RequestSnapshot, onMessage: (event: ChatStreamEvent) => void) {
     const onEvent = new Channel<ChatStreamEvent>();
