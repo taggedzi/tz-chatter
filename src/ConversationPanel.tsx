@@ -483,7 +483,7 @@ function VaultEmptyState({
     <div className="empty-transcript">
       <span className="section-kicker">START HERE</span>
       <h2>Open a character vault.</h2>
-      <p>Pick the folder that contains character.md. Past chats from that vault will appear in the sidebar.</p>
+      <p>Pick the folder that contains character.md, or create a character from the Characters tab. Past chats from that vault will appear in the sidebar.</p>
       <form
         className="vault-open-form"
         onSubmit={(event) => {

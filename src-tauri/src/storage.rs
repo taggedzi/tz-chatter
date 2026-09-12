@@ -856,4 +856,62 @@ mod tests {
             character.system_prompt.trim_end_matches('\n')
         );
     }
+
+    #[test]
+    fn bundled_sample_vault_includes_memories_and_history() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("examples")
+            .join("characters")
+            .join("lyra");
+        let vault = Vault::open(&root).unwrap();
+        let character = vault.load_character().unwrap();
+        assert_eq!(character.id, "lyra");
+        assert_eq!(character.name, "Lyra");
+
+        let mina = vault.load_memory(&MemoryType::People, "mina").unwrap();
+        assert!(mina.body.contains("Mina"));
+        assert!(mina.pinned);
+        assert_eq!(
+            vault
+                .load_memory(&MemoryType::People, "user-preferences")
+                .unwrap()
+                .memory_type,
+            MemoryType::People
+        );
+        assert_eq!(
+            vault
+                .load_memory(&MemoryType::Episodic, "first-session")
+                .unwrap()
+                .id,
+            "first-session"
+        );
+        assert_eq!(
+            vault
+                .load_memory(&MemoryType::Semantic, "local-first")
+                .unwrap()
+                .memory_type,
+            MemoryType::Semantic
+        );
+        assert_eq!(
+            vault
+                .load_memory(&MemoryType::Relationships, "working-style")
+                .unwrap()
+                .memory_type,
+            MemoryType::Relationships
+        );
+        assert_eq!(
+            vault
+                .load_memory(&MemoryType::OpenThreads, "try-local-model")
+                .unwrap()
+                .memory_type,
+            MemoryType::OpenThreads
+        );
+
+        let sessions = vault.list_transcripts().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].session_id, "session-welcome");
+        assert_eq!(sessions[0].turns.len(), 3);
+        assert!(sessions[0].turns[0].content.contains("Mina"));
+    }
 }

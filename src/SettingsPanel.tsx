@@ -2,12 +2,14 @@ import { FormEvent, useEffect, useState } from "react";
 import { activeSessionStorageKeys, requestLoadVault } from "./activeSession";
 import { InitiativePanel } from "./InitiativePanel";
 import { PortabilityPanel } from "./PortabilityPanel";
+import { PromptPanel } from "./PromptPanel";
 import { ProviderPanel } from "./ProviderPanel";
 
-export type SettingsSection = "provider" | "initiative" | "vault";
+export type SettingsSection = "provider" | "prompt" | "initiative" | "vault";
 
 const sections: { id: SettingsSection; label: string; hint: string }[] = [
   { id: "provider", label: "Provider", hint: "Model, endpoint, retrieval" },
+  { id: "prompt", label: "Prompt", hint: "Application rules" },
   { id: "initiative", label: "Initiative", hint: "Spontaneous messages" },
   { id: "vault", label: "Vault", hint: "Open, export, import" },
 ];
@@ -52,6 +54,7 @@ export function SettingsPanel({
       </aside>
       <div className="settings-body">
         {section === "provider" && <ProviderPanel />}
+        {section === "prompt" && <PromptPanel />}
         {section === "initiative" && <InitiativePanel />}
         {section === "vault" && (
           <>

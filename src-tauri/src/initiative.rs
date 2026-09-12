@@ -112,6 +112,8 @@ pub struct InitiativeRequest {
     pub topic_context: String,
     pub generation: u64,
     pub started_at: i64,
+    #[serde(default)]
+    pub application_prompt: String,
 }
 
 pub fn select_open_topics(

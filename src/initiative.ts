@@ -48,6 +48,7 @@ export type InitiativeRequest = {
   topic_context: string;
   generation: number;
   started_at: number;
+  application_prompt?: string;
 };
 
 export type InitiativeOutcome = {

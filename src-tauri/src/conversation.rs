@@ -82,6 +82,8 @@ pub struct RequestSnapshot {
     pub user_content: String,
     #[serde(default)]
     pub use_hybrid_retrieval: bool,
+    #[serde(default)]
+    pub application_prompt: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -445,6 +447,7 @@ impl ConversationService {
         };
 
         let event = render_initiative_event(&topic_context);
+        let application_prompt = request.application_prompt.trim();
         let prompt = build_prompt_with_memories(
             &request.character,
             None,
@@ -452,6 +455,11 @@ impl ConversationService {
             &event,
             &memory_context,
             PromptBudget::default(),
+            if application_prompt.is_empty() {
+                None
+            } else {
+                Some(application_prompt)
+            },
         )
         .map_err(|error| ConversationError::Invalid(error.to_string()))?;
         let events = match self
@@ -580,6 +588,12 @@ impl ConversationService {
             };
         let memory_context = retrieval_report.selected;
         let mut prompt_budget = PromptBudget::default();
+        let application_prompt = snapshot.application_prompt.trim();
+        let application_prompt = if application_prompt.is_empty() {
+            None
+        } else {
+            Some(application_prompt)
+        };
         let mut prompt = build_prompt_with_memories(
             &snapshot.character,
             None,
@@ -587,6 +601,7 @@ impl ConversationService {
             &snapshot.user_content,
             &memory_context,
             prompt_budget,
+            application_prompt,
         )
         .map_err(|error| ConversationError::Invalid(error.to_string()))?;
         let mut request = ChatRequest {
@@ -618,6 +633,7 @@ impl ConversationService {
                     &snapshot.user_content,
                     &memory_context,
                     prompt_budget,
+                    application_prompt,
                 ) {
                     Ok(reduced) => {
                         prompt = reduced;
@@ -983,6 +999,7 @@ mod tests {
             user_turn_id: user_turn_id.into(),
             user_content: content.into(),
             use_hybrid_retrieval: false,
+            application_prompt: String::new(),
         }
     }
 
@@ -1501,7 +1518,33 @@ mod tests {
             topic_context: "Ask about the garden project".into(),
             generation: 1,
             started_at: 100,
+            application_prompt: String::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn application_prompt_is_the_first_system_message() {
+        let root = root("application-prompt");
+        let vault = Vault::create(&root).unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![Ok(vec![
+            ChatStreamEvent::Delta {
+                text: "Hello back".into(),
+            },
+            ChatStreamEvent::Completed {
+                finish_reason: Some("stop".into()),
+            },
+        ])]));
+        let service = ConversationService::new(fake.clone());
+        let mut request = snapshot("session-1", "lyra", "user-1", "Hello");
+        request.application_prompt = "  Application rules first.  ".into();
+        service
+            .send(&vault, request, CancellationToken::new())
+            .await
+            .unwrap();
+        let captured = fake.requests.lock().unwrap()[0].clone();
+        assert_eq!(captured.messages[0].content, "Application rules first.");
+        assert!(captured.messages[1].content.contains("You are lyra."));
+        fs::remove_dir_all(root).ok();
     }
 
     #[tokio::test]

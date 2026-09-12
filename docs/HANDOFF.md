@@ -420,3 +420,27 @@ Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.tom
 Incomplete work / blockers: T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
 
 Next concrete action: retain T16/T18 in progress; T20 is complete.
+
+## 2026-09-12 — Sample vault memories for first-run testing
+
+Scope and outcome: filled the existing Lyra example vault so it can be opened as a default test character. Added six Markdown memories (people, episodic, semantic, relationships, open thread) and a three-turn welcome transcript. The search index remains rebuildable and is not stored in the sample.
+
+Files changed: `examples/characters/lyra/memories/**`, `examples/characters/lyra/chats/session-welcome.md`, `src-tauri/src/storage.rs` (load test), `README.md`, `docs/STATUS.md`, and this handoff.
+
+Verification: `cargo test --manifest-path src-tauri/Cargo.toml bundled_sample` passed both sample-character tests.
+
+Next concrete action: open `examples/characters/lyra` in the app; click **session-welcome** or ask about Mina / Markdown notes to exercise retrieval.
+
+## 2026-09-12 — T21: character library and application prompt
+
+Scope and outcome: added a Characters primary view that lists known vaults, creates new portable character folders, edits author-controlled identity, and switches the active character. Settings gained a Prompt section for global application rules stored in app config. Chat and initiative requests now prepend those rules before character identity and memories; empty saved text omits the extra message. Opening a vault also adds it to the library. Missing vaults stay listed with an error. Creating a character refuses to overwrite an existing `character.md`. Extraction still cannot edit character identity.
+
+Files changed: `src/App.tsx`, `src/App.css`, `src/CharacterPanel.tsx`, `src/characters.ts`, `src/PromptPanel.tsx`, `src/SettingsPanel.tsx`, `src/ConversationPanel.tsx`, `src/conversation.ts`, `src/initiative.ts`, `src-tauri/src/characters.rs`, `src-tauri/src/prompt.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/initiative.rs`, `src-tauri/src/lib.rs`, `docs/PLAN.md`, `docs/STATUS.md`, `docs/DECISIONS.md`, `docs/PROJECT.md`, `README.md`, and this handoff.
+
+Decisions added/superseded: ADR-008.
+
+Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.toml` — 90 passed, 2 ignored; `cargo fmt --all -- --check` passed; `cargo clippy --all-targets -- -D warnings` passed; `npm run lint`, `npm run typecheck`, and `npm run build` passed. Native window / Computer Use visual inspection was not run in this session.
+
+Incomplete work / blockers: T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: retain T16/T18 in progress; T21 is complete. Open Characters to create or add a vault, and Settings → Prompt to edit the application rules.

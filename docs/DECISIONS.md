@@ -59,3 +59,11 @@ Date: 2026-09-11. State: accepted. Basis: explicit user request for agent/model 
 Use AGENTS.md as the entry point, PROJECT.md as durable specification, PLAN.md as task definitions, STATUS.md as the sole current-state tracker, and HANDOFF.md as chronological history. Use stable task IDs, explicit dependencies, acceptance criteria, and evidence-backed completion.
 
 Consequence: implementation work includes updating state and handoff notes. No external project-management service, prior conversation, or model-specific memory is required to resume work.
+
+## ADR-008 — Character library and application prompt
+
+Date: 2026-09-12. State: accepted. Basis: explicit user request after T20 layout consolidation.
+
+Provide a Characters primary view that lists known vaults, creates new portable character folders, and edits author-controlled `character.md` identity. Persist the library in application configuration. The global application prompt lives in Settings, is stored outside character vaults, and is prepended to chat and initiative requests before character identity and memories. Empty saved text omits that extra message. Automatic extraction still cannot edit character identity.
+
+Consequence: character identity remains portable Markdown. Application behavior rules are machine-scoped and survive character switches. Creating a character writes a new vault rather than overwriting an existing `character.md`.

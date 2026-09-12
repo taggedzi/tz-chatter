@@ -182,6 +182,14 @@ Replace the landing-page shell and scattered controls with a chat-program layout
 
 Acceptance: Conversation is the default view and shows history without provider forms; Settings contains provider, initiative, and vault/portability sections; the sidebar lists persisted sessions and opening one loads that transcript; a new conversation starts a distinct session; frontend lint/typecheck/build pass; Rust tests cover session list/open/start.
 
+### T21 — Character library and application prompt
+
+Depends on: T20.
+
+Add a Characters primary view that lists known vaults, creates new portable character folders, and edits author-controlled identity in `character.md`. Persist the library in application configuration. Add a Settings → Prompt section for the global application rules, stored outside character vaults, and prepend those rules to every chat and initiative request before character identity and memories. Empty saved rules omit that extra message.
+
+Acceptance: a user can create a character, add an existing vault, edit identity fields, and switch the active character from the library; creating refuses to overwrite an existing `character.md`; missing vaults remain listed with an error; the application prompt is first in the serialized request when present and omitted when empty; extraction still cannot edit `character.md`; frontend lint/typecheck/build pass.
+
 ## Milestone exit policy
 
 A milestone is complete only when its tasks are `done`. Mark task criteria separately if an implementation is ready but a required runtime check is unavailable. Do not infer tested operating systems, models, or providers from shared code paths.

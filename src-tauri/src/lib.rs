@@ -13,6 +13,7 @@ use tauri::{
 use tauri_plugin_notification::NotificationExt;
 use tokio_util::sync::CancellationToken;
 
+pub mod characters;
 pub mod connections;
 pub mod conversation;
 pub mod embeddings;
@@ -262,6 +263,27 @@ fn active_provider(app: &AppHandle) -> Result<providers::ProviderConfig, String>
         .ok_or_else(|| "the active provider configuration was not found".to_owned())
 }
 
+fn app_config_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map_err(|error| error.to_string())
+}
+
+fn application_prompt_text(app: &AppHandle) -> String {
+    let Ok(dir) = app_config_dir(app) else {
+        return characters::DEFAULT_APPLICATION_PROMPT.to_owned();
+    };
+    characters::load_application_prompt(&characters::prompt_path(&dir))
+        .map(|prompt| prompt.text)
+        .unwrap_or_else(|_| characters::DEFAULT_APPLICATION_PROMPT.to_owned())
+}
+
+fn remember_character_vault(app: &AppHandle, vault_root: &str) {
+    if let Ok(dir) = app_config_dir(app) {
+        let _ = characters::add_existing(&characters::library_path(&dir), vault_root);
+    }
+}
+
 #[tauri::command]
 fn provider_capabilities(kind: providers::ProviderKind) -> providers::ProviderCapabilities {
     providers::ProviderCapabilities::baseline(&kind)
@@ -463,6 +485,7 @@ async fn run_initiative_scheduler(args: InitiativeSchedulerArgs) {
             topic_context: String::new(),
             generation,
             started_at: now,
+            application_prompt: application_prompt_text(&app),
         };
         let latest_user_activity_at = snapshot.state.last_user_activity_at;
         let model_guard = runtime.model_gate.lock().await;
@@ -638,6 +661,67 @@ async fn provider_embed(
 }
 
 #[tauri::command]
+fn character_library_list(app: AppHandle) -> Result<characters::CharacterLibraryView, String> {
+    let path = characters::library_path(app_config_dir(&app)?);
+    characters::list_library(&path).map_err(String::from)
+}
+
+#[tauri::command]
+fn character_library_add(
+    app: AppHandle,
+    vault_root: String,
+) -> Result<characters::CharacterLibraryItem, String> {
+    let path = characters::library_path(app_config_dir(&app)?);
+    characters::add_existing(&path, vault_root).map_err(String::from)
+}
+
+#[tauri::command]
+fn character_library_create(
+    app: AppHandle,
+    parent_dir: String,
+    name: String,
+) -> Result<characters::CharacterLibraryItem, String> {
+    let path = characters::library_path(app_config_dir(&app)?);
+    characters::create_character(&path, parent_dir, &name).map_err(String::from)
+}
+
+#[tauri::command]
+fn character_library_remove(app: AppHandle, vault_root: String) -> Result<(), String> {
+    let path = characters::library_path(app_config_dir(&app)?);
+    characters::remove_from_library(&path, vault_root).map_err(String::from)
+}
+
+#[tauri::command]
+fn character_load(vault_root: String) -> Result<storage::CharacterDefinition, String> {
+    characters::load_character(vault_root).map_err(String::from)
+}
+
+#[tauri::command]
+fn character_save(
+    app: AppHandle,
+    vault_root: String,
+    character: storage::CharacterDefinition,
+) -> Result<storage::CharacterDefinition, String> {
+    let path = characters::library_path(app_config_dir(&app)?);
+    characters::save_character(&path, vault_root, character).map_err(String::from)
+}
+
+#[tauri::command]
+fn application_prompt_load(app: AppHandle) -> Result<characters::ApplicationPrompt, String> {
+    let path = characters::prompt_path(app_config_dir(&app)?);
+    characters::load_application_prompt(&path).map_err(String::from)
+}
+
+#[tauri::command]
+fn application_prompt_save(
+    app: AppHandle,
+    prompt: characters::ApplicationPrompt,
+) -> Result<(), String> {
+    let path = characters::prompt_path(app_config_dir(&app)?);
+    characters::save_application_prompt(&path, &prompt).map_err(String::from)
+}
+
+#[tauri::command]
 async fn conversation_send(
     app: AppHandle,
     state: tauri::State<'_, RuntimeState>,
@@ -647,6 +731,7 @@ async fn conversation_send(
 ) -> Result<conversation::ConversationOutcome, String> {
     let (vault, canonical_character) = open_character_vault(&vault_root, &snapshot.character.id)?;
     snapshot.character = canonical_character;
+    snapshot.application_prompt = application_prompt_text(&app);
     let _ = initiative::InitiativeStore::open(&vault, &snapshot.character.id)
         .and_then(|store| store.record_user_activity(unix_now()));
     let key = format!("{}:{}", snapshot.character.id, snapshot.session_id);
@@ -686,6 +771,7 @@ fn conversation_resume(
     let resumed =
         conversation::ConversationService::resume(&vault, expected_character_id.as_deref())
             .map_err(String::from)?;
+    remember_character_vault(&app, &vault_root);
     if let Ok(provider) = active_provider(&app) {
         schedule_extraction(app, &vault_root, provider, resumed.character.clone());
     }
@@ -727,6 +813,7 @@ async fn conversation_retry(
 ) -> Result<conversation::ConversationOutcome, String> {
     let (vault, canonical_character) = open_character_vault(&vault_root, &snapshot.character.id)?;
     snapshot.character = canonical_character;
+    snapshot.application_prompt = application_prompt_text(&app);
     let _ = initiative::InitiativeStore::open(&vault, &snapshot.character.id)
         .and_then(|store| store.record_user_activity(unix_now()));
     let key = format!("{}:{}", snapshot.character.id, snapshot.session_id);
@@ -862,6 +949,7 @@ async fn initiative_send(
 ) -> Result<conversation::InitiativeOutcome, String> {
     let (vault, canonical_character) = open_character_vault(vault_root, &request.character.id)?;
     request.character = canonical_character;
+    request.application_prompt = application_prompt_text(&app);
     let key = format!("{}:{}", request.character.id, request.session_id);
     let notification_character = request.character.clone();
     let (runtime_generation, cancellation) = state.begin(&key);
@@ -1184,6 +1272,14 @@ pub fn run() {
             initiative_record_sent,
             initiative_record_ignored,
             initiative_record_resume,
+            character_library_list,
+            character_library_add,
+            character_library_create,
+            character_library_remove,
+            character_load,
+            character_save,
+            application_prompt_load,
+            application_prompt_save,
             conversation_send,
             conversation_resume,
             conversation_list_sessions,

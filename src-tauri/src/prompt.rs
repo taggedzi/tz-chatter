@@ -71,6 +71,7 @@ pub fn build_prompt(
         current_message,
         &[],
         budget,
+        None,
     )
 }
 
@@ -81,6 +82,7 @@ pub fn build_prompt_with_memories(
     current_message: &str,
     memory_context: &[RetrievedMemory],
     budget: PromptBudget,
+    application_prompt: Option<&str>,
 ) -> Result<PromptBuild, PromptError> {
     let input_limit = budget.input_tokens()?;
     let character_message = ChatMessage {
@@ -98,7 +100,17 @@ pub fn build_prompt_with_memories(
         content: current_message.to_owned(),
     };
 
-    let mut base_messages = vec![character_message];
+    let mut base_messages = Vec::new();
+    if let Some(rules) = application_prompt
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        base_messages.push(ChatMessage {
+            role: ChatRole::System,
+            content: rules.to_owned(),
+        });
+    }
+    base_messages.push(character_message);
     if let Some(scene) = scene_message {
         base_messages.push(scene);
     }
@@ -380,6 +392,7 @@ mod tests {
                 semantic_score: None,
             }],
             PromptBudget::default(),
+            None,
         )
         .unwrap();
         let memory_message = result
@@ -393,5 +406,39 @@ mod tests {
             !memory_message.content.contains("\\n"),
             "retrieved memory separators must be real newlines, not the two-character sequence \\n"
         );
+    }
+
+    #[test]
+    fn application_rules_precede_character_and_are_omitted_when_empty() {
+        let with_rules = build_prompt_with_memories(
+            &character(),
+            Some("Scene: a quiet library."),
+            &transcript(),
+            "Hello",
+            &[],
+            PromptBudget::default(),
+            Some("  Application rules first.  "),
+        )
+        .unwrap();
+        assert_eq!(with_rules.messages[0].role, ChatRole::System);
+        assert_eq!(with_rules.messages[0].content, "Application rules first.");
+        assert!(with_rules.messages[1]
+            .content
+            .contains("Be warm and concise."));
+        assert_eq!(with_rules.messages[2].content, "Scene: a quiet library.");
+
+        let without_rules = build_prompt_with_memories(
+            &character(),
+            None,
+            &transcript(),
+            "Hello",
+            &[],
+            PromptBudget::default(),
+            Some("   "),
+        )
+        .unwrap();
+        assert!(without_rules.messages[0]
+            .content
+            .contains("Be warm and concise."));
     }
 }

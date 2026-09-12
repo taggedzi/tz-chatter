@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { CharacterPanel } from "./CharacterPanel";
 import { ConversationPanel } from "./ConversationPanel";
 import { MemoryPanel } from "./MemoryPanel";
 import { SettingsPanel, type SettingsSection } from "./SettingsPanel";
@@ -21,7 +22,7 @@ type AppInfo = {
   stage: string;
 };
 
-type AppView = "chat" | "memories";
+type AppView = "chat" | "characters" | "memories";
 
 function formatSessionTime(value: string) {
   if (!value) return "";
@@ -95,17 +96,23 @@ function App() {
           </div>
         </div>
 
-        <section className="character-card" aria-label="Active character">
+        <button
+          className="character-card"
+          onClick={() => { setSettingsOpen(false); setActiveView("characters"); }}
+          type="button"
+          aria-label="Open character library"
+        >
           <div className="avatar">{activeCharacter ? initials(activeCharacter) : "—"}</div>
           <div>
             <p className="eyebrow">ACTIVE CHARACTER</p>
             <h2>{characterLabel}</h2>
-            <p className="muted">{activeCharacter ? "History stays in this vault" : "Open a vault to begin"}</p>
+            <p className="muted">{activeCharacter ? "History stays in this vault" : "Create or open a character"}</p>
           </div>
-        </section>
+        </button>
 
         <nav className="nav-list" aria-label="Primary">
           <button
+            aria-current={activeView === "chat" && !settingsOpen ? "page" : undefined}
             className={activeView === "chat" && !settingsOpen ? "nav-item active" : "nav-item"}
             onClick={() => { setSettingsOpen(false); setActiveView("chat"); }}
             type="button"
@@ -114,6 +121,16 @@ function App() {
             Chat
           </button>
           <button
+            aria-current={activeView === "characters" && !settingsOpen ? "page" : undefined}
+            className={activeView === "characters" && !settingsOpen ? "nav-item active" : "nav-item"}
+            onClick={() => { setSettingsOpen(false); setActiveView("characters"); }}
+            type="button"
+          >
+            <span className="nav-icon" aria-hidden="true">C</span>
+            Characters
+          </button>
+          <button
+            aria-current={activeView === "memories" && !settingsOpen ? "page" : undefined}
             className={activeView === "memories" && !settingsOpen ? "nav-item active" : "nav-item"}
             onClick={() => { setSettingsOpen(false); setActiveView("memories"); }}
             type="button"
@@ -122,6 +139,7 @@ function App() {
             Memories
           </button>
           <button
+            aria-current={settingsOpen ? "page" : undefined}
             className={settingsOpen ? "nav-item active" : "nav-item"}
             onClick={() => setSettingsOpen(true)}
             type="button"
@@ -183,6 +201,9 @@ function App() {
       <main className="main-content">
         <div className={activeView === "chat" ? "main-view" : "main-view hidden"} hidden={activeView !== "chat"}>
           <ConversationPanel />
+        </div>
+        <div className={activeView === "characters" ? "main-view" : "main-view hidden"} hidden={activeView !== "characters"}>
+          <CharacterPanel active={!settingsOpen && activeView === "characters"} />
         </div>
         <div className={activeView === "memories" ? "main-view" : "main-view hidden"} hidden={activeView !== "memories"}>
           <MemoryPanel active={!settingsOpen && activeView === "memories"} />

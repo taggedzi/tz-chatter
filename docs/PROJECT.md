@@ -23,7 +23,7 @@ Windows is the first development and verification target because this workspace 
 
 1. Configure and test a connection to a local provider.
 2. Select a chat model and optionally a separate embedding model.
-3. Create or load a character folder, inspect its definition, and begin chatting.
+3. Create or load a character from the Characters library, inspect its definition, and begin chatting.
 4. Receive streamed replies that use the character identity, recent conversation, and relevant memories.
 5. Inspect which memories influenced a response.
 6. View, edit, pin, exclude, or delete memories and review uncertain memory proposals.
@@ -34,7 +34,7 @@ Windows is the first development and verification target because this workspace 
 
 | Component | Responsibility |
 | --- | --- |
-| Desktop UI | Character selection, chat, settings, memory browsing, retrieval inspection |
+| Desktop UI | Character library and identity editor, chat, settings, memory browsing, retrieval inspection |
 | Conversation orchestrator | Turn lifecycle, streaming, cancellation, request ordering |
 | Character loader | Versioned character schema, validation, portable paths |
 | Context builder | Prompt ordering, token budget, history selection, archival labeling |
@@ -107,7 +107,7 @@ Record embedding provider/model identity, revision or fingerprint where availabl
 
 Prompt order:
 
-1. Application behavior rules.
+1. Application behavior rules (user-editable in Settings; omitted when empty).
 2. Character identity and author-defined boundaries.
 3. Current relationship or scene context.
 4. Relevant memories labeled as archival data with source IDs.

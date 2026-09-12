@@ -76,11 +76,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   display: flex;
   gap: 12px;
   align-items: center;
+  width: 100%;
   padding: 12px;
   border: 1px solid #3a4344;
   border-radius: 14px;
+  color: inherit;
   background: var(--sidebar-raised);
+  text-align: left;
+  cursor: pointer;
 }
+.character-card:hover { border-color: #d6e87a55; }
 .avatar {
   display: grid;
   place-items: center;
@@ -412,7 +417,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
-.settings-grid label, .vault-open-form label, .memory-toolbar label, .memory-editor label {
+.settings-grid label, .vault-open-form label, .memory-toolbar label, .memory-editor label, .prompt-form label, .character-editor label, .character-composer label {
   display: grid;
   gap: 6px;
   color: #727975;
@@ -421,7 +426,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
-.settings-grid input, .settings-grid select, .vault-open-form input, .memory-toolbar input, .memory-editor input, .memory-editor select, .memory-editor textarea {
+.settings-grid input, .settings-grid select, .vault-open-form input, .memory-toolbar input, .memory-editor input, .memory-editor select, .memory-editor textarea, .prompt-form textarea, .character-editor input, .character-editor textarea, .character-composer input {
   width: 100%;
   border: 1px solid #d2d0c8;
   border-radius: 9px;
@@ -437,6 +442,19 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .vault-open-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; margin-top: 16px; width: min(560px, 100%); }
 .initiative-result { display: grid; gap: 4px; padding: 12px; border-radius: 10px; background: #ecefdb; color: #454d46; font-size: 12px; }
+
+.prompt-form { display: grid; gap: 12px; max-width: 720px; }
+.prompt-form textarea { resize: vertical; min-height: 180px; line-height: 1.5; }
+
+.character-panel { display: grid; gap: 16px; min-height: 0; flex: 1; padding: 20px 24px 24px; overflow: auto; }
+.character-layout { display: grid; grid-template-columns: minmax(220px, 0.75fr) minmax(360px, 1.25fr); gap: 14px; min-height: 410px; }
+.character-list, .character-editor { display: grid; align-content: start; gap: 10px; padding: 14px; border: 1px solid var(--rule); border-radius: 14px; background: #f7f3eb; }
+.character-list { align-content: start; max-height: 640px; overflow: auto; }
+.character-list-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.character-list-actions { display: flex; gap: 10px; }
+.character-list-header .text-button { color: #414a38; }
+.character-composer { display: grid; gap: 10px; padding: 10px; border: 1px dashed #c5c8bd; border-radius: 10px; background: var(--paper-2); }
+.character-editor textarea { resize: vertical; font-family: "Segoe UI", sans-serif; font-size: 13px; line-height: 1.5; text-transform: none; letter-spacing: normal; }
 
 .memory-panel { display: grid; gap: 16px; min-height: 0; flex: 1; padding: 20px 24px 24px; overflow: auto; }
 .proposal-queue { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--rule); border-radius: 14px; background: #f7f3eb; }
@@ -466,6 +484,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 @media (max-width: 1100px) {
   .context-inspector { width: min(260px, 40%); }
   .settings-body { padding: 22px; }
+  .character-layout, .memory-layout { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; }

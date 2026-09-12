@@ -19,6 +19,7 @@ export type RequestSnapshot = {
   user_turn_id: string;
   user_content: string;
   use_hybrid_retrieval: boolean;
+  application_prompt?: string;
 };
 
 export type TurnRole = "system" | "user" | "assistant" | "initiative";
