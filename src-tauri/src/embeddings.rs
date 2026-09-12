@@ -144,6 +144,46 @@ impl EmbeddingIndex {
         Ok(index)
     }
 
+    pub fn stored_space(
+        vault: &Vault,
+        character_id: &str,
+    ) -> Result<Option<EmbeddingSpace>, EmbeddingIndexError> {
+        let path =
+            vault.resolve_relative(Path::new(".tz-chatter").join("embedding-index.sqlite3"))?;
+        if !path.exists() {
+            return Ok(None);
+        }
+        let connection = Connection::open(path)?;
+        let mut statement = match connection.prepare(
+            "SELECT provider_id, model, dimensions, chunking_version, index_version
+             FROM embedding_metadata WHERE character_id = ?1",
+        ) {
+            Ok(statement) => statement,
+            Err(error) if error.to_string().contains("no such table") => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let existing: Option<(String, String, i64, i64, i64)> = statement
+            .query_row(params![character_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .optional()?;
+        Ok(existing.map(
+            |(provider_id, model, dimensions, chunking_version, index_version)| EmbeddingSpace {
+                provider_id,
+                model,
+                dimensions: dimensions as usize,
+                chunking_version: chunking_version as u32,
+                index_version: index_version as u32,
+            },
+        ))
+    }
+
     pub fn space(&self) -> &EmbeddingSpace {
         &self.space
     }

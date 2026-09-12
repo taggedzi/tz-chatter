@@ -737,6 +737,7 @@ async fn conversation_send(
     let key = format!("{}:{}", snapshot.character.id, snapshot.session_id);
     let extraction_provider = snapshot.provider.clone();
     let extraction_character = snapshot.character.clone();
+    let use_hybrid = snapshot.use_hybrid_retrieval;
     let (generation, cancellation) = state.begin(&key);
     let sink: connections::StreamSink = Arc::new(move |event| {
         let _ = on_event.send(event);
@@ -753,9 +754,12 @@ async fn conversation_send(
             schedule_extraction(
                 app.clone(),
                 &vault_root,
-                extraction_provider,
-                extraction_character,
+                extraction_provider.clone(),
+                extraction_character.clone(),
             );
+        }
+        if should_schedule_embedding(use_hybrid, &extraction_provider, outcome) {
+            schedule_embedding(app, &vault_root, extraction_provider, extraction_character);
         }
     }
     result
@@ -819,6 +823,7 @@ async fn conversation_retry(
     let key = format!("{}:{}", snapshot.character.id, snapshot.session_id);
     let extraction_provider = snapshot.provider.clone();
     let extraction_character = snapshot.character.clone();
+    let use_hybrid = snapshot.use_hybrid_retrieval;
     let (generation, cancellation) = state.begin(&key);
     let sink: connections::StreamSink = Arc::new(move |event| {
         let _ = on_event.send(event);
@@ -835,9 +840,12 @@ async fn conversation_retry(
             schedule_extraction(
                 app.clone(),
                 &vault_root,
-                extraction_provider,
-                extraction_character,
+                extraction_provider.clone(),
+                extraction_character.clone(),
             );
+        }
+        if should_schedule_embedding(use_hybrid, &extraction_provider, outcome) {
+            schedule_embedding(app, &vault_root, extraction_provider, extraction_character);
         }
     }
     result
@@ -859,13 +867,60 @@ fn schedule_extraction(
         let model_guard = runtime.model_gate.lock().await;
         let transport: Arc<dyn conversation::ChatTransport> =
             Arc::new(connections::ProviderClient::default());
-        let result =
-            process_extraction_queue(vault_root, provider, character, cancellation, transport)
-                .await;
+        let result = process_extraction_queue(
+            vault_root.clone(),
+            provider.clone(),
+            character.clone(),
+            cancellation,
+            transport,
+        )
+        .await;
+        drop(model_guard);
+        runtime.finish_background(&key);
+        match result {
+            Ok(true) => schedule_embedding(app, &vault_root, provider, character),
+            Ok(false) => {}
+            Err(error) => eprintln!("background extraction did not complete: {error}"),
+        }
+    });
+}
+
+fn should_schedule_embedding(
+    use_hybrid: bool,
+    provider: &providers::ProviderConfig,
+    outcome: &conversation::ConversationOutcome,
+) -> bool {
+    use_hybrid
+        && conversation::embedding_model_configured(provider)
+        && outcome
+            .context_inspection
+            .fallback_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains(conversation::EMBEDDING_INDEX_REBUILDING))
+}
+
+fn schedule_embedding(
+    app: AppHandle,
+    vault_root: &str,
+    provider: providers::ProviderConfig,
+    character: storage::CharacterDefinition,
+) {
+    if !conversation::embedding_model_configured(&provider) {
+        return;
+    }
+    let vault_root = vault_root.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let key = format!("embedding:{}", character.id);
+        let runtime = app.state::<RuntimeState>();
+        let Some(cancellation) = runtime.begin_background(&key) else {
+            return;
+        };
+        let model_guard = runtime.model_gate.lock().await;
+        let result = process_embedding_rebuild(vault_root, provider, character, cancellation).await;
         drop(model_guard);
         runtime.finish_background(&key);
         if let Err(error) = result {
-            eprintln!("background extraction did not complete: {error}");
+            eprintln!("background embedding rebuild did not complete: {error}");
         }
     });
 }
@@ -876,17 +931,18 @@ async fn process_extraction_queue(
     character: storage::CharacterDefinition,
     cancellation: CancellationToken,
     transport: Arc<dyn conversation::ChatTransport>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     tokio::task::yield_now().await;
     let (vault, _) = open_character_vault(vault_root, &character.id)?;
     let mut queue = extraction::ExtractionQueue::open(&vault, &character.id)
         .map_err(|error| error.to_string())?;
+    let mut committed_memory = false;
     loop {
         if cancellation.is_cancelled() {
-            return Ok(());
+            return Ok(committed_memory);
         }
         let Some(job) = queue.claim_next().map_err(|error| error.to_string())? else {
-            return Ok(());
+            return Ok(committed_memory);
         };
         let transcript = vault
             .load_transcript(&job.session_id)
@@ -902,7 +958,7 @@ async fn process_extraction_queue(
             Err(error) => {
                 if cancellation.is_cancelled() {
                     let _ = queue.defer(&job.id, "deferred for foreground conversation");
-                    return Ok(());
+                    return Ok(committed_memory);
                 }
                 let message = error.to_string();
                 let _ = queue.fail(&job.id, &message);
@@ -926,7 +982,7 @@ async fn process_extraction_queue(
         if !completed || failed.is_some() {
             if cancellation.is_cancelled() {
                 let _ = queue.defer(&job.id, "deferred for foreground conversation");
-                return Ok(());
+                return Ok(committed_memory);
             }
             let message =
                 failed.unwrap_or_else(|| "extraction provider ended without completion".to_owned());
@@ -945,16 +1001,156 @@ async fn process_extraction_queue(
                             .reclassify_proposal(&proposal.id, origin.clone())
                             .map_err(|error| error.to_string())?;
                     }
-                    if extraction::is_auto_writable(&origin) {
-                        service
-                            .auto_commit(&proposal.id)
-                            .map_err(|error| error.to_string())?;
+                    if extraction::is_auto_writable(&origin)
+                        && matches!(
+                            service
+                                .auto_commit(&proposal.id)
+                                .map_err(|error| error.to_string())?,
+                            reconciliation::CommitResult::Committed { .. }
+                        )
+                    {
+                        committed_memory = true;
                     }
                 }
             }
             _ => {}
         }
         tokio::task::yield_now().await;
+    }
+}
+
+async fn process_embedding_rebuild(
+    vault_root: String,
+    provider: providers::ProviderConfig,
+    character: storage::CharacterDefinition,
+    cancellation: CancellationToken,
+) -> Result<(), String> {
+    tokio::task::yield_now().await;
+    if cancellation.is_cancelled() {
+        return Ok(());
+    }
+    let Some(model) = provider
+        .embedding_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(str::to_owned)
+    else {
+        return Ok(());
+    };
+    let (vault, _) = open_character_vault(vault_root, &character.id)?;
+    let mut store =
+        memory::MemoryStore::open(&vault, &character.id).map_err(|error| error.to_string())?;
+    let memories = store.list().map_err(|error| error.to_string())?;
+    let chunks = embeddings::chunks_from_memories(&memories);
+    let client = connections::ProviderClient::default();
+    let stored = embeddings::EmbeddingIndex::stored_space(&vault, &character.id)
+        .map_err(|error| error.to_string())?;
+    let matching_space = stored.filter(|space| {
+        space.provider_id == provider.id
+            && space.model == model
+            && space.chunking_version == embeddings::CHUNKING_VERSION
+            && space.index_version == embeddings::EMBEDDING_INDEX_VERSION
+    });
+    if cancellation.is_cancelled() {
+        return Ok(());
+    }
+    if let Some(space) = matching_space {
+        let index = embeddings::EmbeddingIndex::open(&vault, &character.id, space)
+            .map_err(|error| error.to_string())?;
+        if !index
+            .needs_rebuild(&chunks)
+            .map_err(|error| error.to_string())?
+        {
+            return Ok(());
+        }
+        index.begin_rebuild().map_err(|error| error.to_string())?;
+        if cancellation.is_cancelled() {
+            return Ok(());
+        }
+        let vectors = embed_chunks(&client, &provider, &model, &chunks, &cancellation).await?;
+        if cancellation.is_cancelled() {
+            return Ok(());
+        }
+        if vectors.len() != chunks.len() {
+            return Err(format!(
+                "embedding provider returned {} vectors for {} chunks",
+                vectors.len(),
+                chunks.len()
+            ));
+        }
+        for (chunk, vector) in chunks.iter().zip(&vectors) {
+            index
+                .upsert(chunk, vector)
+                .map_err(|error| error.to_string())?;
+            tokio::task::yield_now().await;
+            if cancellation.is_cancelled() {
+                return Ok(());
+            }
+        }
+        index.finish_rebuild().map_err(|error| error.to_string())?;
+        tokio::task::yield_now().await;
+        return Ok(());
+    }
+    if chunks.is_empty() {
+        return Ok(());
+    }
+    let vectors = embed_chunks(&client, &provider, &model, &chunks, &cancellation).await?;
+    if cancellation.is_cancelled() {
+        return Ok(());
+    }
+    if vectors.len() != chunks.len() {
+        return Err(format!(
+            "embedding provider returned {} vectors for {} chunks",
+            vectors.len(),
+            chunks.len()
+        ));
+    }
+    let dimensions = vectors.first().map(Vec::len).unwrap_or(0);
+    if dimensions == 0 {
+        return Err("embedding provider returned empty vectors".into());
+    }
+    let space = embeddings::EmbeddingSpace::new(&provider.id, model, dimensions);
+    let index = embeddings::EmbeddingIndex::open(&vault, &character.id, space)
+        .map_err(|error| error.to_string())?;
+    index.begin_rebuild().map_err(|error| error.to_string())?;
+    if cancellation.is_cancelled() {
+        return Ok(());
+    }
+    for (chunk, vector) in chunks.iter().zip(&vectors) {
+        index
+            .upsert(chunk, vector)
+            .map_err(|error| error.to_string())?;
+        tokio::task::yield_now().await;
+        if cancellation.is_cancelled() {
+            return Ok(());
+        }
+    }
+    index.finish_rebuild().map_err(|error| error.to_string())?;
+    tokio::task::yield_now().await;
+    Ok(())
+}
+
+async fn embed_chunks(
+    client: &connections::ProviderClient,
+    provider: &providers::ProviderConfig,
+    model: &str,
+    chunks: &[embeddings::EmbeddingChunk],
+    cancellation: &CancellationToken,
+) -> Result<Vec<Vec<f32>>, String> {
+    if chunks.is_empty() {
+        return Ok(Vec::new());
+    }
+    let request = providers::EmbeddingRequest {
+        provider_id: provider.id.clone(),
+        model: model.to_owned(),
+        input: chunks.iter().map(|chunk| chunk.content.clone()).collect(),
+    };
+    tokio::select! {
+        _ = cancellation.cancelled() => Ok(Vec::new()),
+        response = client.embed(provider, &request) => response
+            .map(|response| response.vectors)
+            .map_err(|error| error.to_string()),
     }
 }
 
@@ -1396,6 +1592,25 @@ mod tests {
         assert!(background.is_cancelled());
         assert!(!foreground.is_cancelled());
         assert!(state.begin_background("extraction:lyra").is_none());
+    }
+
+    #[test]
+    fn extraction_and_embedding_background_keys_are_unique_per_kind() {
+        let state = RuntimeState::default();
+        let extraction = state
+            .begin_background("extraction:lyra")
+            .expect("extraction work should start while idle");
+        let embedding = state
+            .begin_background("embedding:lyra")
+            .expect("embedding work should start beside extraction");
+        assert!(!extraction.is_cancelled());
+        assert!(!embedding.is_cancelled());
+        assert!(state.begin_background("extraction:lyra").is_none());
+        assert!(state.begin_background("embedding:lyra").is_none());
+        let (_, foreground) = state.begin("lyra:session");
+        assert!(extraction.is_cancelled());
+        assert!(embedding.is_cancelled());
+        assert!(!foreground.is_cancelled());
     }
 
     #[test]

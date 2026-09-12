@@ -61,14 +61,16 @@ pub fn retrieve(
     store: &mut MemoryStore,
     query: &str,
     budget: RetrievalBudget,
+    skip_memory_ids: &[String],
 ) -> Result<Vec<RetrievedMemory>, MemoryError> {
-    Ok(retrieve_with_report(store, query, budget)?.selected)
+    Ok(retrieve_with_report(store, query, budget, skip_memory_ids)?.selected)
 }
 
 pub fn retrieve_with_report(
     store: &mut MemoryStore,
     query: &str,
     budget: RetrievalBudget,
+    skip_memory_ids: &[String],
 ) -> Result<RetrievalReport, MemoryError> {
     if budget.max_results == 0 || budget.max_tokens == 0 {
         return Ok(RetrievalReport {
@@ -77,10 +79,17 @@ pub fn retrieve_with_report(
             omitted_count: 0,
         });
     }
+    let skip = skip_memory_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
     let candidates = store.search(query, budget.max_results.saturating_mul(4).max(1))?;
     let mut unique = Vec::new();
     let mut seen = HashSet::new();
     for candidate in candidates {
+        if skip.contains(candidate.memory_id.as_str()) {
+            continue;
+        }
         if seen.insert(candidate.memory_id.clone()) {
             unique.push(candidate);
         }
@@ -156,6 +165,7 @@ pub fn hybrid_retrieve(
     query: &str,
     semantic_candidates: &[SemanticSearchResult],
     related_memory_ids: &[String],
+    skip_memory_ids: &[String],
     budget: RetrievalBudget,
 ) -> Result<Vec<RetrievedMemory>, MemoryError> {
     if budget.max_results == 0 || budget.max_tokens == 0 {
@@ -169,10 +179,17 @@ pub fn hybrid_retrieve(
         .map(|record| (record.id.clone(), record))
         .collect::<HashMap<_, _>>();
     let related = related_memory_ids.iter().collect::<HashSet<_>>();
+    let skip = skip_memory_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
     let query_terms = normalized_terms(query);
     let mut candidates = HashMap::<String, HybridCandidate>::new();
 
     for (rank, lexical) in lexical_candidates.into_iter().enumerate() {
+        if skip.contains(lexical.memory_id.as_str()) {
+            continue;
+        }
         let entry = candidates
             .entry(lexical.memory_id.clone())
             .or_insert_with(|| candidate_from_search(&lexical));
@@ -182,6 +199,9 @@ pub fn hybrid_retrieve(
     }
 
     for semantic in semantic_candidates {
+        if skip.contains(semantic.memory_id.as_str()) {
+            continue;
+        }
         let Some(record) = metadata.get(&semantic.memory_id) else {
             continue;
         };
@@ -466,6 +486,7 @@ mod tests {
                 max_tokens: 100,
                 pinned_tokens: 100,
             },
+            &[],
         )
         .unwrap();
         assert_eq!(selected.len(), 2);
@@ -488,6 +509,7 @@ mod tests {
             &mut store,
             "Do you remember whether Mina likes coffee?",
             RetrievalBudget::default(),
+            &[],
         )
         .unwrap();
         assert!(selected.iter().any(|memory| memory.memory_id == "fact"));
@@ -514,6 +536,7 @@ mod tests {
                 max_tokens: 12,
                 pinned_tokens: 1,
             },
+            &[],
         )
         .unwrap();
         assert!(selected.iter().all(|memory| !memory.pinned));
@@ -598,13 +621,20 @@ mod tests {
         };
 
         let lexical_start = Instant::now();
-        let lexical = retrieve(&mut store, "Mina", budget).unwrap();
+        let lexical = retrieve(&mut store, "Mina", budget, &[]).unwrap();
         let lexical_elapsed = lexical_start.elapsed();
         let hybrid_start = Instant::now();
-        let hybrid = hybrid_retrieve(&mut store, "Mina", &semantic, &related, budget).unwrap();
+        let hybrid = hybrid_retrieve(&mut store, "Mina", &semantic, &related, &[], budget).unwrap();
         let hybrid_elapsed = hybrid_start.elapsed();
-        let paraphrase =
-            hybrid_retrieve(&mut store, "calm espresso", &semantic, &related, budget).unwrap();
+        let paraphrase = hybrid_retrieve(
+            &mut store,
+            "calm espresso",
+            &semantic,
+            &related,
+            &[],
+            budget,
+        )
+        .unwrap();
 
         assert!(lexical.iter().any(|item| item.memory_id == "mina-name"));
         assert!(hybrid.iter().any(|item| item.memory_id == "mina-name"));
@@ -635,6 +665,80 @@ mod tests {
             lexical_elapsed.as_micros(),
             hybrid_elapsed.as_micros()
         );
+        drop(store);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn superseded_targets_are_skipped_by_lexical_and_hybrid_retrieval() {
+        let root = root();
+        let vault = Vault::create(&root).unwrap();
+        let mut store = MemoryStore::open(&vault, "lyra").unwrap();
+        store
+            .create(&memory(
+                "old",
+                "Mina drinks tea every morning at the riverside cafe.",
+                0.9,
+                false,
+            ))
+            .unwrap();
+        store
+            .create(&memory(
+                "new",
+                "Mina drinks tea every morning at the riverside cafe with Juniper.",
+                0.9,
+                false,
+            ))
+            .unwrap();
+        let queue = crate::extraction::ExtractionQueue::open(&vault, "lyra").unwrap();
+        queue
+            .record_relationship(
+                "new",
+                "old",
+                &crate::extraction::ProposalRelation::Supersedes,
+                "proposal-1",
+            )
+            .unwrap();
+        let skip = queue.superseded_targets().unwrap();
+        assert_eq!(skip, vec!["old".to_string()]);
+
+        let budget = RetrievalBudget {
+            max_results: 4,
+            max_tokens: 512,
+            pinned_tokens: 192,
+        };
+        let lexical = retrieve_with_report(&mut store, "tea", budget, &skip).unwrap();
+        assert_eq!(
+            lexical
+                .selected
+                .iter()
+                .map(|memory| memory.memory_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["new"]
+        );
+        assert!(!lexical
+            .selected
+            .iter()
+            .any(|memory| memory.memory_id == "old"));
+
+        let semantic = vec![
+            SemanticSearchResult {
+                memory_id: "old".into(),
+                fingerprint: "1:old".into(),
+                content: "Mina drinks tea every morning at the riverside cafe.".into(),
+                score: 0.99,
+            },
+            SemanticSearchResult {
+                memory_id: "new".into(),
+                fingerprint: "1:new".into(),
+                content: "Mina drinks tea every morning at the riverside cafe with Juniper.".into(),
+                score: 0.98,
+            },
+        ];
+        let hybrid = hybrid_retrieve(&mut store, "tea", &semantic, &[], &skip, budget).unwrap();
+        assert!(hybrid.iter().any(|memory| memory.memory_id == "new"));
+        assert!(!hybrid.iter().any(|memory| memory.memory_id == "old"));
+        drop(queue);
         drop(store);
         fs::remove_dir_all(root).unwrap();
     }

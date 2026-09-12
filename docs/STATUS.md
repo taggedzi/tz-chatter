@@ -4,12 +4,12 @@ Last updated: 2026-09-12
 
 ## Current position
 
-- Project phase: Milestone 7 environment-limited leftovers (T16/T18); Milestone 8 T24 done, T25 todo.
-- Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, and T19 completion-audit remediations A01-A15.
+- Project phase: Milestone 7 environment-limited leftovers (T16/T18); Milestone 8 T24 and T25 done.
+- Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, T19 completion-audit remediations A01-A15, auto-write of validated memories, and hybrid retrieval by default with lexical fallback.
 - T01 delivered: React/TypeScript shell, Rust command boundary, frontend/Rust lockfiles, validation scripts, and a Windows launch check.
 - Repository: initialized locally on `main`; no remote configured. T19/A13 commit `6a08a51` contains the reviewed application sources.
-- Active task: none. T24 is done. T25 hybrid retrieval by default is next.
-- Next task: T25 — Hybrid retrieval by default. T16/T18 remain in_progress only for environment-limited visual tray/keyboard and live llama.cpp/LM Studio checks.
+- Active task: none. T25 is done.
+- Next task: none scheduled. T16/T18 remain in_progress only for environment-limited visual tray/keyboard and live llama.cpp/LM Studio checks.
 - Blockers: no known implementation blockers. Native Computer Use visual inspection remains unavailable; process/window inspection verified launch and responsiveness.
 
 The user approved the architectural direction and requested a plan/status system that lets different agents continue without prior conversation context. T08 now retrieves bounded lexical memories into loopback-provider prompts; memory inspection, extraction, review, semantic ranking, initiative delivery, validated portable packs, and Windows packaging are implemented incrementally. Remaining release evidence is limited to visual Windows interaction coverage and live access to an OpenAI-compatible endpoint.
@@ -46,18 +46,18 @@ The plan contains dependencies and acceptance criteria. This table is the author
 | T22 | Provider chat model discovery list | done | Settings → Provider chat model is a select filled from `provider_discover`; auto-runs on load and when endpoint/kind/token change. Other… replaces the select with one text field and a return-to-list control. Frontend lint/typecheck passed after the double-input fix. |
 | T23 | LM Studio provider settings | done | Named LM Studio provider uses OpenAI-compatible `/v1` transport with default `http://127.0.0.1:1234/v1`. Saved `open_ai_compatible` settings still load. 92 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. Live LM Studio on port 1234 was not reachable. |
 | T24 | Auto-write validated memories | done | Origin classification from transcript evidence; auto-commit of user-stated/event/character facts as new Markdown files; inferred stays inbox-only. 101 Rust tests passed and 2 ignored; fmt check and clippy -D warnings passed. |
-| T25 | Hybrid retrieval by default | todo | Hybrid on when an embedding model is set; lexical fallback without embedding on the chat path; background embed worker; skip superseded targets. Depends on T24. |
+| T25 | Hybrid retrieval by default | done | Hybrid when an embedding model is set and the index is ready; stale index lexical-falls-back without embedding on send; background embed worker yields to chat; superseded targets skipped. 106 Rust tests passed and 2 ignored; fmt, clippy -D warnings, npm lint/typecheck passed. Live embedding quality not claimed. |
 
 ## Active work and resumption
 
-Task: none (T24 complete)
+Task: none (T25 complete)
 Owner/session and date: Grok implementer — 2026-09-12
-Scope / files being edited: `src-tauri/src/extraction.rs`, `src-tauri/src/reconciliation.rs`, `src-tauri/src/lib.rs`, `docs/STATUS.md`, `docs/HANDOFF.md`. No overlapping work reported.
-Completed in this session: T24 auto-write of validated memories. Extraction worker classifies origin against the transcript, auto-commits user-stated/event/character facts as new Markdown files via `MemoryStore::create`, and leaves inferred (including assistant-only user_stated) in the inbox. Locked related memories revert to `needs_review`.
-Remaining acceptance criteria: none for T24. T25 not started.
-Verification commands and outcomes: `cargo test --manifest-path src-tauri/Cargo.toml` PASS 101 passed, 2 ignored; `cargo fmt --all -- --check` PASS; `cargo clippy --all-targets -- -D warnings` PASS.
+Scope / files being edited: `src-tauri/src/extraction.rs`, `src-tauri/src/retrieval.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/lib.rs`, `src-tauri/src/embeddings.rs`, `src/ProviderPanel.tsx`, `src/ConversationPanel.tsx`, `README.md`, `docs/STATUS.md`, `docs/HANDOFF.md`. No overlapping work reported.
+Completed in this session: T25 hybrid retrieval by default. Skip superseded targets; hybrid when an embedding model is set and the vector index is ready; stale/missing index lexical-falls-back without embedding on the chat path and schedules `embedding:{character.id}`; auto-commit of new memories also schedules that worker; UI hybrid flag defaults on (`localStorage !== "false"`).
+Remaining acceptance criteria: none for T25. Live embedding quality against a reachable embedding model was not measured.
+Verification commands and outcomes: `cargo test --manifest-path src-tauri/Cargo.toml` PASS 106 passed, 2 ignored; `cargo fmt --all -- --check` PASS; `cargo clippy --all-targets -- -D warnings` PASS; `npm run lint` PASS; `npm run typecheck` PASS.
 Blocker and unblock action (if any): none.
-Exact next step: start T25 (hybrid default, lexical fallback, background embed worker, skip superseded targets).
+Exact next step: none scheduled. T16/T18 remain environment-limited.
 
 Sample vault: `examples/characters/lyra` now includes six Markdown memories and `chats/session-welcome.md` for first-run testing.
 
@@ -151,3 +151,4 @@ Update the task board and append a handoff entry in the same change. Keep this f
 | 2026-09-12 | T22 Other… double-input fix | npm lint/typecheck | PASS: Other… now replaces the select with one text field; return-to-list control added |
 | 2026-09-12 | T23 LM Studio provider settings | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 92 Rust tests passed and 2 ignored including LM Studio kind round-trip and `/v1` discovery paths; frontend checks passed; live LM Studio at `127.0.0.1:1234` timed out |
 | 2026-09-12 | T24 auto-write validated memories | cargo test; cargo fmt --check; clippy -D warnings | PASS: 101 Rust tests passed and 2 ignored including origin reclassification, auto-commit to new Markdown/FTS5, inferred inbox-only, duplicate/lock/suppress/supersede, and worker resume cafe fixture |
+| 2026-09-12 | T25 hybrid retrieval by default | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck | PASS: 106 passed and 2 ignored including skip superseded targets, hybrid when index ready, no-embed lexical fallback on rebuild, no-model lexical fallback, T14 fixture with empty skip IDs, and extraction/embedding background key uniqueness. Live embedding quality not claimed. |

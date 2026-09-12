@@ -533,6 +533,15 @@ impl ExtractionQueue {
         Ok(false)
     }
 
+    pub fn superseded_targets(&self) -> Result<Vec<String>, ExtractionError> {
+        let mut statement = self.connection.prepare(
+            "SELECT DISTINCT to_memory_id FROM memory_relationships WHERE relation = 'supersedes' ORDER BY to_memory_id",
+        )?;
+        let rows = statement.query_map([], |row| row.get(0))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(ExtractionError::from)
+    }
+
     pub fn record_relationship(
         &self,
         from_memory_id: &str,

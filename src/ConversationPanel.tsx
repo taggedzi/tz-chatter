@@ -66,7 +66,7 @@ export function ConversationPanel() {
   const [resumeStatus, setResumeStatus] = useState<string | null>(null);
   const [loadedVaultRoot, setLoadedVaultRoot] = useState<string | null>(null);
   const [useHybridRetrieval, setUseHybridRetrieval] = useState(
-    () => localStorage.getItem("tz-chatter.use-hybrid-retrieval") === "true",
+    () => localStorage.getItem("tz-chatter.use-hybrid-retrieval") !== "false",
   );
   const [showContext, setShowContext] = useState(true);
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
@@ -203,7 +203,7 @@ export function ConversationPanel() {
     } catch {
       // The defaults remain usable when the app config has not been created yet.
     }
-    setUseHybridRetrieval(localStorage.getItem("tz-chatter.use-hybrid-retrieval") === "true");
+    setUseHybridRetrieval(localStorage.getItem("tz-chatter.use-hybrid-retrieval") !== "false");
   }, []);
 
   useEffect(() => {

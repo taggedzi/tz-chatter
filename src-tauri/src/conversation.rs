@@ -1,6 +1,6 @@
 use crate::{
     connections::{ProviderClient, StreamSink},
-    embeddings::{chunks_from_memories, EmbeddingIndex, EmbeddingSpace},
+    embeddings::{chunks_from_memories, EmbeddingIndex, CHUNKING_VERSION, EMBEDDING_INDEX_VERSION},
     extraction::ExtractionQueue,
     initiative::{
         classify_initiative_response, initiative_is_stale, render_initiative_event,
@@ -8,7 +8,10 @@ use crate::{
     },
     memory::MemoryStore,
     prompt::{build_prompt_with_memories, PromptBudget},
-    providers::{ChatRequest, ChatStreamEvent, EmbeddingRequest, ProviderConfig, ProviderError},
+    providers::{
+        ChatRequest, ChatStreamEvent, EmbeddingRequest, EmbeddingResponse, ProviderConfig,
+        ProviderError,
+    },
     retrieval::{
         hybrid_retrieve, retrieve, retrieve_with_report, RetrievalBudget, RetrievalReport,
     },
@@ -49,6 +52,17 @@ pub trait ChatTransport: Send + Sync {
         }
         Ok(events)
     }
+
+    async fn embed(
+        &self,
+        config: &ProviderConfig,
+        _request: &EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, ProviderError> {
+        Err(ProviderError::UnsupportedCapability {
+            capability: "embeddings".into(),
+            provider: config.kind.clone(),
+        })
+    }
 }
 
 #[async_trait]
@@ -70,6 +84,14 @@ impl ChatTransport for ProviderClient {
         sink: Option<StreamSink>,
     ) -> Result<Vec<ChatStreamEvent>, ProviderError> {
         ProviderClient::stream_chat_with_sink(self, config, request, cancellation, sink).await
+    }
+
+    async fn embed(
+        &self,
+        config: &ProviderConfig,
+        request: &EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, ProviderError> {
+        ProviderClient::embed(self, config, request).await
     }
 }
 
@@ -202,6 +224,18 @@ impl From<ConversationError> for String {
     fn from(error: ConversationError) -> Self {
         error.to_string()
     }
+}
+
+pub(crate) const EMBEDDING_INDEX_REBUILDING: &str =
+    "Embedding index is rebuilding; lexical fallback used.";
+pub(crate) const HYBRID_WITHOUT_EMBEDDING_MODEL: &str =
+    "Hybrid retrieval requested without an embedding model; lexical fallback used.";
+
+pub(crate) fn embedding_model_configured(provider: &ProviderConfig) -> bool {
+    provider
+        .embedding_model
+        .as_deref()
+        .is_some_and(|model| !model.trim().is_empty())
 }
 
 pub struct ConversationService {
@@ -440,8 +474,17 @@ impl ConversationService {
         let memory_context = if local_memory_endpoint(&request.provider.endpoint) {
             let mut store = MemoryStore::open(vault, &request.character.id)
                 .map_err(|error| ConversationError::Storage(error.to_string()))?;
-            retrieve(&mut store, &topic_context, RetrievalBudget::default())
-                .map_err(|error| ConversationError::Storage(error.to_string()))?
+            let skip = ExtractionQueue::open(vault, &request.character.id)
+                .ok()
+                .and_then(|queue| queue.superseded_targets().ok())
+                .unwrap_or_default();
+            retrieve(
+                &mut store,
+                &topic_context,
+                RetrievalBudget::default(),
+                &skip,
+            )
+            .map_err(|error| ConversationError::Storage(error.to_string()))?
         } else {
             Vec::new()
         };
@@ -555,16 +598,28 @@ impl ConversationService {
             if local_memory_endpoint(&snapshot.provider.endpoint) {
                 let mut store = MemoryStore::open(vault, &snapshot.character.id)
                     .map_err(|error| ConversationError::Storage(error.to_string()))?;
-                let lexical =
-                    retrieve_with_report(&mut store, &snapshot.user_content, retrieval_budget)
-                        .map_err(|error| ConversationError::Storage(error.to_string()))?;
-                if snapshot.use_hybrid_retrieval {
+                let skip = ExtractionQueue::open(vault, &snapshot.character.id)
+                    .ok()
+                    .and_then(|queue| queue.superseded_targets().ok())
+                    .unwrap_or_default();
+                let prefer_hybrid =
+                    snapshot.use_hybrid_retrieval && embedding_model_configured(&snapshot.provider);
+                let lexical = retrieve_with_report(
+                    &mut store,
+                    &snapshot.user_content,
+                    retrieval_budget,
+                    &skip,
+                )
+                .map_err(|error| ConversationError::Storage(error.to_string()))?;
+                if prefer_hybrid {
                     match build_hybrid_retrieval(
+                        self.transport.as_ref(),
                         vault,
                         &snapshot,
                         &mut store,
                         retrieval_budget,
                         lexical.candidate_count,
+                        &skip,
                         &cancellation,
                     )
                     .await
@@ -572,6 +627,12 @@ impl ConversationService {
                         Ok(report) => (report, "hybrid".to_owned(), None),
                         Err(reason) => (lexical, "lexical".to_owned(), Some(reason)),
                     }
+                } else if snapshot.use_hybrid_retrieval {
+                    (
+                        lexical,
+                        "lexical".to_owned(),
+                        Some(HYBRID_WITHOUT_EMBEDDING_MODEL.to_owned()),
+                    )
                 } else {
                     (lexical, "lexical".to_owned(), None)
                 }
@@ -733,12 +794,15 @@ fn append_fallback_reason(existing: &mut Option<String>, reason: &str) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn build_hybrid_retrieval(
+    transport: &dyn ChatTransport,
     vault: &Vault,
     snapshot: &RequestSnapshot,
     store: &mut MemoryStore,
     budget: RetrievalBudget,
     lexical_candidate_count: usize,
+    skip_memory_ids: &[String],
     cancellation: &CancellationToken,
 ) -> Result<RetrievalReport, String> {
     let model = snapshot
@@ -746,11 +810,30 @@ async fn build_hybrid_retrieval(
         .embedding_model
         .as_deref()
         .filter(|model| !model.trim().is_empty())
-        .ok_or_else(|| {
-            "Hybrid retrieval requested without an embedding model; lexical fallback used."
-                .to_owned()
-        })?;
-    let client = ProviderClient::default();
+        .ok_or_else(|| HYBRID_WITHOUT_EMBEDDING_MODEL.to_owned())?;
+    let memories = store.list().map_err(|error| {
+        format!("Could not load memories for embeddings ({error}); lexical fallback used.")
+    })?;
+    let chunks = chunks_from_memories(&memories);
+    let stored = EmbeddingIndex::stored_space(vault, &snapshot.character.id).map_err(|error| {
+        format!("Could not inspect the embedding index ({error}); lexical fallback used.")
+    })?;
+    let Some(space) = stored.filter(|space| {
+        space.provider_id == snapshot.provider.id
+            && space.model == model
+            && space.chunking_version == CHUNKING_VERSION
+            && space.index_version == EMBEDDING_INDEX_VERSION
+    }) else {
+        return Err(EMBEDDING_INDEX_REBUILDING.to_owned());
+    };
+    let index = EmbeddingIndex::open(vault, &snapshot.character.id, space).map_err(|error| {
+        format!("Could not open the embedding index ({error}); lexical fallback used.")
+    })?;
+    if index.needs_rebuild(&chunks).map_err(|error| {
+        format!("Could not inspect the embedding index ({error}); lexical fallback used.")
+    })? {
+        return Err(EMBEDDING_INDEX_REBUILDING.to_owned());
+    }
     let query_request = EmbeddingRequest {
         provider_id: snapshot.provider.id.clone(),
         model: model.to_owned(),
@@ -758,49 +841,24 @@ async fn build_hybrid_retrieval(
     };
     let query_response = tokio::select! {
         _ = cancellation.cancelled() => return Err("Embedding request was cancelled; lexical fallback used.".into()),
-        response = client.embed(&snapshot.provider, &query_request) => response,
+        response = transport.embed(&snapshot.provider, &query_request) => response,
     }
     .map_err(|error| format!("Embedding provider unavailable ({error}); lexical fallback used."))?;
     let query_vector = query_response.vectors.first().cloned().ok_or_else(|| {
         "Embedding provider returned no query vector; lexical fallback used.".to_owned()
     })?;
-    let memories = store.list().map_err(|error| {
-        format!("Could not load memories for embeddings ({error}); lexical fallback used.")
-    })?;
-    let chunks = chunks_from_memories(&memories);
-    let space = EmbeddingSpace::new(&snapshot.provider.id, model, query_response.dimensions);
-    let index = EmbeddingIndex::open(vault, &snapshot.character.id, space).map_err(|error| {
-        format!("Could not open the embedding index ({error}); lexical fallback used.")
-    })?;
-    if index.needs_rebuild(&chunks).map_err(|error| {
-        format!("Could not inspect the embedding index ({error}); lexical fallback used.")
-    })? {
-        let vectors = if chunks.is_empty() {
-            Vec::new()
-        } else {
-            let request = EmbeddingRequest {
-                provider_id: snapshot.provider.id.clone(),
-                model: model.to_owned(),
-                input: chunks.iter().map(|chunk| chunk.content.clone()).collect(),
-            };
-            tokio::select! {
-                _ = cancellation.cancelled() => return Err("Embedding rebuild was cancelled; lexical fallback used.".into()),
-                response = client.embed(&snapshot.provider, &request) => response,
-            }
-            .map_err(|error| format!("Embedding rebuild failed ({error}); lexical fallback used."))?
-            .vectors
-        };
-        index
-            .rebuild_precomputed(&chunks, &vectors)
-            .map_err(|error| {
-                format!("Embedding rebuild failed ({error}); lexical fallback used.")
-            })?;
-    }
     let semantic = index
         .search(&query_vector, budget.max_results.saturating_mul(8))
         .map_err(|error| format!("Semantic search failed ({error}); lexical fallback used."))?;
-    let selected = hybrid_retrieve(store, &snapshot.user_content, &semantic, &[], budget)
-        .map_err(|error| format!("Hybrid ranking failed ({error}); lexical fallback used."))?;
+    let selected = hybrid_retrieve(
+        store,
+        &snapshot.user_content,
+        &semantic,
+        &[],
+        skip_memory_ids,
+        budget,
+    )
+    .map_err(|error| format!("Hybrid ranking failed ({error}); lexical fallback used."))?;
     let candidate_count = semantic
         .len()
         .max(lexical_candidate_count)
@@ -945,12 +1003,14 @@ fn now_timestamp() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::embeddings::EmbeddingSpace;
     use crate::providers::ProviderKind;
     use std::{fs, sync::Mutex};
 
     struct FakeTransport {
         responses: Mutex<Vec<Result<Vec<ChatStreamEvent>, ProviderError>>>,
         requests: Mutex<Vec<ChatRequest>>,
+        embeddings: Mutex<Vec<EmbeddingRequest>>,
     }
 
     impl FakeTransport {
@@ -958,6 +1018,7 @@ mod tests {
             Self {
                 responses: Mutex::new(responses),
                 requests: Mutex::new(Vec::new()),
+                embeddings: Mutex::new(Vec::new()),
             }
         }
     }
@@ -973,6 +1034,28 @@ mod tests {
             self.requests.lock().unwrap().push(request.clone());
             self.responses.lock().unwrap().remove(0)
         }
+
+        async fn embed(
+            &self,
+            _config: &ProviderConfig,
+            request: &EmbeddingRequest,
+        ) -> Result<EmbeddingResponse, ProviderError> {
+            self.embeddings.lock().unwrap().push(request.clone());
+            Ok(EmbeddingResponse {
+                model: request.model.clone(),
+                dimensions: 2,
+                vectors: request.input.iter().map(|_| vec![1.0, 0.0]).collect(),
+            })
+        }
+    }
+
+    fn complete_reply(text: &str) -> Vec<ChatStreamEvent> {
+        vec![
+            ChatStreamEvent::Delta { text: text.into() },
+            ChatStreamEvent::Completed {
+                finish_reason: Some("stop".into()),
+            },
+        ]
     }
 
     fn snapshot(
@@ -1638,6 +1721,107 @@ mod tests {
         assert_eq!(cancelled.status, InitiativeDeliveryStatus::Cancelled);
         assert!(cancelled.transcript.turns.is_empty());
         assert!(fake.requests.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn hybrid_snapshot(session_id: &str, content: &str) -> RequestSnapshot {
+        let mut request = snapshot(session_id, "lyra", "user-hybrid", content);
+        request.use_hybrid_retrieval = true;
+        request.provider.embedding_model = Some("nomic-embed".into());
+        request
+    }
+
+    async fn send_hybrid(
+        vault: &Vault,
+        fake: Arc<FakeTransport>,
+        request: RequestSnapshot,
+    ) -> ConversationOutcome {
+        ConversationService::new(fake)
+            .send(vault, request, CancellationToken::new())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn hybrid_used_when_embedding_model_and_flag_set() {
+        let root = root("hybrid-ready");
+        let vault = Vault::create(&root).unwrap();
+        let mut store = MemoryStore::open(&vault, "lyra").unwrap();
+        store
+            .create(&crate::storage::MemoryRecord::new(
+                "tea",
+                crate::storage::MemoryType::Semantic,
+                "Mina drinks tea.",
+            ))
+            .unwrap();
+        let memories = store.list().unwrap();
+        let chunks = chunks_from_memories(&memories);
+        let index = EmbeddingIndex::open(
+            &vault,
+            "lyra",
+            EmbeddingSpace::new("fake", "nomic-embed", 2),
+        )
+        .unwrap();
+        let vectors = chunks.iter().map(|_| vec![1.0, 0.0]).collect::<Vec<_>>();
+        index.rebuild_precomputed(&chunks, &vectors).unwrap();
+        drop(index);
+        drop(store);
+        let fake = Arc::new(FakeTransport::new(vec![Ok(complete_reply("Hello back"))]));
+        let outcome = send_hybrid(&vault, fake.clone(), hybrid_snapshot("session", "Hello")).await;
+        assert_eq!(outcome.context_inspection.retrieval_mode, "hybrid");
+        assert_eq!(outcome.context_inspection.fallback_reason, None);
+        assert!(!fake.embeddings.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn lexical_fallback_when_index_needs_rebuild_does_not_embed() {
+        let root = root("hybrid-rebuild");
+        let vault = Vault::create(&root).unwrap();
+        let mut store = crate::memory::MemoryStore::open(&vault, "lyra").unwrap();
+        store
+            .create(&crate::storage::MemoryRecord::new(
+                "tea",
+                crate::storage::MemoryType::Semantic,
+                "Mina drinks tea.",
+            ))
+            .unwrap();
+        drop(store);
+        let fake = Arc::new(FakeTransport::new(vec![Ok(complete_reply("Noted"))]));
+        let outcome = send_hybrid(
+            &vault,
+            fake.clone(),
+            hybrid_snapshot("session", "Do you remember the tea?"),
+        )
+        .await;
+        assert_eq!(outcome.context_inspection.retrieval_mode, "lexical");
+        assert!(outcome
+            .context_inspection
+            .fallback_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("rebuilding")));
+        assert!(
+            fake.embeddings.lock().unwrap().is_empty(),
+            "chat path must not embed while the index needs rebuild"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn lexical_when_no_embedding_model() {
+        let root = root("hybrid-no-model");
+        let vault = Vault::create(&root).unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![Ok(complete_reply("Hello back"))]));
+        let mut request = snapshot("session", "lyra", "user-1", "Hello");
+        request.use_hybrid_retrieval = true;
+        request.provider.embedding_model = None;
+        let outcome = send_hybrid(&vault, fake.clone(), request).await;
+        assert_eq!(outcome.context_inspection.retrieval_mode, "lexical");
+        assert_eq!(
+            outcome.context_inspection.fallback_reason.as_deref(),
+            Some("Hybrid retrieval requested without an embedding model; lexical fallback used.")
+        );
+        assert!(fake.embeddings.lock().unwrap().is_empty());
         fs::remove_dir_all(root).unwrap();
     }
 }

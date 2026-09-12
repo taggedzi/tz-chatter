@@ -23,7 +23,7 @@ export function ProviderPanel() {
   const discoverySeq = useRef(0);
   const providerRef = useRef(provider);
   const [useHybridRetrieval, setUseHybridRetrieval] = useState(
-    () => localStorage.getItem("tz-chatter.use-hybrid-retrieval") === "true",
+    () => localStorage.getItem("tz-chatter.use-hybrid-retrieval") !== "false",
   );
 
   const loadSavedProvider = useCallback(async () => {

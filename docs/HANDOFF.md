@@ -538,3 +538,17 @@ Verification and actual results: TDD red on missing `effective_origin` / `auto_c
 Incomplete work / blockers: T25 not started. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
 
 Next concrete action: start T25 — hybrid retrieval by default, lexical fallback without embedding on the chat path, background embed worker, skip superseded targets.
+
+## 2026-09-12 — T25: hybrid retrieval by default
+
+Scope and outcome: hybrid retrieval is used when `use_hybrid_retrieval` is on and the active provider has a non-empty embedding model and the per-character vector index is ready. A missing or stale index does not embed on the chat path: send stays lexical, records `Embedding index is rebuilding; lexical fallback used.`, and schedules background job `embedding:{character.id}`. That worker takes `model_gate`, yields, honors cancellation (leaving the index not-ready), and rebuilds via `ProviderClient::embed` / `rebuild_precomputed`. The same job is scheduled after a successful T24 auto-commit when the extraction provider has an embedding model. `ExtractionQueue::superseded_targets` skips old IDs that are the target of a `supersedes` link. UI hybrid defaults on (`localStorage !== "false"`). README first-run states chatting saves supported facts without Accept.
+
+Files changed: `src-tauri/src/extraction.rs`, `src-tauri/src/retrieval.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/embeddings.rs`, `src-tauri/src/lib.rs`, `src/ProviderPanel.tsx`, `src/ConversationPanel.tsx`, `README.md`, `docs/STATUS.md`, and this handoff.
+
+Decisions added/superseded: none. Follows ADR-009. Query embedding still runs on the chat path only when the index is already ready (required for semantic search); index rebuild does not.
+
+Verification and actual results: TDD red on missing `superseded_targets` / skip-ID signatures; green after gating and worker. `cargo test --manifest-path src-tauri/Cargo.toml` PASS: 106 passed, 2 ignored. `cargo fmt --all -- --check` PASS. `cargo clippy --all-targets -- -D warnings` PASS. `npm run lint` PASS. `npm run typecheck` PASS.
+
+Incomplete work / blockers: live embedding quality against a reachable embedding model was not measured. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: none scheduled. T16/T18 remain environment-limited.
