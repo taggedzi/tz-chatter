@@ -190,6 +190,14 @@ Add a Characters primary view that lists known vaults, creates new portable char
 
 Acceptance: a user can create a character, add an existing vault, edit identity fields, and switch the active character from the library; creating refuses to overwrite an existing `character.md`; missing vaults remain listed with an error; the application prompt is first in the serialized request when present and omitted when empty; extraction still cannot edit `character.md`; frontend lint/typecheck/build pass.
 
+### T22 — Populate the provider chat model list from discovery
+
+Depends on: T04, T21.
+
+Settings → Provider should list chat-capable models reported by the connected provider instead of relying on a free-text field with hidden autocomplete. Run discovery when the panel loads and when connection details change; keep a manual refresh; preserve a typed custom name when discovery fails or the saved model is not in the provider list.
+
+Acceptance: the chat model control is populated from `provider_discover`; the saved model remains selectable if it is absent from discovery; a custom name can still be entered; frontend lint/typecheck/build pass.
+
 ## Milestone exit policy
 
 A milestone is complete only when its tasks are `done`. Mark task criteria separately if an implementation is ready but a required runtime check is unavailable. Do not infer tested operating systems, models, or providers from shared code paths.

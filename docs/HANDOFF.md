@@ -444,3 +444,27 @@ Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.tom
 Incomplete work / blockers: T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
 
 Next concrete action: retain T16/T18 in progress; T21 is complete. Open Characters to create or add a vault, and Settings → Prompt to edit the application rules.
+
+## 2026-09-12 — T22: populate chat model list from the provider
+
+Scope and outcome: Settings → Provider no longer uses a free-text chat model field with a hidden datalist. The panel queries `provider_discover` on load and whenever provider kind, endpoint, or bearer token change, then fills a select with chat-capable models. A saved model that the provider does not currently list remains selectable. Other… reveals a text field for a custom name. If discovery fails or returns nothing, the original text field is shown. The previous Discover models button is now Refresh models.
+
+Files changed: `src/ProviderPanel.tsx`, `docs/PLAN.md`, `docs/STATUS.md`, and this handoff.
+
+Decisions added/superseded: none. This uses the existing T04 discovery contract; Ollama still reports every tagged model as chat-capable.
+
+Verification and actual results: `npm run lint`, `npm run typecheck`, and `npm run build` passed. Native window interaction and a live Ollama discovery click-through were not run in this session.
+
+Incomplete work / blockers: T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited. Embedding model remains a free-text field.
+
+Next concrete action: retain T16/T18 in progress; T22 is complete. Open Settings → Provider with a reachable local provider to confirm the chat model select fills.
+
+## 2026-09-12 — T22 follow-up: Other… is a single custom field
+
+Scope and outcome: selecting Other… no longer leaves the model dropdown visible while adding a text field. Custom entry replaces the select with one input. Choose from provider list returns to the discovered-model dropdown.
+
+Files changed: `src/ProviderPanel.tsx`, `src/App.css`, `docs/STATUS.md`, and this handoff.
+
+Verification: `npm run lint` and `npm run typecheck` passed.
+
+Next concrete action: retain T16/T18 in progress.

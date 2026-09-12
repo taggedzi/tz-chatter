@@ -417,6 +417,17 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
+.settings-field {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.settings-field .text-button {
+  justify-self: start;
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: "Segoe UI", sans-serif;
+}
 .settings-grid label, .vault-open-form label, .memory-toolbar label, .memory-editor label, .prompt-form label, .character-editor label, .character-composer label {
   display: grid;
   gap: 6px;

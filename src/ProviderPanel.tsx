@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { notifyProviderChanged, activeCharacterId, activeSessionId, activeSessionStorageKeys } from "./activeSession";
 import { initiativeClient } from "./initiative";
 import { providerClient, type ProviderConfig, type ProviderKind } from "./providers";
@@ -12,10 +12,16 @@ const initialProvider: ProviderConfig = {
   bearer_token: null,
 };
 
+const customChatModelValue = "__tz_custom_chat_model__";
+
 export function ProviderPanel() {
   const [provider, setProvider] = useState(initialProvider);
   const [status, setStatus] = useState<string | null>(null);
   const [discoveredModels, setDiscoveredModels] = useState<string[]>([]);
+  const [settingsReady, setSettingsReady] = useState(false);
+  const [enterCustomChatModel, setEnterCustomChatModel] = useState(false);
+  const discoverySeq = useRef(0);
+  const providerRef = useRef(provider);
   const [useHybridRetrieval, setUseHybridRetrieval] = useState(
     () => localStorage.getItem("tz-chatter.use-hybrid-retrieval") === "true",
   );
@@ -27,6 +33,8 @@ export function ProviderPanel() {
       if (active) setProvider(active);
     } catch {
       // Defaults remain usable before the first saved app config.
+    } finally {
+      setSettingsReady(true);
     }
   }, []);
 
@@ -34,6 +42,55 @@ export function ProviderPanel() {
     const timer = window.setTimeout(() => void loadSavedProvider(), 0);
     return () => window.clearTimeout(timer);
   }, [loadSavedProvider]);
+
+  const discoverModels = useCallback(async (config: ProviderConfig, options?: { quiet?: boolean }) => {
+    const seq = ++discoverySeq.current;
+    if (!options?.quiet) setStatus("Discovering models…");
+    try {
+      const result = await providerClient.discover({
+        ...config,
+        chat_model: config.chat_model.trim() || "discovery",
+      });
+      if (seq !== discoverySeq.current) return;
+      const models = result.models
+        .filter((model) => model.supports_chat)
+        .map((model) => model.id)
+        .filter((id, index, all) => id && all.indexOf(id) === index);
+      setDiscoveredModels(models);
+      if (models.includes(config.chat_model)) setEnterCustomChatModel(false);
+      if (!options?.quiet) {
+        setStatus(
+          models.length > 0
+            ? `Found ${models.length} chat model${models.length === 1 ? "" : "s"}.`
+            : "No chat-capable models were reported.",
+        );
+      }
+    } catch (requestError) {
+      if (seq !== discoverySeq.current) return;
+      setDiscoveredModels([]);
+      if (!options?.quiet) {
+        setStatus(requestError instanceof Error ? requestError.message : String(requestError));
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    providerRef.current = provider;
+  }, [provider]);
+
+  useEffect(() => {
+    if (!settingsReady) return;
+    const timer = window.setTimeout(() => void discoverModels(providerRef.current, { quiet: true }), 250);
+    return () => window.clearTimeout(timer);
+  }, [settingsReady, provider.kind, provider.endpoint, provider.bearer_token, discoverModels]);
+
+  const chatModelOptions = useMemo(() => {
+    const models = [...discoveredModels];
+    if (provider.chat_model && !models.includes(provider.chat_model) && !enterCustomChatModel) {
+      models.unshift(provider.chat_model);
+    }
+    return models;
+  }, [discoveredModels, enterCustomChatModel, provider.chat_model]);
 
   async function saveProvider() {
     try {
@@ -90,22 +147,6 @@ export function ProviderPanel() {
     }
   }
 
-  async function discoverModels() {
-    setStatus("Discovering models…");
-    try {
-      const result = await providerClient.discover(provider);
-      const models = result.models.filter((model) => model.supports_chat).map((model) => model.id);
-      setDiscoveredModels(models);
-      setStatus(
-        models.length > 0
-          ? `Found ${models.length} chat model${models.length === 1 ? "" : "s"}.`
-          : "No chat-capable models were reported.",
-      );
-    } catch (requestError) {
-      setStatus(requestError instanceof Error ? requestError.message : String(requestError));
-    }
-  }
-
   return (
     <section className="settings-section" aria-labelledby="provider-settings-heading">
       <div className="section-heading">
@@ -122,6 +163,8 @@ export function ProviderPanel() {
           Provider
           <select value={provider.kind} onChange={(event) => {
             const kind = event.target.value as ProviderKind;
+            setDiscoveredModels([]);
+            setEnterCustomChatModel(false);
             setProvider({
               ...provider,
               kind,
@@ -133,11 +176,50 @@ export function ProviderPanel() {
             <option value="open_ai_compatible">OpenAI-compatible</option>
           </select>
         </label>
-        <label>
-          Chat model
-          <input list="provider-model-options" value={provider.chat_model} onChange={(event) => setProvider({ ...provider, chat_model: event.target.value })} />
-          <datalist id="provider-model-options">{discoveredModels.map((model) => <option key={model} value={model} />)}</datalist>
-        </label>
+        <div className="settings-field">
+          <label>
+            Chat model
+            {discoveredModels.length > 0 && !enterCustomChatModel ? (
+              <select
+                value={provider.chat_model}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === customChatModelValue) {
+                    setEnterCustomChatModel(true);
+                    if (discoveredModels.includes(provider.chat_model)) {
+                      setProvider({ ...provider, chat_model: "" });
+                    }
+                    return;
+                  }
+                  setProvider({ ...provider, chat_model: value });
+                }}
+              >
+                {chatModelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
+                <option value={customChatModelValue}>Other…</option>
+              </select>
+            ) : (
+              <input
+                value={provider.chat_model}
+                onChange={(event) => setProvider({ ...provider, chat_model: event.target.value })}
+                placeholder={discoveredModels.length > 0 ? "Enter a model name" : "llama3.2:latest"}
+              />
+            )}
+          </label>
+          {enterCustomChatModel && discoveredModels.length > 0 ? (
+            <button
+              className="text-button"
+              onClick={() => {
+                setEnterCustomChatModel(false);
+                if (!provider.chat_model && discoveredModels[0]) {
+                  setProvider({ ...provider, chat_model: discoveredModels[0] });
+                }
+              }}
+              type="button"
+            >
+              Choose from provider list
+            </button>
+          ) : null}
+        </div>
         <label>
           Embedding model (optional)
           <input value={provider.embedding_model ?? ""} onChange={(event) => setProvider({ ...provider, embedding_model: event.target.value || null })} placeholder="nomic-embed-text" />
@@ -167,7 +249,7 @@ export function ProviderPanel() {
       <div className="action-row">
         <button className="primary-button" onClick={() => void saveProvider()} type="button">Save provider</button>
         <button className="outline-button" onClick={() => void checkProvider()} type="button">Check connection</button>
-        <button className="outline-button" onClick={() => void discoverModels()} type="button">Discover models</button>
+        <button className="outline-button" onClick={() => void discoverModels(provider)} type="button">Refresh models</button>
       </div>
       {status && <p className="inline-status" role="status">{status}</p>}
     </section>

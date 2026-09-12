@@ -4,11 +4,11 @@ Last updated: 2026-09-12
 
 ## Current position
 
-- Project phase: Milestone 7 in progress (T19, T20, and T21 complete; T16/T18 remain open only for environment-limited checks).
+- Project phase: Milestone 7 in progress (T19–T22 complete; T16/T18 remain open only for environment-limited checks).
 - Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, and T19 completion-audit remediations A01-A15.
 - T01 delivered: React/TypeScript shell, Rust command boundary, frontend/Rust lockfiles, validation scripts, and a Windows launch check.
 - Repository: initialized locally on `main`; no remote configured. T19/A13 commit `6a08a51` contains the reviewed application sources.
-- Active task: none. T21 is done.
+- Active task: none. T22 is done.
 - Next task: retain T16/T18 in progress for visual Windows tray/keyboard interaction and live llama.cpp/LM Studio checks if those become available.
 - Blockers: no known implementation blockers. Native Computer Use visual inspection remains unavailable; process/window inspection verified launch and responsiveness.
 
@@ -43,15 +43,16 @@ The plan contains dependencies and acceptance criteria. This table is the author
 | T19 | Completion-audit remediation | done | A01-A15 resolved with tests/evidence in `docs/AUDIT.md`; 79 Rust tests passed and 2 ignored; strict Clippy, frontend lint/typecheck/build, MSI/NSIS rebuild, and two packaged launches passed. A11 live tray/keyboard Computer Use remains environment-limited. |
 | T20 | Consolidate the chat layout | done | Chat is the default full-height transcript; sidebar lists sessions and starts new ones; Settings overlay holds provider, initiative, and vault/portability; Memories uses the loaded character. 80 Rust tests passed and 2 ignored; frontend lint/typecheck/build passed. |
 | T21 | Character library and application prompt | done | Characters library creates/adds/edits portable vaults; Settings → Prompt stores application rules outside character data; prompt builder prepends those rules. 90 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. |
+| T22 | Provider chat model discovery list | done | Settings → Provider chat model is a select filled from `provider_discover`; auto-runs on load and when endpoint/kind/token change. Other… replaces the select with one text field and a return-to-list control. Frontend lint/typecheck passed after the double-input fix. |
 
 ## Active work and resumption
 
-Task: T21 — Character library and application prompt (complete)
+Task: T22 — Populate the provider chat model list from discovery (complete)
 Owner/session and date: Grok / current session — 2026-09-12
-Scope / files being edited: `src/App.tsx`, `src/App.css`, `src/CharacterPanel.tsx`, `src/characters.ts`, `src/PromptPanel.tsx`, `src/SettingsPanel.tsx`, `src/ConversationPanel.tsx`, `src/conversation.ts`, `src/initiative.ts`, `src-tauri/src/characters.rs`, `src-tauri/src/prompt.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/initiative.rs`, `src-tauri/src/lib.rs`, `docs/PLAN.md`, `docs/STATUS.md`, `docs/HANDOFF.md`, `docs/DECISIONS.md`, `docs/PROJECT.md`, and `README.md`. No overlapping work reported.
-Completed in this session: Characters tab with persisted library (create, add existing, edit identity, remove from catalog); Settings → Prompt for global application rules; prompt assembly prepends those rules before character identity and memories; empty saved rules omit the extra message.
-Remaining acceptance criteria: none for T21. T18 still lacks visual accessibility/keyboard interaction evidence and a live non-Ollama provider smoke test. T16 visual tray verification remains unavailable.
-Verification commands and outcomes: `cargo test --manifest-path src-tauri/Cargo.toml` — PASS, 90 passed and 2 ignored; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` — PASS; `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` — PASS; `npm run lint`, `npm run typecheck`, `npm run build` — PASS. Native window interaction was not re-run in this session.
+Scope / files being edited: `src/ProviderPanel.tsx`, `docs/PLAN.md`, `docs/STATUS.md`, `docs/HANDOFF.md`. No overlapping work reported.
+Completed in this session: Chat model is a provider-backed select. Other… no longer stacks a second field under the dropdown; it replaces the select with one text input and a Choose from provider list control.
+Remaining acceptance criteria: none for T22. T18 still lacks visual accessibility/keyboard interaction evidence and a live non-Ollama provider smoke test. T16 visual tray verification remains unavailable.
+Verification commands and outcomes: `npm run lint`, `npm run typecheck` — PASS after the Other… double-input fix. Native window interaction was not re-run.
 Blocker and unblock action (if any): none.
 Exact next step: retain T16/T18 in progress for remaining visual/tool and live non-Ollama provider limitations.
 
@@ -143,3 +144,5 @@ Update the task board and append a handoff entry in the same change. Keep this f
 | 2026-09-12 | T20 chat layout | cargo test; cargo fmt --check; npm lint/typecheck/build | PASS: 80 Rust tests passed and 2 ignored including session list/open/start; frontend checks passed; native window interaction not re-run |
 | 2026-09-12 | Sample Lyra vault | cargo test bundled_sample | PASS: character, six memories, and welcome transcript load from `examples/characters/lyra` |
 | 2026-09-12 | T21 character library and application prompt | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 90 Rust tests passed and 2 ignored including library create/add/save, missing-vault listing, overwrite refusal, and application-prompt ordering; frontend checks passed; native window interaction not re-run |
+| 2026-09-12 | T22 provider chat model list | npm lint/typecheck/build | PASS: frontend checks passed; chat model select is populated from `provider_discover`; native window and live provider discovery were not re-run |
+| 2026-09-12 | T22 Other… double-input fix | npm lint/typecheck | PASS: Other… now replaces the select with one text field; return-to-list control added |
