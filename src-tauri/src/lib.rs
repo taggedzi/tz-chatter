@@ -933,7 +933,27 @@ async fn process_extraction_queue(
             let _ = queue.fail(&job.id, &message);
             continue;
         }
-        let _ = queue.accept_model_output(&job.id, &output);
+        match queue.accept_model_output(&job.id, &output) {
+            Ok(proposals) if !cancellation.is_cancelled() => {
+                let mut memories = memory::MemoryStore::open(&vault, &character.id)
+                    .map_err(|error| error.to_string())?;
+                let mut service = reconciliation::ReconciliationService::new(&queue, &mut memories);
+                for proposal in proposals {
+                    let origin = extraction::effective_origin(&proposal.candidate, &transcript);
+                    if origin != proposal.candidate.origin {
+                        queue
+                            .reclassify_proposal(&proposal.id, origin.clone())
+                            .map_err(|error| error.to_string())?;
+                    }
+                    if extraction::is_auto_writable(&origin) {
+                        service
+                            .auto_commit(&proposal.id)
+                            .map_err(|error| error.to_string())?;
+                    }
+                }
+            }
+            _ => {}
+        }
         tokio::task::yield_now().await;
     }
 }
@@ -1313,6 +1333,8 @@ mod tests {
         process_extraction_queue, RuntimeState,
     };
     use crate::conversation::ChatTransport;
+    use crate::extraction::ProposalOrigin;
+    use crate::memory::MemoryStore;
     use crate::providers::{ChatStreamEvent, ProviderConfig, ProviderError, ProviderKind};
     use crate::storage::{
         CharacterDefinition, MemoryRecord, MemoryType, TranscriptDocument, TranscriptTurn,
@@ -1502,8 +1524,12 @@ mod tests {
     }
 
     fn extraction_output(source: &str) -> String {
+        extraction_output_with(source, "user_stated", "User likes quiet cafes.")
+    }
+
+    fn extraction_output_with(source: &str, origin: &str, body: &str) -> String {
         format!(
-            r#"{{"schema_version":1,"proposals":[{{"memory_type":"semantic","body":"User likes quiet cafes.","source_turn_ids":["{source}"],"evidence":[{{"turn_id":"{source}","quote":"quiet cafes"}}],"confidence":0.8,"origin":"user_stated"}}]}}"#
+            r#"{{"schema_version":1,"proposals":[{{"memory_type":"semantic","body":"{body}","source_turn_ids":["{source}"],"evidence":[{{"turn_id":"{source}","quote":"quiet cafes"}}],"confidence":0.8,"origin":"{origin}"}}]}}"#
         )
     }
 
@@ -1567,7 +1593,11 @@ mod tests {
                 ]),
                 Ok(vec![
                     ChatStreamEvent::Delta {
-                        text: extraction_output("user-2"),
+                        text: extraction_output_with(
+                            "user-2",
+                            "inferred",
+                            "The user might prefer mornings.",
+                        ),
                     },
                     ChatStreamEvent::Completed {
                         finish_reason: Some("stop".into()),
@@ -1593,8 +1623,23 @@ mod tests {
         .unwrap();
 
         let mut queue = crate::extraction::ExtractionQueue::open(&vault, "lyra").unwrap();
-        assert_eq!(queue.pending_proposals().unwrap().len(), 2);
+        let mut memories = MemoryStore::open(&vault, "lyra").unwrap();
+        let listed = memories.list().unwrap();
+        assert!(listed
+            .iter()
+            .any(|memory| memory.body.contains("User likes quiet cafes.")));
+        assert!(!listed
+            .iter()
+            .any(|memory| memory.body.contains("The user might prefer mornings.")));
+        let pending = queue.pending_proposals().unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].candidate.origin, ProposalOrigin::Inferred);
+        assert!(pending[0]
+            .candidate
+            .body
+            .contains("The user might prefer mornings."));
         assert!(queue.claim_next().unwrap().is_none());
+        drop(memories);
         drop(queue);
         fs::remove_dir_all(root).unwrap();
     }

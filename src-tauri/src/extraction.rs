@@ -371,6 +371,29 @@ impl ExtractionQueue {
         Ok(proposals)
     }
 
+    pub fn reclassify_proposal(
+        &self,
+        proposal_id: &str,
+        origin: ProposalOrigin,
+    ) -> Result<MemoryProposal, ExtractionError> {
+        let mut proposal = self
+            .get_proposal(proposal_id)?
+            .ok_or_else(|| ExtractionError::InvalidInput("proposal not found".into()))?;
+        if proposal.status != ProposalStatus::NeedsReview {
+            return Err(ExtractionError::InvalidInput(
+                "only a pending proposal can be reclassified".into(),
+            ));
+        }
+        proposal.candidate.origin = origin;
+        let candidate_json = serde_json::to_string(&proposal.candidate)
+            .map_err(|error| ExtractionError::Storage(error.to_string()))?;
+        self.connection.execute(
+            "UPDATE memory_proposals SET candidate_json = ?1 WHERE id = ?2 AND character_id = ?3",
+            params![candidate_json, proposal_id, self.character_id],
+        )?;
+        Ok(proposal)
+    }
+
     pub fn pending_proposals(&self) -> Result<Vec<MemoryProposal>, ExtractionError> {
         let mut statement = self.connection.prepare(
             "SELECT id, job_id, character_id, source_session_id, candidate_json, status
@@ -560,6 +583,40 @@ impl ExtractionQueue {
             .optional()
             .map_err(ExtractionError::from)
     }
+}
+
+pub fn effective_origin(
+    candidate: &ExtractionCandidate,
+    transcript: &TranscriptDocument,
+) -> ProposalOrigin {
+    match candidate.origin {
+        ProposalOrigin::Inferred => ProposalOrigin::Inferred,
+        ProposalOrigin::UserStated => {
+            let quotes_user = candidate.evidence.iter().any(|evidence| {
+                transcript
+                    .turns
+                    .iter()
+                    .any(|turn| turn.id == evidence.turn_id && turn.role == TurnRole::User)
+            });
+            if quotes_user {
+                ProposalOrigin::UserStated
+            } else {
+                ProposalOrigin::Inferred
+            }
+        }
+        ProposalOrigin::ConversationEvent | ProposalOrigin::CharacterFact => {
+            candidate.origin.clone()
+        }
+    }
+}
+
+pub fn is_auto_writable(origin: &ProposalOrigin) -> bool {
+    matches!(
+        origin,
+        ProposalOrigin::UserStated
+            | ProposalOrigin::ConversationEvent
+            | ProposalOrigin::CharacterFact
+    )
 }
 
 /// Build a bounded, data-labelled request for the selected provider. The model's
@@ -936,6 +993,55 @@ mod tests {
         assert_eq!(reclaimed.attempts, 1);
         drop(queue);
         fs_remove(&root);
+    }
+
+    #[test]
+    fn user_stated_without_user_turn_quote_is_inferred() {
+        let mut transcript = TranscriptDocument::new("session-1", "lyra");
+        transcript.turns.push(TranscriptTurn {
+            id: "user-1".into(),
+            timestamp: "1".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "I like quiet cafes.".into(),
+        });
+        transcript.turns.push(TranscriptTurn {
+            id: "asst-1".into(),
+            timestamp: "2".into(),
+            role: TurnRole::Assistant,
+            status: TurnStatus::Complete,
+            content: "I will remember that.".into(),
+        });
+        let mut candidate = ExtractionCandidate {
+            memory_type: MemoryType::Semantic,
+            body: "User likes quiet cafes.".into(),
+            source_turn_ids: vec!["asst-1".into()],
+            evidence: vec![ProposalEvidence {
+                turn_id: "asst-1".into(),
+                quote: "I will remember that.".into(),
+            }],
+            confidence: 0.8,
+            origin: ProposalOrigin::UserStated,
+            related_memory_ids: Vec::new(),
+            relation: None,
+        };
+        assert_eq!(
+            effective_origin(&candidate, &transcript),
+            ProposalOrigin::Inferred
+        );
+        candidate.evidence[0].turn_id = "user-1".into();
+        assert_eq!(
+            effective_origin(&candidate, &transcript),
+            ProposalOrigin::UserStated
+        );
+    }
+
+    #[test]
+    fn inferred_origin_never_becomes_auto_writable() {
+        assert!(!is_auto_writable(&ProposalOrigin::Inferred));
+        assert!(is_auto_writable(&ProposalOrigin::UserStated));
+        assert!(is_auto_writable(&ProposalOrigin::ConversationEvent));
+        assert!(is_auto_writable(&ProposalOrigin::CharacterFact));
     }
 
     fn fs_remove(path: &PathBuf) {

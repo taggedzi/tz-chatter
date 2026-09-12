@@ -524,3 +524,17 @@ Verification and actual results: documentation-only.
 Incomplete work / blockers: T24 and T25 are `todo`. T16/T18 visual/live-provider checks remain environment-limited.
 
 Next concrete action: start T24. Write failing `effective_origin` / auto-commit tests, then wire `process_extraction_queue` to `ReconciliationService` per the executor plan.
+
+## 2026-09-12 — T24: auto-write validated memories
+
+Scope and outcome: after a successful extraction job, each proposal’s origin is classified against the transcript. `user_stated` without a user-turn evidence quote is treated as inferred. Validated user-stated, conversation-event, and character-fact proposals are auto-accepted and committed as **new** Markdown files through existing `MemoryStore::create` / `commit_accepted`. Inferred guesses stay `needs_review` and are not indexed. Duplicate, suppression, supersession-link, and lock behavior is unchanged; `CommitResult::Locked` reverts the proposal to `needs_review`. Workers do not mutate existing memory bodies. `superseded_targets` was not implemented (T25).
+
+Files changed: `src-tauri/src/extraction.rs`, `src-tauri/src/reconciliation.rs`, `src-tauri/src/lib.rs`, `docs/STATUS.md`, and this handoff.
+
+Decisions added/superseded: none. Follows ADR-009.
+
+Verification and actual results: TDD red on missing `effective_origin` / `auto_commit`; green after wiring. `cargo test --manifest-path src-tauri/Cargo.toml` PASS: 101 passed, 2 ignored. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` PASS. `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` PASS.
+
+Incomplete work / blockers: T25 not started. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: start T25 — hybrid retrieval by default, lexical fallback without embedding on the chat path, background embed worker, skip superseded targets.
