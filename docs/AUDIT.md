@@ -40,7 +40,7 @@ This audit was requested after an earlier model reported the project as complete
 - A10: Context nav item removed. Inspector shows omissions/budget and opens Markdown through a confined `memory_source_path`. Test: `memory_source_navigation_is_limited_to_existing_markdown_memories`.
 - A11: Close-to-tray is implemented (`hide_window_instead_of_closing`) and unit-tested. Live tray/keyboard Computer Use helper is unavailable in this environment; that limit is recorded rather than treated as a silent pass.
 - A12: `render_memory_context` uses real newlines. Test: `includes_retrieved_memory_with_an_explicit_source_label`. Strict Clippy passed.
-- A13: Reviewed `src/`, `src-tauri/` sources, lockfiles, `examples/`, frontend config, and continuity docs committed on local `main`; `target/`, `dist/`, `node_modules/`, and `.vscode/` left untracked.
+- A13: Reviewed `src/`, `src-tauri/` sources, lockfiles, `examples/`, frontend config, and continuity docs committed on local `main` as `6a08a51`; `target/`, `dist/`, `node_modules/`, and `.vscode/` left untracked.
 - A14: Provider context-limit errors retry once with `PromptBudget { context_tokens: 2048, reserved_output_tokens: 512 }`. Test: `provider_context_limit_retries_once_with_a_smaller_prompt` asserts the retry request is smaller.
 - A15: `memory_upsert` carries original type/id and `rename`s. Test: `memory_upsert_moves_an_existing_record_without_leaving_a_duplicate`.
 

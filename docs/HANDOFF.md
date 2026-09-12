@@ -397,7 +397,7 @@ Next action: retain T18 in progress with the release support claim limited to li
 
 Scope and outcome: finished the leftover ChatGPT/Codex T19 issue list in `docs/AUDIT.md`. Existing remediations were kept. Remaining gaps closed with canonical search-record edits, vault/character command validation, composer load gating, active-character UI identity, hybrid retrieval with lexical fallback, incremental stream events, a draining resume extraction worker that yields to chat, natural-language lexical retrieval, local-offset quiet hours and resume suppression, one labelled initiative turn plus `initiative-delivered` UI updates, Context-nav removal and inspector source/budget details, close-to-tray, real newline memory separators, strict Clippy, context-limit prompt retry, and conflict-checked memory-type moves.
 
-Files changed: `src-tauri/src/lib.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/prompt.rs`, `src-tauri/src/retrieval.rs`, `src/ConversationPanel.tsx`, `src/MemoryPanel.tsx`, `src/PortabilityPanel.tsx`, `docs/AUDIT.md`, `docs/STATUS.md`, `docs/HANDOFF.md`, plus the previously untracked application tree committed for A13.
+Files changed: `src-tauri/src/lib.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/prompt.rs`, `src-tauri/src/retrieval.rs`, `src/ConversationPanel.tsx`, `src/MemoryPanel.tsx`, `src/PortabilityPanel.tsx`, `docs/AUDIT.md`, `docs/STATUS.md`, `docs/HANDOFF.md`, plus the previously untracked application tree committed as `6a08a51` for A13.
 
 Decisions added/superseded: none.
 

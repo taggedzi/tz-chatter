@@ -7,7 +7,7 @@ Last updated: 2026-09-12
 - Project phase: Milestone 7 in progress (T19 complete; T16/T18 remain open only for environment-limited checks).
 - Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, and T19 completion-audit remediations A01-A15.
 - T01 delivered: React/TypeScript shell, Rust command boundary, frontend/Rust lockfiles, validation scripts, and a Windows launch check.
-- Repository: initialized locally on `main`; no remote configured. T19/A13 commits the reviewed application sources onto `main`.
+- Repository: initialized locally on `main`; no remote configured. T19/A13 commit `6a08a51` contains the reviewed application sources.
 - Active task: none. T19 is done.
 - Next task: retain T16/T18 in progress for visual Windows tray/keyboard interaction and live llama.cpp/LM Studio checks if those become available.
 - Blockers: no known implementation blockers. Native Computer Use visual inspection remains unavailable; process/window inspection verified launch and responsiveness.
