@@ -26,6 +26,188 @@ Environment recovery: sandbox ownership of `.git` triggered Git's ownership chec
 
 Next action: T01 — inspect toolchains and scaffold the desktop application. Use the existing repository; no further Git initialization is needed.
 
+## 2026-09-11 — T01: desktop scaffold
+
+Scope and outcome: created the Tauri 2 desktop shell with React/TypeScript/Vite frontend and Rust core. Replaced the generator demo with a local-first tz-chatter landing shell, added a typed `app_info` command, and documented repeatable setup/validation commands.
+
+Files changed: `package.json`, `package-lock.json`, `index.html`, `eslint.config.js`, `src/`, `src-tauri/`, `README.md`, `.gitignore`, and the T01 status record. The official generator removed tracked continuity files during its forced scaffold; those exact files were restored from the baseline commit before work continued.
+
+Decisions added/superseded: none. The bundle identifier is `com.tzchatter.desktop`; the scaffold uses Tauri 2, React 19, Vite 8, TypeScript 6, and the current Rust-compatible Tauri crates resolved in `Cargo.lock`.
+
+Verification and actual results: `npm run lint`, `npm run typecheck`, `npm run build`, `cargo check --manifest-path src-tauri\\Cargo.toml`, `cargo fmt --manifest-path src-tauri\\Cargo.toml --all -- --check`, and `npx tauri build --no-bundle` all passed. `npm run tauri dev` compiled and opened a responsive native `tz-chatter` window, verified via process metadata (`Responding=True`).
+
+Incomplete work / blockers: the Computer Use helper failed to initialize, so no screenshot-based visual QA was recorded. No provider integration, character vault, transcript persistence, or tests beyond scaffold validation are claimed.
+
+Next concrete action: begin T02 provider contracts/configuration or T03 character/transcript storage; both now depend only on completed T01.
+
+## 2026-09-11 — T02: provider contracts and configuration
+
+Scope and outcome: added provider-neutral contracts for health, model discovery, streamed chat, cancellation, embeddings, capabilities, and structured failures. Added validated provider configuration and app-config persistence independent of character vaults. The UI has matching TypeScript types and typed invoke helpers.
+
+Files changed: `src-tauri/src/providers.rs`, `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`, `src/providers.ts`, `Cargo.lock`, and the T02 status record.
+
+Decisions added/superseded: none. Ollama exposes a baseline embedding capability; OpenAI-compatible transports expose chat/cancellation but embeddings remain negotiated instead of assumed across llama.cpp and LM Studio.
+
+Verification and actual results: `cargo test --manifest-path src-tauri\\Cargo.toml` passed all 6 tests. Tests cover invalid endpoints/credentials, unsupported embeddings, explicit unreachable health and cancellation values, bearer-token redaction, unknown active providers, and settings round-trip persistence. `npm run lint`, `npm run typecheck`, `npm run build`, `cargo fmt --manifest-path src-tauri\\Cargo.toml --all -- --check`, and `cargo check --manifest-path src-tauri\\Cargo.toml` passed.
+
+Incomplete work / blockers: no network transport or live provider smoke test is part of T02; those are T04. The settings writer uses a temporary file and replacement boundary; deeper vault conflict/migration behavior belongs to T03/T17.
+
+Next concrete action: T03 — formalize character, memory, transcript, and operational-state storage with portable Markdown and safe persistence.
+
+## 2026-09-11 — T03: character and transcript storage
+
+Scope and outcome: formalized versioned character identity, memory records, transcript documents, and durable operational state. Added YAML-frontmatter Markdown serialization, an unambiguous length-delimited transcript turn format, stable UUID IDs, vault path confinement, load/create/validate behavior, atomic replacement with backup recovery, and the original Lyra sample character.
+
+Files changed: `src-tauri/src/storage.rs`, `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `examples/characters/lyra/character.md`, and the T03 status record.
+
+Decisions added/superseded: none. Character identity remains separate from writable memory files; transcripts preserve roles, status, IDs, timestamps, and multiline Markdown content without relying on rendered text boundaries.
+
+Verification and actual results: `cargo test --manifest-path src-tauri\\Cargo.toml` passed all 11 tests. The suite covers round-tripping character/memory/transcript/state data, bundled sample loading, invalid schemas, traversal and unsafe IDs, identity/memory separation, and a simulated interrupted write that leaves the previous valid file readable. `cargo check`, `cargo fmt --check`, frontend lint/type/build, and `git diff --check` also passed.
+
+Incomplete work / blockers: provider transport, real HTTP streaming, model discovery, and conversation lifecycle remain unimplemented. The vault APIs are currently Rust-core APIs; T05 will connect them to chat commands and UI state.
+
+Next concrete action: T04 — implement and mock-test Ollama and OpenAI-compatible provider connections, including fragmented streams and cancellation.
+
+## 2026-09-11 — T04: provider connections
+
+Scope and outcome: implemented asynchronous Ollama and OpenAI-compatible HTTP clients with provider-specific health/discovery paths, chat and embedding payloads, bearer-token handling, cancellation-aware streamed responses, fragmented NDJSON/SSE decoders, typed Tauri health/discovery/embedding commands, and deterministic protocol tests.
+
+Files changed: `src-tauri/src/connections.rs`, `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src/providers.ts`, and the T04 status record.
+
+Decisions added/superseded: none. OpenAI-compatible embeddings remain capability-gated rather than assumed; the adapter uses `/v1/models`, `/v1/chat/completions`, and `/v1/embeddings`, while Ollama uses `/api/tags`, `/api/chat`, and `/api/embed`.
+
+Verification and actual results: deterministic `cargo test --manifest-path src-tauri\\Cargo.toml` passed 16 tests. The explicitly ignored live test passed against the existing Ollama service on `127.0.0.1:11434`, discovering `llama3.2:latest` and receiving a real streamed reply in 18.84s. Frontend lint/type/build, Rust check/fmt, and `npx tauri build --no-bundle` passed.
+
+Incomplete work / blockers: no llama.cpp or LM Studio server was running, so their live compatibility is not claimed. Port 8080 returned an unrelated Secret Garden HTML page. The provider stream service is ready for T05 orchestration; full UI event delivery and persisted turn lifecycle are not yet implemented.
+
+Next concrete action: T05 — connect character/session selection, composer, streamed replies, cancellation/retry, and transcript persistence while snapshotting character/session IDs per request.
+
+## 2026-09-11 — T05: conversation lifecycle
+
+Scope and outcome: implemented the Rust conversation lifecycle service and connected it to the Tauri command boundary and a basic local composer. Each request snapshots character/provider/session/user-turn data, persists the user turn before inference, persists complete/failed/interrupted assistant turns, and supports idempotent delivery plus retry truncation without duplicate user messages.
+
+Files changed: `src-tauri/src/conversation.rs`, `src-tauri/src/lib.rs`, `src/conversation.ts`, `src/ConversationPanel.tsx`, `src/App.tsx`, `src/App.css`, and the T05 status records.
+
+Decisions added/superseded: none. The core accepts an injected transport so lifecycle behavior is testable without network access. Tauri send/retry commands currently create a per-request cancellation token; user-triggered stop control and incremental event delivery remain follow-up work.
+
+Verification and actual results: `cargo test --manifest-path src-tauri\\Cargo.toml` passed 20 tests with one ignored live Ollama smoke test. `cargo check`, Rust fmt check, `npm run lint`, `npm run typecheck`, and `npm run build` all passed.
+
+Incomplete work / blockers: the composer currently asks for a vault path, endpoint, and model directly; provider settings UI, character import/selection, incremental streamed rendering, and a stop button remain ahead. The next planned task is T06 prompt budgeting.
+
+Next concrete action: implement deterministic prompt construction with a bounded token budget and tests, preserving system prompt and current user turn while trimming older context safely.
+
+## 2026-09-11 — T06: budgeted character prompts
+
+Scope and outcome: added deterministic prompt construction between the persisted conversation lifecycle and provider transport. The builder reserves output capacity, estimates input conservatively, assembles character rules/definition, optional scene context, recent complete history, and the current message, then trims oldest history when the input budget is exceeded.
+
+Files changed: `src-tauri/src/prompt.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/lib.rs`, and the T06 status records.
+
+Decisions added/superseded: none. The initial estimator uses roughly one token per three Unicode characters as a conservative fallback; model-specific tokenizers remain a later optimization. The actual request path is tested to include the selected character and serialize the current message once.
+
+Verification and actual results: `cargo test --manifest-path src-tauri\\Cargo.toml` passed 24 tests with one ignored live Ollama smoke test. Prompt tests cover ordering, scene context, oversized base input, history trimming, reserved output capacity, multibyte estimation, and current-message de-duplication. `cargo check`, Rust fmt check, frontend lint/type/build, and `npx tauri build --no-bundle` all passed.
+
+Incomplete work / blockers: the prompt builder currently has a fixed default budget and no retrieved memory context; T07 must add rebuildable Markdown-backed memory indexing. Streaming UI remains aggregated at the command boundary.
+
+Next concrete action: implement memory CRUD, external-change detection, Markdown chunking, SQLite FTS5 indexing, full rebuild, and character isolation tests without making the index the source of truth.
+
+## 2026-09-11 — T07: memory vault and lexical index
+
+Scope and outcome: implemented a rebuildable SQLite FTS5 index over the existing Markdown memory records. Markdown remains the source of truth; the index fingerprints files, detects external edits, removes deleted records, excludes review-excluded memories, chunks long bodies, and can be rebuilt from scratch.
+
+Files changed: `src-tauri/src/memory.rs`, `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and the T07 status records.
+
+Decisions added/superseded: none. The index lives inside each vault and is filtered by its character association; it is disposable and never the only copy of a memory. Update/rename operations reject an externally changed Markdown file until it is reloaded.
+
+Verification and actual results: `cargo test --manifest-path src-tauri\\Cargo.toml` passed 27 tests with one ignored live Ollama smoke test. Memory tests cover create, external edit detection, rename, delete, chunking, exclusion, rebuild, and separate-vault isolation. `cargo check`, Rust fmt check, frontend lint/type/build, and `npx tauri build --no-bundle` all passed; the release includes bundled SQLite FTS5.
+
+Incomplete work / blockers: lexical search is not yet connected to prompt context or the UI; salience/recency/pinned-memory selection belongs to T08. The index is synchronous and currently opened per vault operation.
+
+Next concrete action: connect bounded lexical retrieval to prompt assembly with source labels, deduplication, salience/recency controls, pinned-memory budgets, and deterministic fixture tests.
+
+## 2026-09-11 — T08: retrieved memory in chat
+
+Scope and outcome: connected lexical memory search to bounded prompt construction. Retrieval deduplicates memory IDs, ranks pinned/salient/recent candidates, enforces total and pinned token budgets, carries source paths, and injects an explicitly labeled data-only context section into loopback-provider prompts.
+
+Files changed: `src-tauri/src/memory.rs`, `src-tauri/src/retrieval.rs`, `src-tauri/src/prompt.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/lib.rs`, and the T08 status records.
+
+Decisions added/superseded: remote-compatible endpoints do not receive vault memory by default; only loopback endpoints (`localhost`, `127.0.0.1`, or `::1`) get automatic memory context. This prevents accidental disclosure while leaving an explicit privacy-control extension for a future task.
+
+Verification and actual results: `cargo test --manifest-path src-tauri\\Cargo.toml` passed 30 tests with one ignored live Ollama smoke test. Tests cover retrieval relevance, source labels, deduplication, salience/recency and pinned ordering, token budgets, prompt integration, and character isolation. `cargo check`, Rust fmt check, frontend lint/type/build, and `npx tauri build --no-bundle` all passed.
+
+Incomplete work / blockers: memory browsing, per-turn source inspection, source navigation, and user-facing lock/exclude/delete actions belong to T09. Incremental streamed rendering and explicit remote-memory consent also remain ahead.
+
+Next concrete action: build the memory browser/context inspector and expose source metadata without making the SQLite index the source of truth.
+
+## 2026-09-11 — T09: memory review and context inspection
+
+Outcome: completed T09. The application now exposes typed memory browse/search/upsert/delete commands, renders a Markdown-backed memory review panel, supports explicit accepted/needs-review/excluded status plus pin and lock controls, and shows the exact bounded retrieved sources used by each loopback-provider conversation turn. Excluded records remain browsable so users can restore them; the SQLite index still excludes them from retrieval.
+
+Files changed: `src-tauri/src/storage.rs`, `src-tauri/src/memory.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/lib.rs`, `src/memory.ts`, `src/MemoryPanel.tsx`, `src/ConversationPanel.tsx`, `src/App.tsx`, `src/App.css`, `docs/STATUS.md`, and this handoff.
+
+Verification: `cargo test --manifest-path src-tauri/Cargo.toml` passed with 31 tests and 1 ignored live-provider test; `npm run lint`, `npm run typecheck`, and `npm run build` passed; `npx tauri build --no-bundle` passed and produced `src-tauri/target/release/tz-chatter.exe`; `git diff --check` remains the final hygiene check.
+
+Decision: memory records now carry a backward-compatible `locked` flag for explicit protection against future automatic changes. Remote providers still receive no vault-retrieved context by default; the context inspector therefore displays sources only for loopback retrieval.
+
+Incomplete work / blockers: source navigation currently displays source paths and content in the inspector but does not yet open the Markdown file in an external editor. Extraction, reconciliation, review proposals, semantic ranking, initiative, portability, and packaging remain ahead.
+
+Next action: start T10 by defining a validated persisted extraction-proposal queue; model output must remain untrusted data and cannot directly mutate Markdown memories.
+
+## 2026-09-11 - T10: validated extraction proposals
+
+Outcome: completed T10. Added a durable per-vault extraction queue in `.tz-chatter/state.sqlite3`. Completed transcript turns can be enqueued idempotently, user-chat priority is explicit, running jobs recover after restart, failures retry only up to a bounded maximum, and accepted model output becomes review-only proposals rather than direct Markdown writes.
+
+Files changed: `src-tauri/src/extraction.rs`, `src-tauri/src/lib.rs`, `docs/STATUS.md`, and this handoff.
+
+Verification: `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` passed; `cargo test --manifest-path src-tauri/Cargo.toml` passed with 35 tests and 1 ignored live-provider test; `npm run lint`, `npm run typecheck`, `npm run build`, and `npx tauri build --no-bundle` passed.
+
+Decision: the parser tolerates fenced or surrounding prose JSON but validates schema version, body length, confidence range, source-turn IDs, and evidence references. All proposals retain `needs_review`, including assistant-originated or inferred claims; no extraction path can promote a candidate to a vault memory.
+
+Incomplete work / blockers: no provider-specific extraction call or review UI is wired yet; those belong to the worker integration and T12. The queue currently stores candidate proposals and is ready for T11 reconciliation.
+
+Next action: start T11 by deduplicating proposals and committing accepted candidates atomically to Markdown before refreshing the rebuildable index.
+
+## 2026-09-11 - T11: reconcile and commit memories
+
+Outcome: completed T11. Proposal decisions are durable in `state.sqlite3`; accepted proposals now reconcile through a Markdown-first path, deduplicate across distinct extraction jobs, preserve contradiction/supersession links, respect locked memories, and suppress reconstruction of deleted memories. Tauri commands expose accept, reject, commit, and index repair operations.
+
+Files changed: `src-tauri/src/extraction.rs`, `src-tauri/src/reconciliation.rs`, `src-tauri/src/lib.rs`, `src/memory.ts`, `docs/STATUS.md`, and this handoff.
+
+Verification: `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` passed; `cargo test --manifest-path src-tauri/Cargo.toml` passed with 40 tests and 1 ignored live-provider test; `npm run lint`, `npm run typecheck`, and `npm run build` passed; `npx tauri build --no-bundle` passed and produced `src-tauri/target/release/tz-chatter.exe`.
+
+Decision: accepted candidates create new authoritative Markdown records rather than mutating existing memories. Existing records are only linked as duplicates, contradictions, or supersession targets, so newer user edits and locked files survive background reconciliation. The derived index can be rebuilt from the committed Markdown.
+
+Incomplete work / blockers: proposal review UI and supporting transcript excerpts are still T12; provider-specific extraction scheduling is not yet connected to the chat lifecycle.
+
+Next action: start T12 by exposing pending proposals and review decisions in the memory panel.
+
+## 2026-09-11 - T12: memory review and correction
+
+Outcome: completed T12. The memory panel now loads durable proposals with supporting evidence, allows editing candidate text, accepting, rejecting, and committing, and persists an auto-commit preference in local storage. Rejection removes a proposal from the queue without deleting its transcript; memory deletion remains a separate action with source suppression.
+
+Files changed: `src-tauri/src/extraction.rs`, `src-tauri/src/lib.rs`, `src/memory.ts`, `src/MemoryPanel.tsx`, `src/App.css`, `docs/STATUS.md`, and this handoff.
+
+Verification: `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` passed; `cargo test --manifest-path src-tauri/Cargo.toml` passed with 41 tests and 1 ignored live-provider test; `npm run lint`, `npm run typecheck`, and `npm run build` passed; `npx tauri build --no-bundle` passed and produced `src-tauri/target/release/tz-chatter.exe`.
+
+Decision: review edits update the durable proposal before acceptance; accepted proposals can commit through the existing Markdown-first reconciliation path, so corrected text is indexed for future retrieval. No proposal action erases transcript data.
+
+Incomplete work / blockers: extraction jobs are not yet automatically scheduled from completed chat turns, and proposal review currently requires an explicit Refresh in the memory panel. Semantic indexing, initiative, portability, and final packaging remain ahead.
+
+Next action: start T13 by adding versioned embedding metadata and a rebuildable vector index with lexical fallback.
+
+## 2026-09-11 - T13: embeddings and versioned indexes
+
+Outcome: completed T13. Added an isolated per-character SQLite embedding index with explicit provider/model/dimension/chunking/index metadata, canonical Markdown chunk fingerprints, direct cosine search, strict dimension validation, incompatible-space invalidation, and rebuild interruption recovery. Existing lexical retrieval remains independent and usable when embedding work fails or no model is configured.
+
+Files changed: `src-tauri/src/embeddings.rs`, `src-tauri/src/lib.rs`, `src-tauri/src/memory.rs`, `docs/STATUS.md`, and this handoff.
+
+Verification: `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` passed; `cargo test --manifest-path src-tauri/Cargo.toml` passed with 45 tests and 1 ignored live-provider test; `npm run lint`, `npm run typecheck`, and `npm run build` passed; `npx tauri build --no-bundle` passed and produced `src-tauri/target/release/tz-chatter.exe`.
+
+Decision: an embedding index has one active space per character. Opening it with a changed provider, model, dimension, chunking version, or index version clears derived vectors before rebuilding; a durable `building` marker clears partial vectors after restart. Markdown and the lexical index remain the fallback source of chat retrieval.
+
+Incomplete work / blockers: provider scheduling and UI controls for embedding rebuilds are not yet connected; hybrid ranking and evaluation belong to T14. No live embedding provider was added or claimed by these deterministic tests.
+
+Next action: start T15 by defining durable, quiet-by-default initiative eligibility with cooldown and activity gates.
+
 ## Entry template
 
 ```text
@@ -38,3 +220,189 @@ Verification and actual results:
 Incomplete work / blockers:
 Next concrete action:
 ```
+
+## 2026-09-11 - T14: hybrid ranking and evaluation
+
+Outcome: completed T14. Added an opt-in hybrid retrieval function that joins lexical candidates with versioned semantic candidates, applies entity overlap, reconciliation-link, salience, recency, and pinned signals, diversifies repeated memory types, and exposes machine-readable retrieval reasons and component scores through the conversation boundary.
+
+Files changed: src-tauri/src/retrieval.rs, src-tauri/src/memory.rs, src-tauri/src/prompt.rs, src/conversation.ts, src/ConversationPanel.tsx, and docs/STATUS.md.
+
+Verification: the deterministic evaluation fixture covers exact names, paraphrases, stale contradictory memories, distractors, foreign-character candidates, reason reporting, and token bounds. Representative output retained exact-name recall and semantic paraphrase recall, with lexical latency 995 us and hybrid latency 3166 us on the same small fixture. Full Rust tests passed: 46 tests, 45 passed and 1 ignored.
+
+Decision: keep lexical retrieval as the default until provider scheduling, embedding freshness, and larger evaluation data justify enabling hybrid ranking by default. The hybrid path is explicit and bounded, so failed semantic work does not remove lexical fallback.
+
+Incomplete work / blockers: no known blocker. The UI now displays reason labels for returned memories, but provider-specific background embedding scheduling and rebuild controls remain future work.
+
+Next action: start T15 by defining durable, quiet-by-default initiative eligibility with cooldown and activity gates.
+
+## 2026-09-12 - T15: persisted initiative eligibility
+
+Outcome: completed T15. Added character-scoped initiative settings and counters in state.sqlite3, deterministic eligibility evaluation, Tauri commands, and a Settings panel. Initiative is disabled by default and cannot schedule while consent, activity, quiet-hour, cooldown, cap, unanswered, ignored-backoff, model/resource, or resume-suppression gates fail.
+
+Files changed: src-tauri/src/initiative.rs, src-tauri/src/lib.rs, src/initiative.ts, src/InitiativePanel.tsx, src/App.tsx, and docs/STATUS.md.
+
+Verification: full Rust tests passed with 50 passed and 1 ignored; initiative tests cover quiet-hour boundaries, disabled settings, frequency caps, restart persistence, unanswered state, ignored-message backoff, and sleep/resume catch-up suppression. npm lint, typecheck, build, and npx tauri build --no-bundle passed, producing src-tauri/target/release/tz-chatter.exe.
+
+Decision: persist initiative settings and counters beside extraction state but key them by character. Expose record-activity, sent, ignored, and resume events for T16 to connect to real conversation and scheduling paths.
+
+Incomplete work / blockers: delivery, topic selection, model silence, stale cancellation, tray, and notification behavior remain T16. No known blocker.
+
+Next action: start T16 by implementing and testing the labeled initiative delivery path without fabricating user turns.
+
+## 2026-09-12 - T16: labeled initiative delivery foundation
+
+Outcome: continued T16. Added bounded selection of accepted open-thread memories, a typed initiative request/result contract, an internal initiative event prompt, explicit SILENCE classification, shared runtime cancellation/generation advancement, native tray show/quit behavior, a separate persisted notification preference, native notification dispatch, and delivery that persists an Initiative turn plus Assistant response without fabricating a User turn. Failed, canceled, or silent work remains out of the transcript.
+
+Files changed: src-tauri/Cargo.toml, src-tauri/src/conversation.rs, src-tauri/src/initiative.rs, src-tauri/src/lib.rs, src/initiative.ts, src/conversation.ts, src/ConversationPanel.tsx, src/InitiativePanel.tsx, docs/STATUS.md, and docs/HANDOFF.md.
+
+Verification: cargo fmt passed; full Rust tests passed with 54 passed and 1 ignored, including delivery, silence, stale-generation, newer-user-activity, open-topic filtering, notification persistence, and runtime replacement-cancellation regression tests. npm lint, typecheck, and build passed. npx tauri build --no-bundle passed and produced src-tauri/target/release/tz-chatter.exe. npm run tauri dev launched a responsive notification-enabled `tz-chatter` window. git diff --check passed.
+
+Decision: initiative model output is treated as data. Only a completed non-silence response is persisted, with separate deterministic Initiative and Assistant turn IDs. Explicit stale checks prevent transport work when a newer user activity timestamp or generation is already known. The Tauri runtime owns one cancellation token per character/session key, and starting replacement work cancels the previous token before advancing its generation.
+
+Incomplete work / blockers: tray/notification interaction has only been compile/runtime-launch verified rather than visually exercised. No known blocker.
+
+Next action: visually verify tray and notification behavior on Windows, then move to T17 portability/recovery.
+
+## 2026-09-12 - T17: validated portable character packs
+
+Outcome: started T17 and implemented a directory-based portable pack workflow. Export includes canonical character Markdown, memories, transcripts, and durable operational state; it excludes rebuildable memory indexes, provider settings, credentials, and machine-specific paths. Import stages into a temporary directory, validates content and schema, rebuilds the search index, and only then moves into a new destination. Replacing an existing same-character vault preserves a backup; unrelated destinations are refused.
+
+Files changed: src-tauri/src/portability.rs, src-tauri/src/lib.rs, src/portability.ts, src/PortabilityPanel.tsx, src/App.tsx, docs/STATUS.md, and docs/HANDOFF.md.
+
+Verification: portability tests pass for canonical/durable-state round-trip, legacy manifest migration, traversal and unknown-schema rejection, corrupt source-index recovery, unrelated-vault protection, and same-character replacement backup preservation. Full Rust suite passed with 59 passed and 1 ignored. npm lint, typecheck, build, git diff --check, and npx tauri build --no-bundle passed; release executable produced at src-tauri/target/release/tz-chatter.exe.
+
+Decision: use a validated directory pack rather than a proprietary archive for the first portable workflow. Pack paths are a fixed relative allowlist. Rebuildable indexes are never copied; restore regenerates them from Markdown. Durable state.sqlite3 and state.json are preserved because review/suppression/scheduler state belongs to the character workflow and contains no provider credentials.
+
+Incomplete work / blockers: broader backup/restore failure injection and runtime recovery validation remain. T16 tray/notification visual interaction remains unavailable because the Computer Use helper could not initialize. No known implementation blocker.
+
+Next action: add explicit backup/restore failure-recovery tests and then begin T18 Windows journey, provider, accessibility, and packaging validation.
+
+## 2026-09-12 - T18: Windows release validation in progress
+
+Outcome: advanced T18 validation. The ignored live Ollama smoke test passed against the local service in 27.59s. The full bundled Tauri build produced both MSI and NSIS installers, and the packaged executable launched with a responsive `tz-chatter` window.
+
+Files changed: README.md, docs/STATUS.md, and docs/HANDOFF.md; release outputs are under src-tauri/target/release/bundle/.
+
+Verification: full Rust suite passed with 59 passed and 1 ignored; live Ollama smoke passed; frontend lint, typecheck, and build passed after the final ARIA-label edits; a static UI audit found explicit button types and labels/ARIA for controls; the final `npx tauri build` produced `src-tauri/target/release/bundle/msi/tz-chatter_0.1.0_x64_en-US.msi` (4,378,624 bytes) and `src-tauri/target/release/bundle/nsis/tz-chatter_0.1.0_x64-setup.exe` (3,219,523 bytes); the final executable launch reported `MainWindowTitle=tz-chatter` and `Responding=True`. Representative retrieval measured lexical 1,089 us and hybrid 3,511 us; the persisted-vault round-trip test process took 562.10 ms wall time.
+
+Decision: retain the current release support claim as local Ollama verified plus protocol-level Ollama/OpenAI-compatible coverage. OpenAI-compatible live support is not claimed until a real llama.cpp or LM Studio endpoint is available. The visual tray/notification and accessibility inspection remains unverified because the Computer Use helper failed to initialize twice after reset.
+
+Incomplete work / blockers: keyboard/accessibility and tray/notification visual checks are not complete. No implementation blocker; the remaining gap is environment/tool availability and live provider access.
+
+Next action: superseded by the final restart-resume and packaging validation entry below; retain T18 in progress for the documented visual-validation and live-provider limitations.
+
+## 2026-09-12 - T18: restart-resume journey and final packaging completed
+
+Outcome: closed a release-journey gap found during completion audit. The conversation boundary now loads the vault character and last persisted transcript session, send/retry/initiative flows persist the last opened session, and the UI remembers the selected vault path, auto-loads it on launch, and exposes an explicit Load conversation action. Landing-page actions now navigate to real views, active navigation exposes `aria-current`, and keyboard focus has a visible `:focus-visible` treatment. First-run and troubleshooting documentation now describe the actual Windows workflow and unsigned package limitations.
+
+Files changed: src-tauri/src/conversation.rs, src-tauri/src/lib.rs, src/conversation.ts, src/ConversationPanel.tsx, src/App.tsx, src/App.css, README.md, docs/STATUS.md, and docs/HANDOFF.md.
+
+Verification: focused resume regression passed; full Rust suite passed with 60 passed and 1 ignored; the live Ollama smoke test passed in 2.50s; npm lint, typecheck, and build passed after the final UI edits; static audit found explicit button types, active navigation semantics, visible keyboard focus, and control labels/ARIA; final `npx tauri build` produced the MSI (4,382,720 bytes) and NSIS (3,222,239 bytes) artifacts; the final executable launched with `MainWindowTitle=tz-chatter` and `Responding=True`; `git diff --check` passed.
+
+Decision: use the existing durable `OperationalState.last_opened_session_id` as the resume pointer and load the canonical `character.md` from the selected vault. A missing transcript pointer starts a new session; a transcript belonging to another character is rejected.
+
+Incomplete work / blockers: visual tray/notification/accessibility interaction remains unavailable because the Windows Computer Use helper cannot initialize, and live llama.cpp/LM Studio coverage remains unavailable. The package is local and unsigned; no external publishing was requested.
+
+Next action: retain T18 in progress for the documented visual/tool and live non-Ollama provider limitations; rerun those checks if the environment gains the required helper or endpoint.
+
+## 2026-09-12 - T10/T18: automatic extraction worker connected
+
+Outcome: connected completed chat replies to the existing durable extraction pipeline. A completed assistant turn is now enqueued with its user/assistant source IDs; the Tauri runtime claims one pending job, builds a bounded data-labelled extraction request for the selected provider/model, accepts only parser-validated output, and leaves malformed, failed, or cancelled work retryable without changing canonical Markdown. Initiative turns remain excluded from automatic factual extraction.
+
+Files changed: src-tauri/src/extraction.rs, src-tauri/src/conversation.rs, src-tauri/src/lib.rs, src/MemoryPanel.tsx, docs/STATUS.md, docs/HANDOFF.md, and README.md.
+
+Verification: full Rust suite passed with 61 passed and 1 ignored; focused conversation enqueue and extraction prompt tests passed; Rust format/check passed; npm lint, typecheck, and build passed; live Ollama smoke passed in 2.50s; final MSI (4,403,200 bytes) and NSIS (3,237,938 bytes) packages built and the executable launched responsively.
+
+Decision: background extraction uses only the provider configuration explicitly selected for the completed chat request. The chat result is not failed if the queue cannot be opened, and model output remains review-only until the existing reconciliation controls commit it.
+
+Incomplete work / blockers: no live llama.cpp/LM Studio endpoint is available, and visual Windows tray/notification/accessibility interaction remains unavailable because the Computer Use helper cannot initialize. The worker is bounded to one claim per completed chat command; pending jobs remain durable for a later trigger or restart recovery.
+
+Next action: retain T18 in progress for the documented visual/tool and live-provider limitations; consider adding an explicit queued-job status/retry control if the product needs manual background-work observability.
+
+## 2026-09-12 - T18: provider controls connected
+
+Outcome: connected the existing provider contract to the Conversation UI. Users can select Ollama or OpenAI-compatible transport, edit endpoint/model, keep an optional bearer token in app configuration, save settings outside the character vault, check reachability, and discover chat-capable models. The selected provider configuration is still passed directly to chat and background extraction.
+
+Files changed: src/ConversationPanel.tsx, src/App.css, README.md, docs/STATUS.md, and docs/HANDOFF.md.
+
+Verification: npm lint, typecheck, and production build passed; the final Tauri build produced MSI (4,403,200 bytes) and NSIS (3,237,648 bytes); the rebuilt executable launched with MainWindowTitle=tz-chatter and Responding=True; git diff --check passed.
+
+Decision: provider settings remain app-scoped and are never included in portable character packs. Live verification remains limited to Ollama; OpenAI-compatible behavior is covered by deterministic protocol tests until a compatible local endpoint is available.
+
+Incomplete work / blockers: visual Windows tray/notification/accessibility interaction remains unavailable because the Computer Use helper cannot initialize; no live llama.cpp/LM Studio endpoint is available.
+
+Next action: retain T18 in progress for the documented visual/tool and live-provider limitations.
+
+## 2026-09-12 - T16: initiative scheduler connected
+
+Outcome: connected the durable initiative eligibility state to a cancellable in-app scheduler. Saving enabled settings from the Initiative panel starts a per-character/session 30-second loop; disabling and saving stops it. User chat activity is persisted before work begins and cancels overlapping initiative generations. Ignored and model-silenced outcomes update durable cooldown/backoff state, while delivered turns remain labeled initiative messages and optional Windows notifications.
+
+Files changed: src-tauri/Cargo.toml, src-tauri/src/initiative.rs, src-tauri/src/lib.rs, src/initiative.ts, src/InitiativePanel.tsx, README.md, docs/STATUS.md, and docs/HANDOFF.md.
+
+Verification: cargo fmt check passed; full Rust tests passed with 61 passed and 1 ignored; live Ollama smoke passed in 14.76s; npm lint, typecheck, and build passed. The final bundled release rebuild is still required after this UI integration. Computer Use could not initialize, so visual tray/notification interaction remains unverified.
+
+Decision: keep scheduler ownership in the Rust core and expose only typed start/stop commands to the UI. The scheduler captures the explicitly saved provider configuration at start, yields to active chat work, and stops with the Tauri runtime.
+
+Incomplete work / blockers: release packaging and executable launch need to be rerun after the scheduler changes; live non-Ollama and visual Windows interaction checks remain unavailable.
+
+Next action: rebuild MSI/NSIS, launch the packaged executable, run git diff --check, then retain T18 in progress for the documented environment limitations.
+
+## 2026-09-12 - T18: scheduler-inclusive Windows package
+
+Outcome: rebuilt the complete Windows release after connecting the initiative scheduler UI. The packaged executable launched with MainWindowTitle=tz-chatter and Responding=True.
+
+Verification: npx tauri build passed; MSI is 4,415,488 bytes at src-tauri/target/release/bundle/msi/tz-chatter_0.1.0_x64_en-US.msi and NSIS is 3,247,998 bytes at src-tauri/target/release/bundle/nsis/tz-chatter_0.1.0_x64-setup.exe. Scheduler source audit and git diff --check passed.
+
+Incomplete work / blockers: the Computer Use helper was retried after reading its current guidance and still failed during initialization with `windows sandbox failed: helper_unknown_error: setup refresh had errors`, so visual tray/notification/accessibility interaction is not verified; no live llama.cpp/LM Studio endpoint is available. Packages are local and unsigned.
+
+Next action: retain T18 in progress for those environment-limited checks; the next executable step is to rerun visual interaction and live non-Ollama provider checks if those become available.
+
+## 2026-09-12 - T16/T18: active-session scheduler correction
+
+Outcome: corrected a lifecycle gap found during audit. Initiative now uses the active Conversation character/session identity, so spontaneous turns share the user transcript and runtime cancellation key. Loading another vault stops the prior scheduler; enabled initiative settings are discovered and restarted during remembered-vault resume; retry actions record user activity; persisted settings are loaded when reopening Settings.
+
+Files changed: src/activeSession.ts, src/ConversationPanel.tsx, src/InitiativePanel.tsx, src-tauri/src/lib.rs, README.md, docs/STATUS.md, and docs/HANDOFF.md.
+
+Verification: full Rust suite passed with 62 passed and 1 ignored; added runtime scheduler replacement/child-cancellation coverage; live Ollama smoke passed in 2.56s; Rust format check, frontend lint/typecheck/build, scheduler source audit, and git diff --check passed. The corrected npx tauri build produced MSI (4,415,488 bytes) and NSIS (3,247,932 bytes); the packaged executable launched with MainWindowTitle=tz-chatter and Responding=True, then the exact test process was stopped.
+
+Incomplete work / blockers: visual tray/notification/accessibility interaction remains unavailable because the Computer Use helper cannot initialize; no live llama.cpp/LM Studio endpoint is available. Packages are local and unsigned.
+
+Next action: retain T18 in progress for the environment-limited visual and live non-Ollama checks; all available build and runtime checks are current.
+
+## 2026-09-12 - T16: provider-save scheduler refresh
+
+Outcome: saving provider settings now refreshes an enabled initiative scheduler for the active character/session, ensuring spontaneous work uses the newly selected endpoint and model instead of a stale configuration.
+
+Files changed: src/ConversationPanel.tsx, docs/STATUS.md, and docs/HANDOFF.md.
+
+Verification: frontend lint, typecheck, and build passed; the final npx tauri build produced MSI (4,415,488 bytes) and NSIS (3,248,865 bytes); the packaged executable launched with MainWindowTitle=tz-chatter and Responding=True, then the exact test process was stopped.
+
+Incomplete work / blockers: visual tray/notification/accessibility interaction remains unavailable because the Computer Use helper failed initialization; live llama.cpp/LM Studio coverage remains unavailable. Packages are local and unsigned.
+
+Next action: retain T18 in progress for the documented environment limitations.
+
+## 2026-09-12 - T18: live OpenAI-compatible transport smoke
+
+Outcome: added a dedicated ignored smoke test for the OpenAI-compatible provider path against Ollama’s `/v1` endpoint. The test performs health, model discovery, and streamed chat through the OpenAI-compatible request/response format. This validates the transport implementation live without claiming a live llama.cpp or LM Studio integration.
+
+Files changed: src-tauri/src/connections.rs, docs/STATUS.md, and docs/HANDOFF.md.
+
+Verification: the new live smoke test passed in 2.49s; the full Rust suite passed with 62 passed and 2 ignored; `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored --nocapture` passed both live provider smoke tests together in 0.62s; Rust formatting passed. Native Ollama remains live-verified separately in 2.56s.
+
+Incomplete work / blockers: visual Windows tray/notification/accessibility interaction remains unavailable because the Computer Use helper failed initialization; live llama.cpp/LM Studio coverage remains unavailable.
+
+Next action: retain T18 in progress with the release support claim limited to live Ollama plus live Ollama OpenAI-compatible transport and deterministic third-party protocol coverage.
+
+## 2026-09-12 - T19: completion-audit findings A01-A15
+
+Scope and outcome: finished the leftover ChatGPT/Codex T19 issue list in `docs/AUDIT.md`. Existing remediations were kept. Remaining gaps closed with canonical search-record edits, vault/character command validation, composer load gating, active-character UI identity, hybrid retrieval with lexical fallback, incremental stream events, a draining resume extraction worker that yields to chat, natural-language lexical retrieval, local-offset quiet hours and resume suppression, one labelled initiative turn plus `initiative-delivered` UI updates, Context-nav removal and inspector source/budget details, close-to-tray, real newline memory separators, strict Clippy, context-limit prompt retry, and conflict-checked memory-type moves.
+
+Files changed: `src-tauri/src/lib.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/prompt.rs`, `src-tauri/src/retrieval.rs`, `src/ConversationPanel.tsx`, `src/MemoryPanel.tsx`, `src/PortabilityPanel.tsx`, `docs/AUDIT.md`, `docs/STATUS.md`, `docs/HANDOFF.md`, plus the previously untracked application tree committed for A13.
+
+Decisions added/superseded: none.
+
+Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.toml` — 79 passed, 2 ignored; `cargo fmt --all -- --check` passed; `cargo clippy --all-targets -- -D warnings` passed; `npm run lint`, `npm run typecheck`, `npm run build` passed; `npx tauri build` produced MSI 4,485,120 bytes and NSIS 3,294,811 bytes; packaged `tz-chatter.exe` launched twice with `MainWindowTitle=tz-chatter` and `Responding=True`, then those processes were stopped.
+
+Incomplete work / blockers: T16/T18 visual tray/notification/keyboard Computer Use interaction remains unavailable (no helper in this session). Live llama.cpp/LM Studio coverage remains unavailable. Packages are local and unsigned.
+
+Next concrete action: retain T16/T18 in progress for those environment-limited checks; T19 is complete.

@@ -166,6 +166,14 @@ Run the complete user journey, accessibility/keyboard checks, failure/recovery s
 
 Acceptance: packaged application launches; persisted conversation and recalled memories survive restart; all three providers receive a documented live smoke test or the release explicitly narrows its support claim. Record tested hardware/models, known limitations, and packaging/signing status. Publishing externally is outside this task.
 
+### T19 — Remediate completion-audit findings
+
+Depends on: T17.
+
+Resolve every finding in `docs/AUDIT.md`, including canonical-memory edit safety, vault/character validation, active-character UI state, integrated hybrid retrieval, real UI streaming, foreground-priority extraction recovery, natural-language retrieval, local-time initiative behavior, live initiative delivery, context inspection, tray behavior, strict validation, and source-control readiness.
+
+Acceptance: every audit row is resolved with evidence; regression tests cover data integrity and character isolation; hybrid retrieval is reachable with visible lexical fallback; incremental stream events reach the UI; pending extraction drains on resume without delaying chat; initiative persists one labelled turn and updates the active UI; lint, typecheck, Rust tests, strict Clippy, packaging, and executable launch pass. Actual Windows tray/notification/keyboard interaction must be recorded separately.
+
 ## Milestone exit policy
 
 A milestone is complete only when its tasks are `done`. Mark task criteria separately if an implementation is ready but a required runtime check is unavailable. Do not infer tested operating systems, models, or providers from shared code paths.
