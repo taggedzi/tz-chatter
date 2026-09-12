@@ -62,6 +62,10 @@ impl<'a> ReconciliationService<'a> {
             .queue
             .get_proposal(proposal_id)?
             .ok_or_else(|| ReconciliationError::InvalidInput("proposal not found".into()))?;
+        let restore_on_failure = matches!(
+            proposal.status,
+            ProposalStatus::NeedsReview | ProposalStatus::Accepted
+        );
         if proposal.status == ProposalStatus::NeedsReview {
             self.queue
                 .mark_proposal(proposal_id, ProposalStatus::Accepted)?;
@@ -71,6 +75,12 @@ impl<'a> ReconciliationService<'a> {
                 self.queue
                     .mark_proposal(proposal_id, ProposalStatus::NeedsReview)?;
                 Ok(CommitResult::Locked { memory_id })
+            }
+            Err(error) if restore_on_failure => {
+                let _ = self
+                    .queue
+                    .mark_proposal(proposal_id, ProposalStatus::NeedsReview);
+                Err(error)
             }
             other => other,
         }
@@ -669,6 +679,38 @@ mod tests {
             CommitResult::Suppressed
         );
         assert!(memories.list().unwrap().is_empty());
+        drop(memories);
+        drop(queue);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn sabotage_semantic_writes(vault: &Vault) {
+        let semantic = vault.root().join("memories").join("semantic");
+        if semantic.is_dir() {
+            std::fs::remove_dir_all(&semantic).unwrap();
+        }
+        if let Some(parent) = semantic.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&semantic, b"not-a-directory").unwrap();
+    }
+
+    #[test]
+    fn auto_commit_error_restores_needs_review() {
+        let (root, vault, queue, mut memories, proposal_id, _) =
+            prepare_pending("auto-commit-err", candidate("User likes tea."));
+        sabotage_semantic_writes(&vault);
+        let mut service = ReconciliationService::new(&queue, &mut memories);
+        assert!(service.auto_commit(&proposal_id).is_err());
+        assert_eq!(
+            queue.get_proposal(&proposal_id).unwrap().unwrap().status,
+            ProposalStatus::NeedsReview
+        );
+        assert!(queue
+            .pending_proposals()
+            .unwrap()
+            .iter()
+            .any(|proposal| proposal.id == proposal_id));
         drop(memories);
         drop(queue);
         std::fs::remove_dir_all(root).unwrap();

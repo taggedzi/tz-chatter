@@ -552,3 +552,17 @@ Verification and actual results: TDD red on missing `superseded_targets` / skip-
 Incomplete work / blockers: live embedding quality against a reachable embedding model was not measured. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
 
 Next concrete action: none scheduled. T16/T18 remain environment-limited.
+
+## 2026-09-12 — Milestone 8 important-finding fixes
+
+Scope and outcome: `ReconciliationService::auto_commit` restores `NeedsReview` when `commit_accepted` returns `Err` after an Accepted mark, so a failed write stays in the inbox instead of disappearing as orphan `Accepted`. `process_extraction_queue` no longer aborts the drain on MemoryStore open, reclassify, or auto-commit errors: that item stays `needs_review`, remaining jobs keep processing. `process_embedding_rebuild` takes a `ChatTransport` so tests can fake-embed; production still uses `ProviderClient`.
+
+Files changed: `src-tauri/src/reconciliation.rs`, `src-tauri/src/lib.rs`, `docs/STATUS.md`, this handoff, and `.superpowers/sdd/2026-09-12-self-maintaining-hybrid-memory-plan/task-final-fix-report.md`.
+
+Decisions added/superseded: none. No new plan IDs.
+
+Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.toml` PASS: 110 passed, 2 ignored. `cargo fmt --all -- --check` PASS. `cargo clippy --all-targets -- -D warnings` PASS. Covering tests: `auto_commit_error_restores_needs_review`, `extraction_worker_continues_after_auto_commit_error`, `embedding_rebuild_worker_clears_needs_rebuild_when_chunks_exist`, `embedding_rebuild_cancel_before_finish_leaves_index_not_ready`.
+
+Incomplete work / blockers: live embedding quality not claimed. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: none scheduled. T16/T18 remain environment-limited.

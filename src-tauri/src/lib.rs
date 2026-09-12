@@ -916,7 +916,11 @@ fn schedule_embedding(
             return;
         };
         let model_guard = runtime.model_gate.lock().await;
-        let result = process_embedding_rebuild(vault_root, provider, character, cancellation).await;
+        let transport: Arc<dyn conversation::ChatTransport> =
+            Arc::new(connections::ProviderClient::default());
+        let result =
+            process_embedding_rebuild(vault_root, provider, character, cancellation, transport)
+                .await;
         drop(model_guard);
         runtime.finish_background(&key);
         if let Err(error) = result {
@@ -991,25 +995,41 @@ async fn process_extraction_queue(
         }
         match queue.accept_model_output(&job.id, &output) {
             Ok(proposals) if !cancellation.is_cancelled() => {
-                let mut memories = memory::MemoryStore::open(&vault, &character.id)
-                    .map_err(|error| error.to_string())?;
+                let mut memories = match memory::MemoryStore::open(&vault, &character.id) {
+                    Ok(store) => store,
+                    Err(error) => {
+                        eprintln!(
+                            "memory store unavailable after extraction; leaving proposals in inbox: {error}"
+                        );
+                        continue;
+                    }
+                };
                 let mut service = reconciliation::ReconciliationService::new(&queue, &mut memories);
                 for proposal in proposals {
                     let origin = extraction::effective_origin(&proposal.candidate, &transcript);
                     if origin != proposal.candidate.origin {
-                        queue
-                            .reclassify_proposal(&proposal.id, origin.clone())
-                            .map_err(|error| error.to_string())?;
+                        if let Err(error) = queue.reclassify_proposal(&proposal.id, origin.clone())
+                        {
+                            eprintln!(
+                                "failed to reclassify extraction proposal {}: {error}",
+                                proposal.id
+                            );
+                        }
                     }
-                    if extraction::is_auto_writable(&origin)
-                        && matches!(
-                            service
-                                .auto_commit(&proposal.id)
-                                .map_err(|error| error.to_string())?,
-                            reconciliation::CommitResult::Committed { .. }
-                        )
-                    {
-                        committed_memory = true;
+                    if !extraction::is_auto_writable(&origin) {
+                        continue;
+                    }
+                    match service.auto_commit(&proposal.id) {
+                        Ok(reconciliation::CommitResult::Committed { .. }) => {
+                            committed_memory = true;
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            eprintln!(
+                                "auto-commit failed for proposal {}; leaving in inbox: {error}",
+                                proposal.id
+                            );
+                        }
                     }
                 }
             }
@@ -1024,6 +1044,7 @@ async fn process_embedding_rebuild(
     provider: providers::ProviderConfig,
     character: storage::CharacterDefinition,
     cancellation: CancellationToken,
+    transport: Arc<dyn conversation::ChatTransport>,
 ) -> Result<(), String> {
     tokio::task::yield_now().await;
     if cancellation.is_cancelled() {
@@ -1043,7 +1064,6 @@ async fn process_embedding_rebuild(
         memory::MemoryStore::open(&vault, &character.id).map_err(|error| error.to_string())?;
     let memories = store.list().map_err(|error| error.to_string())?;
     let chunks = embeddings::chunks_from_memories(&memories);
-    let client = connections::ProviderClient::default();
     let stored = embeddings::EmbeddingIndex::stored_space(&vault, &character.id)
         .map_err(|error| error.to_string())?;
     let matching_space = stored.filter(|space| {
@@ -1068,7 +1088,14 @@ async fn process_embedding_rebuild(
         if cancellation.is_cancelled() {
             return Ok(());
         }
-        let vectors = embed_chunks(&client, &provider, &model, &chunks, &cancellation).await?;
+        let vectors = embed_chunks(
+            transport.as_ref(),
+            &provider,
+            &model,
+            &chunks,
+            &cancellation,
+        )
+        .await?;
         if cancellation.is_cancelled() {
             return Ok(());
         }
@@ -1095,7 +1122,14 @@ async fn process_embedding_rebuild(
     if chunks.is_empty() {
         return Ok(());
     }
-    let vectors = embed_chunks(&client, &provider, &model, &chunks, &cancellation).await?;
+    let vectors = embed_chunks(
+        transport.as_ref(),
+        &provider,
+        &model,
+        &chunks,
+        &cancellation,
+    )
+    .await?;
     if cancellation.is_cancelled() {
         return Ok(());
     }
@@ -1132,7 +1166,7 @@ async fn process_embedding_rebuild(
 }
 
 async fn embed_chunks(
-    client: &connections::ProviderClient,
+    transport: &dyn conversation::ChatTransport,
     provider: &providers::ProviderConfig,
     model: &str,
     chunks: &[embeddings::EmbeddingChunk],
@@ -1148,7 +1182,7 @@ async fn embed_chunks(
     };
     tokio::select! {
         _ = cancellation.cancelled() => Ok(Vec::new()),
-        response = client.embed(provider, &request) => response
+        response = transport.embed(provider, &request) => response
             .map(|response| response.vectors)
             .map_err(|error| error.to_string()),
     }
@@ -1526,12 +1560,14 @@ pub fn run() {
 mod tests {
     use super::{
         hide_window_instead_of_closing, memory_source_path, memory_upsert, open_character_vault,
-        process_extraction_queue, RuntimeState,
+        process_embedding_rebuild, process_extraction_queue, RuntimeState,
     };
     use crate::conversation::ChatTransport;
-    use crate::extraction::ProposalOrigin;
+    use crate::extraction::{ProposalOrigin, ProposalStatus};
     use crate::memory::MemoryStore;
-    use crate::providers::{ChatStreamEvent, ProviderConfig, ProviderError, ProviderKind};
+    use crate::providers::{
+        ChatStreamEvent, EmbeddingResponse, ProviderConfig, ProviderError, ProviderKind,
+    };
     use crate::storage::{
         CharacterDefinition, MemoryRecord, MemoryType, TranscriptDocument, TranscriptTurn,
         TurnRole, TurnStatus, Vault,
@@ -1856,6 +1892,280 @@ mod tests {
         assert!(queue.claim_next().unwrap().is_none());
         drop(memories);
         drop(queue);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn sabotage_semantic_writes(vault: &Vault) {
+        let semantic = vault.root().join("memories").join("semantic");
+        if semantic.is_dir() {
+            fs::remove_dir_all(&semantic).unwrap();
+        }
+        if let Some(parent) = semantic.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&semantic, b"not-a-directory").unwrap();
+    }
+
+    fn extraction_provider() -> ProviderConfig {
+        ProviderConfig {
+            id: "fake".into(),
+            kind: ProviderKind::Ollama,
+            endpoint: "http://127.0.0.1:11434".into(),
+            chat_model: "fake-model".into(),
+            embedding_model: None,
+            bearer_token: None,
+        }
+    }
+
+    fn embedding_provider() -> ProviderConfig {
+        ProviderConfig {
+            id: "fake".into(),
+            kind: ProviderKind::Ollama,
+            endpoint: "http://127.0.0.1:11434".into(),
+            chat_model: "fake-model".into(),
+            embedding_model: Some("fake-embed".into()),
+            bearer_token: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn extraction_worker_continues_after_auto_commit_error() {
+        let root = std::env::temp_dir().join(format!(
+            "tz-chatter-command-extract-err-{}",
+            crate::storage::new_stable_id()
+        ));
+        let vault = Vault::create(&root).unwrap();
+        let character = CharacterDefinition::new("lyra", "Lyra", "Stay grounded.");
+        vault.save_character(&character).unwrap();
+        let mut transcript = TranscriptDocument::new("session-1", "lyra");
+        transcript.turns.push(TranscriptTurn {
+            id: "user-1".into(),
+            timestamp: "1".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "I like quiet cafes.".into(),
+        });
+        transcript.turns.push(TranscriptTurn {
+            id: "assistant-1".into(),
+            timestamp: "2".into(),
+            role: TurnRole::Assistant,
+            status: TurnStatus::Complete,
+            content: "I will remember that.".into(),
+        });
+        transcript.turns.push(TranscriptTurn {
+            id: "user-2".into(),
+            timestamp: "3".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "I also like tea.".into(),
+        });
+        transcript.turns.push(TranscriptTurn {
+            id: "assistant-2".into(),
+            timestamp: "4".into(),
+            role: TurnRole::Assistant,
+            status: TurnStatus::Complete,
+            content: "Noted.".into(),
+        });
+        vault.save_transcript(&transcript).unwrap();
+        let mut queue = crate::extraction::ExtractionQueue::open(&vault, "lyra").unwrap();
+        queue
+            .enqueue_transcript(&transcript, "assistant-1", 100)
+            .unwrap();
+        queue
+            .enqueue_transcript(&transcript, "assistant-2", 100)
+            .unwrap();
+        drop(queue);
+        sabotage_semantic_writes(&vault);
+
+        let transport: Arc<dyn ChatTransport> = Arc::new(FakeExtractionTransport {
+            responses: Mutex::new(vec![
+                Ok(vec![
+                    ChatStreamEvent::Delta {
+                        text: extraction_output("user-1"),
+                    },
+                    ChatStreamEvent::Completed {
+                        finish_reason: Some("stop".into()),
+                    },
+                ]),
+                Ok(vec![
+                    ChatStreamEvent::Delta {
+                        text: extraction_output_with(
+                            "user-2",
+                            "inferred",
+                            "The user might prefer mornings.",
+                        ),
+                    },
+                    ChatStreamEvent::Completed {
+                        finish_reason: Some("stop".into()),
+                    },
+                ]),
+            ]),
+        });
+        let result = process_extraction_queue(
+            root.to_string_lossy().into_owned(),
+            extraction_provider(),
+            character,
+            CancellationToken::new(),
+            transport,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "drain must continue after auto-commit error: {result:?}"
+        );
+
+        let mut queue = crate::extraction::ExtractionQueue::open(&vault, "lyra").unwrap();
+        let pending = queue.pending_proposals().unwrap();
+        assert_eq!(pending.len(), 2);
+        assert!(pending
+            .iter()
+            .all(|proposal| proposal.status == ProposalStatus::NeedsReview));
+        assert!(pending
+            .iter()
+            .any(|proposal| proposal.candidate.body.contains("User likes quiet cafes.")));
+        assert!(pending.iter().any(|proposal| proposal
+            .candidate
+            .body
+            .contains("The user might prefer mornings.")));
+        assert!(queue.claim_next().unwrap().is_none());
+        drop(queue);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    struct FakeEmbedTransport {
+        hang: bool,
+        started: tokio::sync::Notify,
+        vector: Vec<f32>,
+    }
+
+    #[async_trait]
+    impl ChatTransport for FakeEmbedTransport {
+        async fn stream_chat(
+            &self,
+            config: &ProviderConfig,
+            _request: &crate::providers::ChatRequest,
+            _cancellation: CancellationToken,
+        ) -> Result<Vec<ChatStreamEvent>, ProviderError> {
+            Err(ProviderError::UnsupportedCapability {
+                capability: "chat".into(),
+                provider: config.kind.clone(),
+            })
+        }
+
+        async fn embed(
+            &self,
+            _config: &ProviderConfig,
+            request: &crate::providers::EmbeddingRequest,
+        ) -> Result<EmbeddingResponse, ProviderError> {
+            self.started.notify_waiters();
+            if self.hang {
+                std::future::pending::<()>().await;
+            }
+            Ok(EmbeddingResponse {
+                model: request.model.clone(),
+                dimensions: self.vector.len(),
+                vectors: request.input.iter().map(|_| self.vector.clone()).collect(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn embedding_rebuild_worker_clears_needs_rebuild_when_chunks_exist() {
+        let root = std::env::temp_dir().join(format!(
+            "tz-chatter-command-embed-ready-{}",
+            crate::storage::new_stable_id()
+        ));
+        let vault = Vault::create(&root).unwrap();
+        let character = CharacterDefinition::new("lyra", "Lyra", "Stay grounded.");
+        vault.save_character(&character).unwrap();
+        let mut store = MemoryStore::open(&vault, "lyra").unwrap();
+        store
+            .create(&MemoryRecord::new(
+                "tea",
+                MemoryType::Semantic,
+                "Mina drinks tea.",
+            ))
+            .unwrap();
+        let chunks = crate::embeddings::chunks_from_memories(&store.list().unwrap());
+        drop(store);
+        assert!(!chunks.is_empty());
+
+        let transport: Arc<dyn ChatTransport> = Arc::new(FakeEmbedTransport {
+            hang: false,
+            started: tokio::sync::Notify::new(),
+            vector: vec![1.0, 0.0],
+        });
+        process_embedding_rebuild(
+            root.to_string_lossy().into_owned(),
+            embedding_provider(),
+            character,
+            CancellationToken::new(),
+            transport,
+        )
+        .await
+        .unwrap();
+
+        let space = crate::embeddings::EmbeddingIndex::stored_space(&vault, "lyra")
+            .unwrap()
+            .expect("embedding space after rebuild");
+        let index = crate::embeddings::EmbeddingIndex::open(&vault, "lyra", space).unwrap();
+        assert!(index.is_ready().unwrap());
+        assert!(!index.needs_rebuild(&chunks).unwrap());
+        drop(index);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn embedding_rebuild_cancel_before_finish_leaves_index_not_ready() {
+        let root = std::env::temp_dir().join(format!(
+            "tz-chatter-command-embed-cancel-{}",
+            crate::storage::new_stable_id()
+        ));
+        let vault = Vault::create(&root).unwrap();
+        let character = CharacterDefinition::new("lyra", "Lyra", "Stay grounded.");
+        vault.save_character(&character).unwrap();
+        let mut store = MemoryStore::open(&vault, "lyra").unwrap();
+        store
+            .create(&MemoryRecord::new(
+                "tea",
+                MemoryType::Semantic,
+                "Mina drinks tea.",
+            ))
+            .unwrap();
+        let chunks = crate::embeddings::chunks_from_memories(&store.list().unwrap());
+        drop(store);
+
+        let space = crate::embeddings::EmbeddingSpace::new("fake", "fake-embed", 2);
+        let index = crate::embeddings::EmbeddingIndex::open(&vault, "lyra", space.clone()).unwrap();
+        index.begin_rebuild().unwrap();
+        index.finish_rebuild().unwrap();
+        assert!(index.needs_rebuild(&chunks).unwrap());
+        drop(index);
+
+        let transport = Arc::new(FakeEmbedTransport {
+            hang: true,
+            started: tokio::sync::Notify::new(),
+            vector: vec![1.0, 0.0],
+        });
+        let started = transport.started.notified();
+        let cancellation = CancellationToken::new();
+        let job = tokio::spawn(process_embedding_rebuild(
+            root.to_string_lossy().into_owned(),
+            embedding_provider(),
+            character,
+            cancellation.clone(),
+            transport.clone(),
+        ));
+        started.await;
+        cancellation.cancel();
+        job.await.unwrap().unwrap();
+
+        let index = crate::embeddings::EmbeddingIndex::open(&vault, "lyra", space).unwrap();
+        assert!(
+            !index.is_ready().unwrap() || index.needs_rebuild(&chunks).unwrap(),
+            "cancelled rebuild must not leave a ready matching index"
+        );
+        drop(index);
         fs::remove_dir_all(root).unwrap();
     }
 }
