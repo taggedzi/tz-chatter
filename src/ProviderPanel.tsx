@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { notifyProviderChanged, activeCharacterId, activeSessionId, activeSessionStorageKeys } from "./activeSession";
 import { initiativeClient } from "./initiative";
-import { providerClient, type ProviderConfig, type ProviderKind } from "./providers";
+import { providerClient, providerDefaults, type ProviderConfig, type ProviderKind } from "./providers";
 
 const initialProvider: ProviderConfig = {
   id: "ollama-local",
@@ -167,12 +167,11 @@ export function ProviderPanel() {
             setEnterCustomChatModel(false);
             setProvider({
               ...provider,
-              kind,
-              id: kind === "ollama" ? "ollama-local" : "openai-compatible-local",
-              endpoint: kind === "ollama" ? "http://127.0.0.1:11434" : "http://127.0.0.1:1234/v1",
+              ...providerDefaults(kind),
             });
           }}>
             <option value="ollama">Ollama</option>
+            <option value="lm_studio">LM Studio</option>
             <option value="open_ai_compatible">OpenAI-compatible</option>
           </select>
         </label>

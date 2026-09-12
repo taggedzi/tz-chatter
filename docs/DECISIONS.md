@@ -30,19 +30,23 @@ Consequence: specify one authoritative representation per data type. Export/back
 
 ## ADR-004 — Retrieval works before embeddings
 
-Date: 2026-09-11. State: accepted. Basis: approved incremental implementation proposal.
+Date: 2026-09-11. State: superseded by [ADR-009](#adr-009--self-maintaining-hybrid-memory). Basis: approved incremental implementation proposal.
 
 Start with FTS5 lexical retrieval and manually created memories. Add embedding similarity and hybrid ranking after the conversation/memory loop is inspectable. Store vectors in SQLite and begin with direct similarity search; consider a specialized index only after measurement warrants it.
 
 Consequence: no embedding model or separate vector-database service is required for the first usable version. Record embedding-space identity and rebuild incompatible indexes.
 
+Superseded default: lexical-as-product-default. Lexical remains the required fallback. Hybrid is the default when an embedding model is configured (ADR-009).
+
 ## ADR-005 — Validated automatic memory formation
 
-Date: 2026-09-11. State: accepted. Basis: approved memory pipeline.
+Date: 2026-09-11. State: superseded in part by [ADR-009](#adr-009--self-maintaining-hybrid-memory). Basis: approved memory pipeline.
 
 The LLM proposes structured memories; application code validates sources, deduplicates, handles contradictions, and writes files. Preserve source references and user edit/lock/exclude/delete controls. Support review for uncertain proposals.
 
 Consequence: implement durable, idempotent jobs and prevent deletion/retry loops from silently reintroducing removed memories. Assistant inventions cannot become real user facts solely through extraction.
+
+Still in force: propose/validate/write split, deletion suppression, user edit/lock/exclude. Superseded default: every proposal stays `needs_review` until the user accepts. ADR-009 auto-writes validated non-inferred proposals.
 
 ## ADR-006 — Bounded, opt-in initiative
 
@@ -67,3 +71,13 @@ Date: 2026-09-12. State: accepted. Basis: explicit user request after T20 layout
 Provide a Characters primary view that lists known vaults, creates new portable character folders, and edits author-controlled `character.md` identity. Persist the library in application configuration. The global application prompt lives in Settings, is stored outside character vaults, and is prepended to chat and initiative requests before character identity and memories. Empty saved text omits that extra message. Automatic extraction still cannot edit character identity.
 
 Consequence: character identity remains portable Markdown. Application behavior rules are machine-scoped and survive character switches. Creating a character writes a new vault rather than overwriting an existing `character.md`.
+
+## ADR-009 — Self-maintaining hybrid memory
+
+Date: 2026-09-12. State: accepted. Basis: user-approved design in `docs/specs/2026-09-12-self-maintaining-hybrid-memory-design.md`.
+
+The user is not required to manage memories. Chatting is sufficient. After a completed turn, the model proposes; application code classifies origin from transcript evidence and writes **new** Markdown files for validated user-stated facts (must quote a user turn), conversation events, and character/world facts. Inferred guesses stay in the Memories inbox and are not retrieved until accepted. Workers never mutate an existing memory body.
+
+Retrieval is hybrid by default when an embedding model is configured. Vectors remain a rebuildable SQLite projection of the files, not an external database. If embeddings are missing, stale, or fail, chat uses lexical search and records that in the inspector. Embedding rebuild runs in the background and yields to user chat.
+
+Consequence: T24/T25 implement this. ADR-004’s lexical product default and ADR-005’s all-proposals-need-review default are superseded. File-canonical storage, character isolation, and “assistant text is not a user fact” remain.

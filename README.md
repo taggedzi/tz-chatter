@@ -5,7 +5,9 @@ A desktop application for chatting with AI characters powered by models running 
 ## Project navigation
 
 - [AGENTS.md](AGENTS.md): instructions for any agent continuing development.
-- [Project specification](docs/PROJECT.md): goals, architecture, data ownership, and product behavior.
+- [Project specification](docs/PROJECT.md): goals, architecture, data ownership, product behavior, and unscheduled possible later features.
+- [Self-maintaining hybrid memory spec](docs/specs/2026-09-12-self-maintaining-hybrid-memory-design.md): accepted design (ADR-009). Implementation: T24/T25.
+- [Self-maintaining hybrid memory plan](docs/specs/2026-09-12-self-maintaining-hybrid-memory-plan.md): executor detail for T24/T25.
 - [Implementation plan](docs/PLAN.md): ordered tasks, dependencies, and acceptance criteria.
 - [Live status](docs/STATUS.md): authoritative task states, current work, verification, and next action.
 - [Decision log](docs/DECISIONS.md): accepted decisions and their rationale.
@@ -58,7 +60,7 @@ Portable character packs are created from Settings → Vault. Export writes a ne
 
 ## First run
 
-1. Start a local provider. For Ollama, run `ollama serve` and make sure the configured model is available, for example `ollama run llama3.2`.
+1. Start a local provider. For Ollama, run `ollama serve` and make sure the configured model is available, for example `ollama run llama3.2`. For LM Studio, start the local server from the Developer tab (default `http://127.0.0.1:1234/v1`) and pick **LM Studio** in Settings → Provider.
 2. Launch tz-chatter. Chat is the default view. Open **Characters** to create a vault or add an existing folder that contains `character.md`. The bundled sample is `examples/characters/lyra` — it includes Lyra's definition, six starter memories, and a welcome chat. Known vaults are remembered in the character library.
 3. The sidebar lists saved conversations from `chats/`. Open **session-welcome** to see the sample history, or **New** to start a distinct session. Ask about Mina or Markdown notes to exercise retrieval.
 4. Send a message with Enter (Shift+Enter for a new line). Turns are written to Markdown under `chats/`. Retrieved memory sources appear in the Sources panel when available, and completed assistant turns are queued for conservative background memory extraction.

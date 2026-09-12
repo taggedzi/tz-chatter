@@ -198,6 +198,40 @@ Settings → Provider should list chat-capable models reported by the connected 
 
 Acceptance: the chat model control is populated from `provider_discover`; the saved model remains selectable if it is absent from discovery; a custom name can still be entered; frontend lint/typecheck/build pass.
 
+### T23 — First-class LM Studio provider settings
+
+Depends on: T04, T22.
+
+Add LM Studio as a named Settings → Provider kind with the same health, discovery, chat, and embedding flow as Ollama. Use the existing OpenAI-compatible HTTP transport and LM Studio’s default local server (`http://127.0.0.1:1234/v1`). Keep a generic OpenAI-compatible option for other servers such as llama.cpp.
+
+Acceptance: selecting LM Studio applies a distinct id and default endpoint; health/discovery/chat use `/v1` OpenAI-compatible paths; previously saved `open_ai_compatible` settings still load; Rust provider tests and frontend lint/typecheck/build pass. A live LM Studio smoke test is recorded if an endpoint is available, otherwise the limitation stays explicit.
+
+## Milestone 8 — Self-maintaining hybrid memory
+
+Spec: `docs/specs/2026-09-12-self-maintaining-hybrid-memory-design.md`. Executor detail: `docs/specs/2026-09-12-self-maintaining-hybrid-memory-plan.md`. Chat is the only required user action; reviewing Memories is optional.
+
+### T24 — Auto-write validated memories
+
+Depends on: T12.
+
+After a completed extraction job, classify each proposal’s origin against the transcript. Auto-accept and commit user-stated facts that quote a user turn, plus validated conversation events and character/world facts, as **new** Markdown files. Leave inferred guesses (including assistant-only “user_stated” labels) in the existing Memories inbox. Do not mutate existing memory bodies. Locked files, deletion suppression, and duplicates keep current reconciler behavior. Wire this into `process_extraction_queue` so the user does not click Accept.
+
+Acceptance: tests prove auto-write of a user-stated candidate to a new file and FTS5 hit; inferred and assistant-only “user_stated” stay inbox-only with no file; duplicates do not write a second file; supersession creates a new file and leaves the old body unchanged; locked related memories and deleted/suppressed sources do not write; the extraction worker test after resume auto-commits the cafe fixture and leaves an inferred fixture in the queue. `cargo test --manifest-path src-tauri/Cargo.toml` passes.
+
+### T25 — Hybrid retrieval by default
+
+Depends on: T14, T24.
+
+When the active provider has an embedding model and hybrid is not opted out, use hybrid retrieval. If the vector index is missing, stale, or mid-rebuild, do not embed on the chat path: use lexical, record a fallback reason, and enqueue a background embed job that takes the model gate and yields to chat. Skip memory IDs that are the target of a `supersedes` relationship so old files are not injected as current. Default the UI hybrid flag on (`localStorage !== "false"`).
+
+Acceptance: tests prove superseded memories are not retrieved as current; hybrid mode is used when an embedding model is set and the index is ready; a not-ready index does not call embed during send and falls back to lexical with a rebuild reason; no embedding model still lexical-falls-back; the T14 evaluation fixture still holds. Frontend lint/typecheck pass. README states that chatting accumulates memories without an Accept step.
+
+## Unscheduled feature backlog
+
+Possible later features live in `docs/PROJECT.md`. They have no task IDs and are not the next work except T24 and T25 above. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
+
+Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files.
+
 ## Milestone exit policy
 
 A milestone is complete only when its tasks are `done`. Mark task criteria separately if an implementation is ready but a required runtime check is unavailable. Do not infer tested operating systems, models, or providers from shared code paths.

@@ -14,7 +14,7 @@ The application should make characters consistent, able to recall relevant exper
 - Human-readable storage: Markdown with YAML frontmatter and Obsidian-style links.
 - Local database: SQLite for searchable/indexed data and application state.
 - Model integration: native Ollama adapter and a shared OpenAI-compatible chat/embedding transport with provider-specific capabilities for llama.cpp and LM Studio.
-- Retrieval: lexical search first, then hybrid lexical/vector retrieval.
+- Retrieval: hybrid lexical/vector search when an embedding model is configured; lexical search otherwise. Vectors are a rebuildable SQLite index over Markdown, not a separate database.
 - Initial model operation: connect to an already running local provider and select an available model. Bundling or launching inference engines is a later capability.
 
 Windows is the first development and verification target because this workspace is on Windows. Maintain portable boundaries for macOS and Linux; do not claim those platforms work without testing them.
@@ -26,7 +26,7 @@ Windows is the first development and verification target because this workspace 
 3. Create or load a character from the Characters library, inspect its definition, and begin chatting.
 4. Receive streamed replies that use the character identity, recent conversation, and relevant memories.
 5. Inspect which memories influenced a response.
-6. View, edit, pin, exclude, or delete memories and review uncertain memory proposals.
+6. Optionally view, edit, pin, exclude, or delete memories and review inferred guesses. Ordinary chatting writes supported facts without this step.
 7. Enable spontaneous engagement and configure quiet hours, cooldowns, and frequency limits.
 8. Export or move a character and its memories, then load it on another installation.
 
@@ -88,10 +88,10 @@ After a completed conversational exchange:
 
 1. Queue extraction using a stable source-turn key.
 2. Ask for structured candidate memories with supporting source IDs.
-3. Validate the schema, source references, and permitted categories.
+3. Validate the schema, source references, and permitted categories. Reclassify origin from transcript evidence: `user_stated` requires a quote from a user turn.
 4. Compare against existing memories and earlier proposals.
-5. Reject trivial duplicates, preserve conflicting evidence, and route uncertain candidates to review.
-6. Commit allowed changes atomically, then refresh derived indexes.
+5. Auto-write validated user-stated facts, shared events, and evidenced character/world facts as **new** Markdown files. Leave inferred guesses in the review inbox. Do not mutate existing memory bodies.
+6. Refresh derived indexes from those files. User correction, locking, exclusion, and deletion remain optional.
 
 Support user correction, locking, exclusion, and deletion. A deleted memory must not be silently reconstructed from its old transcript by a retried extraction job. Define suppression and explicit reprocessing behavior. Deleting a memory does not implicitly erase its transcript; the UI must distinguish those actions.
 
@@ -101,7 +101,7 @@ External Markdown edits must be detected and reindexed. Use content fingerprints
 
 Retrieval is scoped to the selected character before ranking. Use lexical matching, embedding similarity, entity/link matches, recency, and salience. Deduplicate and diversify the final results. Pinned memory consumes an explicit budget and must not silently exceed the model context.
 
-Markdown is the source of truth; RAG is the retrieval-and-context process, and a vector index is one optional tool within it. The first usable version must function without embeddings.
+Markdown is the source of truth; RAG is the retrieval-and-context process, and a vector index is a rebuildable projection of those files. Chat must still function without embeddings, via lexical retrieval and a visible fallback reason. Hybrid is the default when an embedding model is configured.
 
 Record embedding provider/model identity, revision or fingerprint where available, dimensions, chunking version, and content fingerprint. Rebuild incompatible indexes when these change. Never compare vectors from different embedding spaces. Fall back visibly to lexical retrieval if embeddings are unavailable.
 
@@ -143,6 +143,31 @@ The initial release includes text chat, one active character at a time, local pr
 
 Voice, avatars with animation, multi-character group chat, cloud synchronization, a character marketplace, training/fine-tuning, arbitrary tools, bundled model downloads, and running when the application is fully closed are deferred. Add them only through an explicit scope decision.
 
+Engine installation or launching remains deferred. If revisited, it must stay a user-visible action with no hidden downloads or silent cloud fallback.
+
+## Possible later features
+
+These are unscheduled product ideas, not committed work. Self-maintaining hybrid memory is scheduled as T24/T25; do not start the items below as the next implementation task. Promote an item into `docs/PLAN.md` only after an explicit scope decision. Candidates must keep Markdown as the source of truth, leave `character.md` author-controlled, confine writes to the selected vault, and keep provider credentials out of portable packs.
+
+Suggested starting cluster if one group is promoted first: memory inbox, remember-this-from-a-turn, and open-vault-as-files.
+
+### Highest-leverage candidates
+
+- **Memory inbox.** Surface pending extraction proposals on the chat chrome (badge, count, auto-refresh) so review does not require opening Memories and clicking Refresh.
+- **Remember this.** Create a Markdown memory from a selected transcript turn with known source IDs, without waiting for the extraction worker.
+- **User persona and scene notes.** First-class “who I am” and “current scene / relationship” fields that occupy the existing prompt slots. Store them as portable Markdown outside `character.md` so extraction still cannot rewrite identity.
+- **Open vault as files.** Open the character folder, reveal a memory in the file manager, and optionally open the vault in Obsidian. Render `assets/portrait.png` in the character library and chat chrome when present.
+- **Session names, search, and archive.** Auto-title from the first user turn, rename sessions, search transcripts, and archive without deleting the canonical Markdown.
+- **Edit, regenerate, and continue.** Rewrite the last user turn, request another assistant reply, and continue a truncated reply. Persist those outcomes as normal transcript statuses so extraction does not double-commit.
+- **Per-character model and sampling.** Remember chat model, temperature, and max tokens per character or as a named preset. Do not put machine-specific provider URLs or credentials into portable identity unless the user explicitly opts into exporting them.
+- **First-run provider coach.** Explain unreachable endpoints (“nothing is listening on 11434”) with retry. Give the embedding model the same discovery-backed select as chat models. Add an explicit “send memories to this endpoint” control; remote URLs must keep the current no-disclosure default.
+
+### On-mission follow-ups
+
+- **Contradiction and supersession review.** A list of memories the reconciler has linked as conflicts, so users can keep the vault consistent instead of relying on rankers to hide stale records. Hybrid-default and background embedding rebuild are scheduled as T24/T25, not backlog.
+- **Keyboard-first chat.** Shortcuts for new session, switch character, focus composer, stop generation, and open sources.
+- **macOS and Linux verification.** The vault format is already portable; claim those platforms only after the desktop app is tested there.
+
 ## Success criteria
 
-A user can reconnect after an application restart, resume a character conversation, retrieve an earlier relevant memory with inspectable provenance, correct that memory outside or inside the app, and see subsequent replies use the updated record. They can switch supported providers without rewriting their character vault. With initiative enabled, the character can send a relevant spontaneous message while respecting quiet hours and stopping after ignored attempts according to settings.
+A user can reconnect after an application restart, resume a character conversation, and have supported facts from earlier chats stored as Markdown and retrieved on later turns without reviewing each proposal. They can still correct a memory outside or inside the app and see subsequent replies use the updated record. They can switch supported providers without rewriting their character vault. With initiative enabled, the character can send a relevant spontaneous message while respecting quiet hours and stopping after ignored attempts according to settings.

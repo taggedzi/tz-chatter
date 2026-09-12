@@ -11,7 +11,22 @@ pub const SETTINGS_SCHEMA_VERSION: u32 = 1;
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
     Ollama,
+    LmStudio,
     OpenAiCompatible,
+}
+
+impl ProviderKind {
+    pub fn uses_openai_compatible_http(&self) -> bool {
+        matches!(self, Self::LmStudio | Self::OpenAiCompatible)
+    }
+
+    pub fn wire_label(&self) -> &'static str {
+        match self {
+            Self::Ollama => "ollama",
+            Self::LmStudio => "lm_studio",
+            Self::OpenAiCompatible => "openai_compatible",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -33,9 +48,9 @@ impl ProviderCapabilities {
                 cancellation: true,
                 embeddings: true,
             },
-            // Compatible servers vary. Embeddings are negotiated from the server rather
-            // than assumed from the transport alone.
-            ProviderKind::OpenAiCompatible => Self {
+            // LM Studio and other compatible servers share the OpenAI HTTP transport.
+            // Embeddings are negotiated from the server rather than assumed identical.
+            ProviderKind::LmStudio | ProviderKind::OpenAiCompatible => Self {
                 health: true,
                 model_discovery: true,
                 chat_streaming: true,
@@ -402,6 +417,30 @@ mod tests {
         let capabilities = ProviderCapabilities::baseline(&kind);
         assert!(require_capability(&kind, &capabilities, "embeddings").is_ok());
         assert!(require_capability(&kind, &capabilities, "chat_streaming").is_ok());
+    }
+
+    #[test]
+    fn lm_studio_kind_round_trips_and_reports_chat_capabilities() {
+        let kind = ProviderKind::LmStudio;
+        assert_eq!(serde_json::to_value(&kind).unwrap(), "lm_studio");
+        assert!(kind.uses_openai_compatible_http());
+        let capabilities = ProviderCapabilities::baseline(&kind);
+        assert!(require_capability(&kind, &capabilities, "model_discovery").is_ok());
+        assert!(require_capability(&kind, &capabilities, "chat_streaming").is_ok());
+        assert!(require_capability(&kind, &capabilities, "embeddings").is_ok());
+        let config = ProviderConfig {
+            id: "lm-studio-local".into(),
+            kind: ProviderKind::LmStudio,
+            endpoint: "http://127.0.0.1:1234/v1".into(),
+            chat_model: "local-model".into(),
+            embedding_model: None,
+            bearer_token: None,
+        };
+        validate_config(&config).unwrap();
+        let restored: ProviderKind = serde_json::from_str("\"lm_studio\"").unwrap();
+        assert_eq!(restored, ProviderKind::LmStudio);
+        let compatible: ProviderKind = serde_json::from_str("\"open_ai_compatible\"").unwrap();
+        assert_eq!(compatible, ProviderKind::OpenAiCompatible);
     }
 
     #[test]

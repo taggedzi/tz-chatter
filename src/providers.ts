@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type ProviderKind = "ollama" | "open_ai_compatible";
+export type ProviderKind = "ollama" | "lm_studio" | "open_ai_compatible";
 
 export type ProviderCapabilities = {
   health: boolean;
@@ -18,6 +18,17 @@ export type ProviderConfig = {
   embedding_model?: string | null;
   bearer_token?: string | null;
 };
+
+export function providerDefaults(kind: ProviderKind): Pick<ProviderConfig, "id" | "kind" | "endpoint"> {
+  switch (kind) {
+    case "ollama":
+      return { id: "ollama-local", kind, endpoint: "http://127.0.0.1:11434" };
+    case "lm_studio":
+      return { id: "lm-studio-local", kind, endpoint: "http://127.0.0.1:1234/v1" };
+    case "open_ai_compatible":
+      return { id: "openai-compatible-local", kind, endpoint: "http://127.0.0.1:8080/v1" };
+  }
+}
 
 export type RedactedProviderConfig = Omit<ProviderConfig, "bearer_token"> & {
   has_bearer_token: boolean;

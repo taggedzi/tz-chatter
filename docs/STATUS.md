@@ -4,12 +4,12 @@ Last updated: 2026-09-12
 
 ## Current position
 
-- Project phase: Milestone 7 in progress (T19–T22 complete; T16/T18 remain open only for environment-limited checks).
+- Project phase: Milestone 7 environment-limited leftovers (T16/T18); Milestone 8 planned (T24/T25 todo).
 - Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, and T19 completion-audit remediations A01-A15.
 - T01 delivered: React/TypeScript shell, Rust command boundary, frontend/Rust lockfiles, validation scripts, and a Windows launch check.
 - Repository: initialized locally on `main`; no remote configured. T19/A13 commit `6a08a51` contains the reviewed application sources.
-- Active task: none. T22 is done.
-- Next task: retain T16/T18 in progress for visual Windows tray/keyboard interaction and live llama.cpp/LM Studio checks if those become available.
+- Active task: none. T23 is done. Self-maintaining hybrid memory is accepted as ADR-009 and scheduled as T24 (auto-write) then T25 (hybrid default).
+- Next task: T24 — Auto-write validated memories. T16/T18 remain in_progress only for environment-limited visual tray/keyboard and live llama.cpp/LM Studio checks.
 - Blockers: no known implementation blockers. Native Computer Use visual inspection remains unavailable; process/window inspection verified launch and responsiveness.
 
 The user approved the architectural direction and requested a plan/status system that lets different agents continue without prior conversation context. T08 now retrieves bounded lexical memories into loopback-provider prompts; memory inspection, extraction, review, semantic ranking, initiative delivery, validated portable packs, and Windows packaging are implemented incrementally. Remaining release evidence is limited to visual Windows interaction coverage and live access to an OpenAI-compatible endpoint.
@@ -44,17 +44,20 @@ The plan contains dependencies and acceptance criteria. This table is the author
 | T20 | Consolidate the chat layout | done | Chat is the default full-height transcript; sidebar lists sessions and starts new ones; Settings overlay holds provider, initiative, and vault/portability; Memories uses the loaded character. 80 Rust tests passed and 2 ignored; frontend lint/typecheck/build passed. |
 | T21 | Character library and application prompt | done | Characters library creates/adds/edits portable vaults; Settings → Prompt stores application rules outside character data; prompt builder prepends those rules. 90 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. |
 | T22 | Provider chat model discovery list | done | Settings → Provider chat model is a select filled from `provider_discover`; auto-runs on load and when endpoint/kind/token change. Other… replaces the select with one text field and a return-to-list control. Frontend lint/typecheck passed after the double-input fix. |
+| T23 | LM Studio provider settings | done | Named LM Studio provider uses OpenAI-compatible `/v1` transport with default `http://127.0.0.1:1234/v1`. Saved `open_ai_compatible` settings still load. 92 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. Live LM Studio on port 1234 was not reachable. |
+| T24 | Auto-write validated memories | todo | Classify origin from transcript evidence; auto-commit user-stated/event/character facts as new Markdown files; inferred stays in the Memories inbox. See spec and executor plan. |
+| T25 | Hybrid retrieval by default | todo | Hybrid on when an embedding model is set; lexical fallback without embedding on the chat path; background embed worker; skip superseded targets. Depends on T24. |
 
 ## Active work and resumption
 
-Task: T22 — Populate the provider chat model list from discovery (complete)
+Task: none (planning complete for Milestone 8)
 Owner/session and date: Grok / current session — 2026-09-12
-Scope / files being edited: `src/ProviderPanel.tsx`, `docs/PLAN.md`, `docs/STATUS.md`, `docs/HANDOFF.md`. No overlapping work reported.
-Completed in this session: Chat model is a provider-backed select. Other… no longer stacks a second field under the dropdown; it replaces the select with one text input and a Choose from provider list control.
-Remaining acceptance criteria: none for T22. T18 still lacks visual accessibility/keyboard interaction evidence and a live non-Ollama provider smoke test. T16 visual tray verification remains unavailable.
-Verification commands and outcomes: `npm run lint`, `npm run typecheck` — PASS after the Other… double-input fix. Native window interaction was not re-run.
+Scope / files being edited: `docs/PLAN.md`, `docs/PROJECT.md`, `docs/DECISIONS.md`, `docs/STATUS.md`, `docs/HANDOFF.md`, `README.md`, `docs/specs/2026-09-12-self-maintaining-hybrid-memory-design.md`, `docs/specs/2026-09-12-self-maintaining-hybrid-memory-plan.md`. No overlapping work reported.
+Completed in this session: accepted the self-maintaining hybrid memory spec, added ADR-009, scheduled T24 and T25, wrote the executor plan. No application code.
+Remaining acceptance criteria: none for planning. T24/T25 implementation has not started.
+Verification commands and outcomes: documentation-only; no application checks.
 Blocker and unblock action (if any): none.
-Exact next step: retain T16/T18 in progress for remaining visual/tool and live non-Ollama provider limitations.
+Exact next step: start T24 (mark it in_progress, then origin classification + auto-commit tests in `extraction.rs` / `reconciliation.rs` / `lib.rs` per the executor plan).
 
 Sample vault: `examples/characters/lyra` now includes six Markdown memories and `chats/session-welcome.md` for first-run testing.
 
@@ -109,7 +112,7 @@ Local environment note: the initial sandbox-created `.git` directory is owned by
 ## Known constraints and unresolved choices
 
 - Windows is the initial verification target; other platforms are not yet tested.
-- External local inference servers are the first integration mode. Engine installation, launching, and downloads are deferred.
+- External local inference servers are the first integration mode. Engine installation, launching, and downloads are deferred. Self-maintaining hybrid memory is scheduled as T24/T25. Other possible later features in `docs/PROJECT.md` remain unscheduled.
 - Exact dependency versions, packaging/signing details, default models, and quantitative performance targets remain to be selected during their tasks.
 - Formal vault/transcript schema and migrations belong to T03; the specification establishes required properties, not a completed implementation.
 - Provider, embedding, and tokenization behavior varies. Probe capabilities and record what was actually tested.
@@ -146,3 +149,4 @@ Update the task board and append a handoff entry in the same change. Keep this f
 | 2026-09-12 | T21 character library and application prompt | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 90 Rust tests passed and 2 ignored including library create/add/save, missing-vault listing, overwrite refusal, and application-prompt ordering; frontend checks passed; native window interaction not re-run |
 | 2026-09-12 | T22 provider chat model list | npm lint/typecheck/build | PASS: frontend checks passed; chat model select is populated from `provider_discover`; native window and live provider discovery were not re-run |
 | 2026-09-12 | T22 Other… double-input fix | npm lint/typecheck | PASS: Other… now replaces the select with one text field; return-to-list control added |
+| 2026-09-12 | T23 LM Studio provider settings | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 92 Rust tests passed and 2 ignored including LM Studio kind round-trip and `/v1` discovery paths; frontend checks passed; live LM Studio at `127.0.0.1:1234` timed out |

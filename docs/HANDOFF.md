@@ -468,3 +468,59 @@ Files changed: `src/ProviderPanel.tsx`, `src/App.css`, `docs/STATUS.md`, and thi
 Verification: `npm run lint` and `npm run typecheck` passed.
 
 Next concrete action: retain T16/T18 in progress.
+
+## 2026-09-12 — T23: first-class LM Studio provider settings
+
+Scope and outcome: Settings → Provider now has an **LM Studio** option alongside Ollama and generic OpenAI-compatible. Selecting it uses id `lm-studio-local` and default endpoint `http://127.0.0.1:1234/v1`. Health, model discovery, streamed chat, and embeddings go through the existing OpenAI-compatible `/v1` transport (`/v1/models`, `/v1/chat/completions`, `/v1/embeddings`). Previously saved `open_ai_compatible` settings still deserialize. Newly selected OpenAI-compatible defaults to `http://127.0.0.1:8080/v1` so it is no longer confused with LM Studio’s port.
+
+Files changed: `src-tauri/src/providers.rs`, `src-tauri/src/connections.rs`, `src/providers.ts`, `src/ProviderPanel.tsx`, `README.md`, `docs/PLAN.md`, `docs/STATUS.md`, and this handoff.
+
+Decisions added/superseded: none. This implements ADR-002’s LM Studio path as a named settings kind rather than a new protocol.
+
+Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.toml` — 92 passed, 2 ignored; `cargo fmt --all -- --check` passed; `cargo clippy --all-targets -- -D warnings` passed; `npm run lint`, `npm run typecheck`, and `npm run build` passed. A probe of `http://127.0.0.1:1234/v1/models` timed out, so live LM Studio is not claimed.
+
+Incomplete work / blockers: T16/T18 visual tray/keyboard Computer Use and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: retain T16/T18 in progress. Start LM Studio’s Developer server and choose **LM Studio** in Settings → Provider to exercise discovery against a real model list.
+
+## 2026-09-12 — Possible later features recorded
+
+Scope and outcome: recorded the post-T23 product-ideation backlog as unscheduled possible features. Highest-leverage candidates: memory inbox, remember-this-from-a-turn, user persona and scene notes, open-vault-as-files plus portraits, session names/search/archive, edit/regenerate/continue, per-character model and sampling, and a first-run provider coach with explicit remote-memory consent. On-mission follow-ups: embedding rebuild and hybrid default, contradiction/supersession review, keyboard-first chat, and macOS/Linux verification. Deferred items (voice, avatars, group chat, marketplace, cloud sync, fine-tuning, arbitrary tools, bundled downloads, always-on after Quit) stay deferred; engine launch may be revisited only as a user-visible action.
+
+Files changed: `docs/PROJECT.md`, `docs/PLAN.md`, `docs/STATUS.md`, `README.md`, and this handoff.
+
+Decisions added/superseded: none. These ideas are not accepted implementation scope. The plan forbids adding T24+ until the user promotes a specific item.
+
+Verification and actual results: documentation-only; no application checks.
+
+Incomplete work / blockers: none for this documentation change. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: retain T16/T18 in progress. Promote the suggested cluster (memory inbox, remember-this, open-vault-as-files) into the plan only after an explicit user decision.
+
+## 2026-09-12 — Self-maintaining hybrid memory spec drafted
+
+Scope and outcome: wrote the design agreed in discussion. Markdown files remain canonical. The model proposes; the app validates and auto-writes user-stated, event, and character/world candidates. Inferred guesses stay inbox-only. Origin labels are reclassified from transcript evidence (user_stated needs a user-turn quote). Hybrid retrieval becomes the default when an embedding model is configured, with visible lexical fallback. Vectors stay a rebuildable SQLite index, not an external database. Chat-chrome inbox badge and Remember-this are explicitly out of this spec.
+
+Files changed: `docs/specs/2026-09-12-self-maintaining-hybrid-memory-design.md`, `docs/STATUS.md`, `README.md`, and this handoff.
+
+Decisions added/superseded: none yet. ADR-004/ADR-005 and `docs/PROJECT.md` update only after the user accepts the spec and it is promoted into the plan.
+
+Verification and actual results: documentation-only; no application checks. Spec self-review removed origin-label ambiguity and scoped inbox chrome out of the first implementation.
+
+Incomplete work / blockers: spec is awaiting user review. Do not implement. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: user reviews `docs/specs/2026-09-12-self-maintaining-hybrid-memory-design.md`. On acceptance, add plan tasks and supersede the lexical-default / all-needs-review defaults.
+
+## 2026-09-12 — Milestone 8 planned (self-maintaining hybrid memory)
+
+Scope and outcome: the user confirmed the product loop is “just chat; memories accumulate.” The spec is accepted. ADR-009 supersedes ADR-004’s lexical product default and ADR-005’s all-proposals-need-review default. `docs/PROJECT.md` now specifies auto-write of validated facts as new Markdown files, inferred inbox-only, and hybrid default with lexical fallback. PLAN tasks: T24 auto-write, T25 hybrid default + background embed. Executor plan is `docs/specs/2026-09-12-self-maintaining-hybrid-memory-plan.md`. No application code.
+
+Files changed: `docs/PLAN.md`, `docs/PROJECT.md`, `docs/DECISIONS.md`, `docs/STATUS.md`, `README.md`, `docs/specs/2026-09-12-self-maintaining-hybrid-memory-design.md`, `docs/specs/2026-09-12-self-maintaining-hybrid-memory-plan.md`, and this handoff.
+
+Decisions added/superseded: ADR-009 accepted. ADR-004 and ADR-005 defaults superseded as recorded in `docs/DECISIONS.md`.
+
+Verification and actual results: documentation-only.
+
+Incomplete work / blockers: T24 and T25 are `todo`. T16/T18 visual/live-provider checks remain environment-limited.
+
+Next concrete action: start T24. Write failing `effective_origin` / auto-commit tests, then wire `process_extraction_queue` to `ReconciliationService` per the executor plan.

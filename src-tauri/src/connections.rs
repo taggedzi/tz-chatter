@@ -64,7 +64,9 @@ impl ProviderClient {
         })?;
         match config.kind {
             ProviderKind::Ollama => parse_ollama_discovery(config, body),
-            ProviderKind::OpenAiCompatible => parse_openai_discovery(config, body),
+            ProviderKind::LmStudio | ProviderKind::OpenAiCompatible => {
+                parse_openai_discovery(config, body)
+            }
         }
     }
 
@@ -105,7 +107,7 @@ impl ProviderClient {
                     .send()
                     .await
             }
-            ProviderKind::OpenAiCompatible => {
+            ProviderKind::LmStudio | ProviderKind::OpenAiCompatible => {
                 let url = endpoint(config, "chat", "chat/completions")?;
                 let payload = build_openai_chat_payload(request);
                 self.authorized(self.http.post(url).json(&payload), config)
@@ -127,7 +129,9 @@ impl ProviderClient {
         let mut stream = response.bytes_stream();
         let mut decoder = match config.kind {
             ProviderKind::Ollama => StreamDecoder::Ollama(OllamaStreamDecoder::default()),
-            ProviderKind::OpenAiCompatible => StreamDecoder::OpenAi(OpenAiSseDecoder::default()),
+            ProviderKind::LmStudio | ProviderKind::OpenAiCompatible => {
+                StreamDecoder::OpenAi(OpenAiSseDecoder::default())
+            }
         };
 
         loop {
@@ -205,7 +209,7 @@ impl ProviderClient {
                     .send()
                     .await
             }
-            ProviderKind::OpenAiCompatible => {
+            ProviderKind::LmStudio | ProviderKind::OpenAiCompatible => {
                 let url = endpoint(config, "embed", "embeddings")?;
                 let payload = serde_json::json!({ "model": request.model, "input": request.input });
                 self.authorized(self.http.post(url).json(&payload), config)
@@ -253,16 +257,15 @@ fn endpoint(
         .to_string()
         .trim_end_matches('/')
         .to_string();
-    Ok(match config.kind {
-        ProviderKind::Ollama => format!("{base}/api/{ollama_path}"),
-        ProviderKind::OpenAiCompatible => {
-            let v1_base = if base.ends_with("/v1") {
-                base
-            } else {
-                format!("{base}/v1")
-            };
-            format!("{v1_base}/{openai_path}")
-        }
+    Ok(if config.kind.uses_openai_compatible_http() {
+        let v1_base = if base.ends_with("/v1") {
+            base
+        } else {
+            format!("{base}/v1")
+        };
+        format!("{v1_base}/{openai_path}")
+    } else {
+        format!("{base}/api/{ollama_path}")
     })
 }
 
@@ -377,7 +380,7 @@ fn parse_openai_discovery(
                     config.embedding_model.as_deref() == Some(model.id.as_str());
                 ModelDescriptor {
                     id: model.id,
-                    kind: "openai_compatible".into(),
+                    kind: config.kind.wire_label().into(),
                     supports_chat: true,
                     supports_embeddings,
                 }
@@ -393,16 +396,18 @@ fn parse_embedding_response(
 ) -> Result<EmbeddingResponse, ProviderError> {
     let vectors: Vec<Vec<f32>> = match config.kind {
         ProviderKind::Ollama => body.get("embeddings").cloned(),
-        ProviderKind::OpenAiCompatible => body.get("data").and_then(|data| {
-            data.as_array().map(|items| {
-                Value::Array(
-                    items
-                        .iter()
-                        .filter_map(|item| item.get("embedding").cloned())
-                        .collect::<Vec<_>>(),
-                )
+        ProviderKind::LmStudio | ProviderKind::OpenAiCompatible => {
+            body.get("data").and_then(|data| {
+                data.as_array().map(|items| {
+                    Value::Array(
+                        items
+                            .iter()
+                            .filter_map(|item| item.get("embedding").cloned())
+                            .collect::<Vec<_>>(),
+                    )
+                })
             })
-        }),
+        }
     }
     .and_then(|value| serde_json::from_value(value).ok())
     .ok_or_else(|| ProviderError::Unavailable("invalid embedding response shape".into()))?;
@@ -641,6 +646,17 @@ mod tests {
         }
     }
 
+    fn lm_studio_config() -> ProviderConfig {
+        ProviderConfig {
+            id: "lm-studio-local".into(),
+            kind: ProviderKind::LmStudio,
+            endpoint: "http://127.0.0.1:1234/v1".into(),
+            chat_model: "local-model".into(),
+            embedding_model: None,
+            bearer_token: None,
+        }
+    }
+
     fn request(provider_id: &str) -> ChatRequest {
         ChatRequest {
             provider_id: provider_id.into(),
@@ -674,6 +690,32 @@ mod tests {
                 ["stream"],
             true
         );
+    }
+
+    #[test]
+    fn lm_studio_uses_openai_compatible_v1_paths_and_model_list() {
+        let config = lm_studio_config();
+        assert_eq!(
+            endpoint(&config, "tags", "models").unwrap(),
+            "http://127.0.0.1:1234/v1/models"
+        );
+        assert_eq!(
+            endpoint(&config, "chat", "chat/completions").unwrap(),
+            "http://127.0.0.1:1234/v1/chat/completions"
+        );
+        assert_eq!(
+            endpoint(&config, "embed", "embeddings").unwrap(),
+            "http://127.0.0.1:1234/v1/embeddings"
+        );
+        let discovery = parse_openai_discovery(
+            &config,
+            serde_json::json!({ "data": [{ "id": "qwen2.5-7b" }, { "id": "text-embedding-nomic" }] }),
+        )
+        .unwrap();
+        assert_eq!(discovery.provider_id, "lm-studio-local");
+        assert!(discovery.models.iter().any(|model| model.id == "qwen2.5-7b"
+            && model.kind == "lm_studio"
+            && model.supports_chat));
     }
 
     #[test]
