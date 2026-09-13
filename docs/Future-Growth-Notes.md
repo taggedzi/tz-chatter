@@ -69,11 +69,12 @@ Ctrl+I toggle Sources, Escape dismisses switcher / Settings / generation /
 Sources then focuses the composer. Mouse paths stay. Cmd mirrors Ctrl on
 macOS without claiming macOS verification.
 
-## Next, still on-mission
+11. **IMPLEMENTED (T33)** Linux desktop verification on Ubuntu 24.04.5 LTS
+GNOME/Wayland (VirtualBox guest): launch, Windows-copied vault round-trip,
+one chat turn, tray registration, deb and AppImage artifacts. Not a general
+Linux support claim (ADR-017).
 
-• **Linux verification.** The vault format is already portable; the missing
-piece is the desktop app on a Linux machine. **Scheduled as T33.** Claim Linux
-only after a recorded desktop run (ADR-017).
+## Next, still on-mission
 
 • **macOS remains intended but unverified.** Cmd mirrors Ctrl as a portable
 binding. No macOS task until a Darwin host exists; do not claim the platform

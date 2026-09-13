@@ -27,7 +27,15 @@ Prerequisites for Windows:
 - Microsoft C++ Build Tools with Desktop development with C++
 - Microsoft Edge WebView2 Runtime (included on most supported Windows versions)
 
-Windows is the verified desktop target. Linux verification is scheduled as T33 and is not claimed yet. macOS is intended to compile and uses Cmd in the keymap; that is not a support claim, and there is no Mac download or macOS prerequisite list.
+Prerequisites for the recorded Ubuntu 24.04 GNOME/Wayland run (T33):
+
+- Node.js 20+ and npm (Ubuntu 24.04's Node 18 is too old for this Vite 8 frontend)
+- Rust stable (`rustup`)
+- Tauri 2 system libraries: `libwebkit2gtk-4.1-dev`, `libjavascriptcoregtk-4.1-dev`, `libgtk-3-dev`, `librsvg2-dev`, `libayatana-appindicator3-dev`, `patchelf`, `libxdo-dev`, plus `build-essential`, `curl`, `wget`, `file`, and `libssl-dev`
+
+On a VirtualBox shared folder (`vboxsf`), do not run `npm install` or Cargo in the share: that filesystem cannot create symlinks, and Windows `node_modules`/`target` trees are the wrong platform. Copy the sources to native ext4 and set `CARGO_TARGET_DIR` there. SQLite vault indexes should also live on native disk.
+
+Windows is the verified desktop target. Linux was tested on Ubuntu 24.04.5 LTS with GNOME on Wayland (T33, VirtualBox guest); that is not a general Linux support claim. macOS is intended to compile and uses Cmd in the keymap; that is not a support claim, and there is no Mac download or macOS prerequisite list.
 
 Install JavaScript dependencies and verify the frontend:
 
@@ -56,6 +64,20 @@ Create a local Windows build when the environment has the required packaging too
 npm run tauri build
 ```
 
+On the recorded Ubuntu 24.04 host the same npm scripts apply from a native-disk checkout (not the VirtualBox share):
+
+```bash
+npm install
+npm run lint
+npm run typecheck
+npm run build
+cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+npm run tauri dev
+npx tauri build --bundles deb,appimage
+```
+
 The current build includes provider contracts and local connections, Markdown-backed vault persistence, lexical and hybrid retrieval, memory review/extraction, bounded initiative delivery, native tray/notification hooks, and validated portable character packs. Check `docs/STATUS.md` before relying on any feature claim; T18 release validation remains in progress.
 
 Portable character packs are created from Settings → Vault. Export writes a new directory containing canonical Markdown and durable operational state; import validates the manifest, rejects traversal and unrelated-vault overwrite, rebuilds the search index, and keeps a backup when explicitly replacing the same character.
@@ -80,7 +102,9 @@ Mouse controls stay. On macOS the same chords use Cmd; that is a portable bindin
 - **Ctrl+I** — toggle Sources when the last turn retrieved memories
 - **Escape** — close the switcher, then Settings, then stop generation, then Sources, then focus the composer
 
-The Windows release is currently validated with a live Ollama smoke test. Ollama and OpenAI-compatible protocol paths have deterministic coverage, but a live llama.cpp/LM Studio endpoint has not been available for this release. MSI and NSIS bundles are produced under `src-tauri/target/release/bundle/`. Linux and macOS builds are not claimed from this Windows package.
+The Windows release is currently validated with a live Ollama smoke test. Ollama and OpenAI-compatible protocol paths have deterministic coverage, but a live llama.cpp/LM Studio endpoint has not been available for this release. MSI and NSIS bundles are produced under `src-tauri/target/release/bundle/`.
+
+Linux was tested on Ubuntu 24.04.5 LTS GNOME/Wayland (T33). That run produced `tz-chatter_0.1.0_amd64.deb` (5,294,836 bytes) and `tz-chatter_0.1.0_amd64.AppImage` (81,373,688 bytes). It is not a claim that every Linux distro or desktop is supported. macOS builds are not claimed. The Linux chat-turn evidence used a local Ollama-shaped stub because Ollama was not installed on that guest.
 
 ## Troubleshooting and release notes
 

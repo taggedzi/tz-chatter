@@ -720,3 +720,28 @@ Verification and actual results: documentation-only. T33 appears in PLAN (Milest
 Incomplete work / blockers: T33 needs a Linux host with a display; do not start it from this Windows workspace. WSL2/WSLg is not a general Linux claim. macOS remains unscheduled until a Darwin host can launch the window. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
 
 Next concrete action: on a Linux desktop, mark T33 `in_progress` and follow its PLAN acceptance list.
+
+## 2026-09-13 — T33: Linux desktop verification
+
+Scope and outcome: ran T33 on Ubuntu 24.04.5 LTS, GNOME on Wayland, in a VirtualBox guest whose project path is `vboxsf` (`/media/sf_tz-chatter`). Symlinks are denied on that share, and the tree still had Windows `node_modules` (win32 native bindings) plus a 23G `src-tauri/target`, so the run used a native ext4 worktree at `/home/tag/src/tz-chatter` with `CARGO_TARGET_DIR=/home/tag/.cache/tz-chatter/target`. User-space rustup 1.98.1 and Node 24.21.0; Tauri GTK `-dev` packages via sudo. Distro Node 18.19.1 is too old for Vite 8.
+
+The desktop window opened (`npm run tauri dev`: tz-chatter + WebKit network/web processes, Wayland cursor fd). A copy of the Windows Lyra vault at `/home/tag/tz-chatter-vaults/lyra-from-windows` received one streamed chat turn through the live `conversation_send` IPC path against a local Ollama-shaped stub on `127.0.0.1:11434` (Ollama itself was not installed). `chats/session-welcome.md` contains the T33 user turn and stub assistant reply. After killing and relaunching the process, resume still reported Lyra, 9 turns, and the T33 pair. Tray icon registered with GNOME AppIndicator (`ubuntu-appindicators@ubuntu.com`, StatusNotifier item `tray_icon_tray_app_*`). Initiative notification was not visually clicked. Packaging produced deb and AppImage; the release binary launched and re-registered the tray.
+
+One code fix from Clippy 1.98 (not present on Windows rustc 1.94): `decode_vector` now uses `as_chunks::<4>()` instead of `chunks_exact(4)`.
+
+Files changed: `src-tauri/src/embeddings.rs`, `README.md`, `docs/STATUS.md`, `docs/PROJECT.md`, `docs/DECISIONS.md`, `docs/Future-Growth-Notes.md`, and this handoff.
+
+Decisions added/superseded: ADR-017 remains accepted; its Linux paragraph now records the Ubuntu 24.04.5 GNOME/Wayland T33 run instead of scheduling it. It still forbids a general “Linux is supported” claim.
+
+Verification and actual results:
+- `npm run lint`, `typecheck`, `build`, `test:shortcuts` (17 passed)
+- `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
+- `cargo test --manifest-path src-tauri/Cargo.toml` — 156 passed, 2 ignored
+- `cargo clippy --all-targets -- -D warnings`
+- `npm run tauri dev` window + tray; Windows-copied vault turn; restart resume
+- `npx tauri build --bundles deb,appimage` — `tz-chatter_0.1.0_amd64.deb` 5,294,836 bytes, `tz-chatter_0.1.0_amd64.AppImage` 81,373,688 bytes
+- packaged `/home/tag/.cache/tz-chatter/target/release/tz-chatter` launched with tray
+
+Incomplete work / blockers: live Ollama/llama.cpp/LM Studio not present on this guest. Initiative notification not visually exercised. WSL2/WSLg was not used and is still not a general Linux claim. macOS remains unscheduled. T16/T18 Windows visual leftovers remain environment-limited.
+
+Next concrete action: none scheduled. T16/T18 remain environment-limited.

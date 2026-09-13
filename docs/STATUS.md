@@ -4,13 +4,13 @@ Last updated: 2026-09-13
 
 ## Current position
 
-- Project phase: Milestone 16 T33 todo (Linux verification); Milestone 15 T32 done; Milestone 14 T31 done; Milestone 13 T30 done; Milestone 12 T29 done; Milestone 11 T28 done; Milestone 10 T27 done; Milestone 9 T26 done; Milestone 7 environment-limited leftovers (T16/T18); Milestone 8 T24 and T25 done.
+- Project phase: Milestone 16 T33 done (Linux verification on Ubuntu 24.04.5 GNOME/Wayland VirtualBox guest); Milestone 15 T32 done; Milestone 14 T31 done; Milestone 13 T30 done; Milestone 12 T29 done; Milestone 11 T28 done; Milestone 10 T27 done; Milestone 9 T26 done; Milestone 7 environment-limited leftovers (T16/T18); Milestone 8 T24 and T25 done.
 - Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, T19 completion-audit remediations A01-A15, auto-write of validated memories, hybrid retrieval by default with lexical fallback, portable user persona plus reusable scene locals, portable character portraits, session titles/search/in-place archive, last-exchange edit/regenerate/continue, per-character model and sampling, contradiction/supersession review, and keyboard-first chat.
 - T01 delivered: React/TypeScript shell, Rust command boundary, frontend/Rust lockfiles, validation scripts, and a Windows launch check.
 - Repository: initialized locally on `main`; no remote configured. T19/A13 commit `6a08a51` contains the reviewed application sources.
-- Active task: none. T32 keyboard-first chat is done. ADR-017 platform-claim split is recorded.
-- Next task: T33 Linux desktop verification (`todo`). It needs a Linux host with a display; do not start it from this Windows workspace. T16/T18 remain in_progress only for environment-limited visual tray/keyboard and live llama.cpp/LM Studio checks.
-- Blockers: no implementation blockers on Windows. T33 is waiting on a Linux desktop, not a code dependency. Native Computer Use visual inspection remains unavailable; process/window inspection verified launch and responsiveness. macOS is intended but unverified and is not scheduled.
+- Active task: none. T33 Linux desktop verification is done. ADR-017 platform-claim split is recorded.
+- Next task: none scheduled. T16/T18 remain in_progress only for environment-limited visual tray/keyboard and live llama.cpp/LM Studio checks.
+- Blockers: no implementation blockers on this Linux guest for T33. Native Computer Use visual inspection remains unavailable; process, Wayland, AT-SPI, and StatusNotifier evidence covered launch and tray registration. macOS is intended but unverified and is not scheduled. Live Ollama was not installed here; the T33 chat turn used a local Ollama-shaped HTTP stub.
 
 The user approved the architectural direction and requested a plan/status system that lets different agents continue without prior conversation context. T08 now retrieves bounded lexical memories into loopback-provider prompts; memory inspection, extraction, review, semantic ranking, initiative delivery, validated portable packs, and Windows packaging are implemented incrementally. Remaining release evidence is limited to visual Windows interaction coverage and live access to an OpenAI-compatible endpoint.
 
@@ -54,18 +54,18 @@ The plan contains dependencies and acceptance criteria. This table is the author
 | T30 | Per-character model and sampling | done | Optional chat model/temperature/max tokens in `.tz-chatter/generation.json`; chat/initiative use full override; extraction uses character model with conservative sampling; packs omit the file. 146 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. Native window not re-run. |
 | T31 | Contradiction and supersession review | done | Memories Conflicts lists committed contradicts/supersedes pairs; exclude marks the chosen Markdown excluded without deleting it; related/missing/excluded sides omitted; supersedes exclude-older rejects from_id. 156 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. Native window not re-run. |
 | T32 | Keyboard-first chat | done | Global Ctrl/Cmd keymap plus typeahead character switcher; Escape stack; composer focus after new/switch/Ctrl+L. 17 shortcut tests passed; frontend lint/typecheck/build passed. Native chord click-through not re-run. |
-| T33 | Linux desktop verification | todo | Scheduled; not started. Needs a Linux host with a display. Vault format is already portable. Do not claim Linux until launch, Windows-copied vault round-trip, and one chat turn are recorded. macOS is out of scope (ADR-017). |
+| T33 | Linux desktop verification | done | Ubuntu 24.04.5 LTS, GNOME on Wayland, VirtualBox guest. Frontend lint/typecheck/build and 17 shortcut tests passed. `cargo fmt --check`, `cargo test` 156 passed / 2 ignored, Clippy `-D warnings` passed after a rustc 1.98 `as_chunks` lint fix. `npm run tauri dev` opened a Wayland window (pid + WebKit processes). Windows-copied Lyra vault received one streamed turn in `session-welcome.md`; resume after process restart still saw 9 turns including that T33 pair. Tray registered with GNOME AppIndicator (`ubuntu-appindicators@ubuntu.com`). Packages: `tz-chatter_0.1.0_amd64.deb` (5,294,836 bytes) and `tz-chatter_0.1.0_amd64.AppImage` (81,373,688 bytes). Not a general Linux support claim. Live Ollama not installed. Initiative notification not visually clicked. |
 
 ## Active work and resumption
 
-Task: none (docs split for ADR-017 / T33 scheduling done; T33 not started)
+Task: none (T33 Linux verification completed)
 Owner/session and date: Grok implementer — 2026-09-13
-Scope / files being edited: none remaining for the docs split.
-Completed in this session: split macOS/Linux verification; ADR-017; T33 scheduled as todo.
-Remaining acceptance criteria: none for the docs split. T33 still requires a Linux desktop run.
-Verification commands and outcomes: documentation-only; T33 IDs present in PLAN and STATUS.
-Blocker and unblock action (if any): T33 unblock is a Linux host with a display. macOS remains unscheduled.
-Exact next step: on a Linux desktop, mark T33 `in_progress` and follow its PLAN acceptance list. T16/T18 remain environment-limited.
+Scope / files being edited: none remaining for T33.
+Completed in this session: T33 Linux desktop run on Ubuntu 24.04.5 GNOME/Wayland (VirtualBox). Native ext4 worktree because `vboxsf` denies symlinks. Clippy 1.98 lint fix in `decode_vector`. Window, Windows-copied Lyra turn, restart resume, tray registration, deb+AppImage recorded.
+Remaining acceptance criteria: none for T33. T16/T18 visual/live-provider leftovers remain environment-limited.
+Verification commands and outcomes: see ledger row 2026-09-13 T33.
+Blocker and unblock action (if any): none for T33. macOS remains unscheduled.
+Exact next step: none scheduled. T16/T18 remain environment-limited.
 
 Sample vault: `examples/characters/lyra` includes Lyra's definition, `persona.md`, `scene.md`, `locals/cafe.md`, six Markdown memories, and `chats/session-welcome.md`.
 
@@ -119,7 +119,7 @@ Local environment note: the initial sandbox-created `.git` directory is owned by
 
 ## Known constraints and unresolved choices
 
-- Windows is the verified desktop target. Linux is scheduled as T33 and is not tested. macOS is intended but unverified; no Darwin host is available, so it is not scheduled (ADR-017).
+- Windows remains the verified development and release target. Linux was tested on Ubuntu 24.04.5 LTS GNOME/Wayland in a VirtualBox guest (T33); that is not a general Linux support claim. macOS is intended but unverified; no Darwin host is available, so it is not scheduled (ADR-017).
 - External local inference servers are the first integration mode. Engine installation, launching, and downloads are deferred. Self-maintaining hybrid memory is scheduled as T24/T25. Other possible later features in `docs/PROJECT.md` remain unscheduled.
 - Exact dependency versions, packaging/signing details, default models, and quantitative performance targets remain to be selected during their tasks.
 - Formal vault/transcript schema and migrations belong to T03; the specification establishes required properties, not a completed implementation.
@@ -170,3 +170,4 @@ Update the task board and append a handoff entry in the same change. Keep this f
 | 2026-09-13 | T31 contradiction and supersession review | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 156 passed and 2 ignored including contradicts list, related hidden, exclude/delete leave the list, missing side omitted, vault isolation, FTS drop after exclude, supersedes from_id rejected, locked exclude, stale pair error, list does not write; frontend checks passed; native window not re-run |
 | 2026-09-13 | T32 keyboard-first chat | npm run test:shortcuts; npm run lint; npm run typecheck; npm run build | PASS: 17 shortcut-resolver tests; frontend lint/typecheck/build; native chord click-through not re-run |
 | 2026-09-13 | ADR-017 / T33 scheduling | PLAN vs STATUS ID membership; docs cross-links | PASS: T33 present in PLAN Milestone 16 and STATUS as `todo`; combined macOS/Linux growth item split; no Linux/macOS runtime |
+| 2026-09-13 | T33 Linux desktop verification | frontend lint/typecheck/build; npm run test:shortcuts; cargo fmt --check; cargo test; clippy -D warnings; npm run tauri dev; Windows-copied Lyra send; restart resume; tray StatusNotifier; npx tauri build --bundles deb,appimage; packaged binary launch | PASS: Ubuntu 24.04.5 LTS GNOME/Wayland VirtualBox guest. Node 24.21.0 + rustc 1.98.1 on native ext4 (`/home/tag/src/tz-chatter`, `CARGO_TARGET_DIR=/home/tag/.cache/tz-chatter/target`) because `vboxsf` denies symlinks. 17 shortcut tests; 156 Rust tests passed / 2 ignored; Clippy passed after `as_chunks` lint fix. Dev window: tz-chatter + WebKit processes, Wayland cursor fd. Copied Lyra vault wrote T33 user+assistant turns into `chats/session-welcome.md`; after kill/relaunch, resume still reported 9 turns and `hasT33: true`. Tray: `tray_icon_tray_app_*` on `org.kde.StatusNotifierWatcher` with `ubuntu-appindicators@ubuntu.com`. Packages: deb 5,294,836 bytes and AppImage 81,373,688 bytes; release binary launched and re-registered tray. Live Ollama not installed (protocol stub on :11434). Initiative notification not visually clicked. |

@@ -16,7 +16,7 @@ Date: 2026-09-11. State: accepted. Basis: approved architectural proposal.
 
 Use Tauri 2, React/TypeScript, and a Rust core. Support Ollama natively and llama.cpp/LM Studio through compatible transports and provider-specific capabilities. Start with external local servers; engine management is deferred.
 
-Consequence: generation, storage, and scheduling live behind a typed application boundary. Verify provider behavior independently. Windows is the initial development target, with portable code boundaries. Platform *claims* (what README and release notes may say works) are [ADR-017](#adr-017--platform-claims-windows-verified-linux-scheduled-macos-unverified).
+Consequence: generation, storage, and scheduling live behind a typed application boundary. Verify provider behavior independently. Windows is the initial development target, with portable code boundaries. Platform *claims* (what README and release notes may say works) are [ADR-017](#adr-017--platform-claims-windows-verified-linux-tested-on-ubuntu-2404-macos-unverified).
 
 Reference APIs to recheck during implementation: [Ollama chat](https://docs.ollama.com/api/chat), [Ollama embeddings](https://docs.ollama.com/api/embed), [llama.cpp server](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md), and [LM Studio APIs](https://lmstudio.ai/docs/developer).
 
@@ -148,14 +148,14 @@ The character switcher is a typeahead overlay over the existing library list. Ch
 
 Consequence: T32 implements this. Customizable shortcuts, a cheat-sheet modal, and edit/regenerate/continue keys remain out of scope.
 
-## ADR-017 — Platform claims: Windows verified, Linux scheduled, macOS unverified
+## ADR-017 — Platform claims: Windows verified, Linux tested on Ubuntu 24.04, macOS unverified
 
-Date: 2026-09-13. State: accepted. Basis: explicit user request to split the combined macOS/Linux verification growth item. Linux can be tested; no macOS host is available.
+Date: 2026-09-13. State: accepted. Basis: explicit user request to split the combined macOS/Linux verification growth item. Linux can be tested; no macOS host is available. T33 evidence recorded the same day.
 
 Windows remains the verified development and release target ([ADR-002](#adr-002--desktop-stack-and-provider-boundary), T18). The character vault is already a portable Markdown layout. Portable code boundaries, including Cmd mirroring Ctrl in the keymap, are not a platform support claim.
 
-Linux desktop verification is scheduled as T33. Claim Linux only after a recorded launch, a vault round-trip from Windows, and one chat turn on a Linux host. Record the distro/desktop and the packaging artifacts that were actually produced. WSL2/WSLg is not a general Linux claim.
+Linux desktop verification ran as T33 on Ubuntu 24.04.5 LTS, GNOME on Wayland, in a VirtualBox guest. That records a distro/desktop, named packaging artifacts, and the gaps from that run; it is not a general “Linux is supported” claim. WSL2/WSLg is not a general Linux claim.
 
 macOS remains intended but unverified. Do not schedule a macOS task, ship a Mac download, or list macOS prerequisites until a Darwin host can launch the window. Compile-only evidence or a later CI runner still does not claim the platform.
 
-Consequence: T33 is Linux-only. README and product copy keep Windows as the verified target. Cmd bindings stay documented as portable, not tested on Mac. No GitHub Actions or notarization work is part of this decision.
+Consequence: README and product copy keep Windows as the verified target and may name the Ubuntu 24.04 GNOME/Wayland run. Cmd bindings stay documented as portable, not tested on Mac. No GitHub Actions or notarization work is part of this decision.

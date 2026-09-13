@@ -17,7 +17,7 @@ The application should make characters consistent, able to recall relevant exper
 - Retrieval: hybrid lexical/vector search when an embedding model is configured; lexical search otherwise. Vectors are a rebuildable SQLite index over Markdown, not a separate database.
 - Initial model operation: connect to an already running local provider and select an available model. Bundling or launching inference engines is a later capability.
 
-Windows is the first development and verification target because this workspace is on Windows. Maintain portable boundaries for macOS and Linux. Claim Linux only after T33 records a desktop run there. macOS is intended to compile and may use Cmd in the keymap; do not claim it without a Darwin host launching the window (ADR-017).
+Windows is the first development and verification target. Maintain portable boundaries for macOS and Linux. Linux was tested on Ubuntu 24.04.5 LTS GNOME/Wayland (T33, VirtualBox guest); do not generalize that to “Linux is supported.” macOS is intended to compile and may use Cmd in the keymap; do not claim it without a Darwin host launching the window (ADR-017).
 
 ## User workflows
 
@@ -177,7 +177,7 @@ Suggested starting cluster if one group is promoted first: memory inbox, remembe
 
 ### On-mission follow-ups
 
-- **Linux verification.** Scheduled as T33: launch the desktop app on a Linux host, load a vault copied from Windows, send a turn, and record packaging artifacts. Claim Linux only after that run (ADR-017).
+- **Linux verification.** Done as T33 on Ubuntu 24.04.5 LTS GNOME/Wayland (VirtualBox guest): launch, Windows-copied vault round-trip, one chat turn, named deb/AppImage artifacts. That is not a general Linux support claim (ADR-017).
 - **macOS.** Intended but unverified. Cmd mirrors Ctrl as a portable binding. No macOS task until a Darwin host exists; do not claim the platform from compile-time portability.
 
 ## Success criteria
