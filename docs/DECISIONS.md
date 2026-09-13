@@ -16,7 +16,7 @@ Date: 2026-09-11. State: accepted. Basis: approved architectural proposal.
 
 Use Tauri 2, React/TypeScript, and a Rust core. Support Ollama natively and llama.cpp/LM Studio through compatible transports and provider-specific capabilities. Start with external local servers; engine management is deferred.
 
-Consequence: generation, storage, and scheduling live behind a typed application boundary. Verify provider behavior independently. Windows is the initial development target, with portable code boundaries.
+Consequence: generation, storage, and scheduling live behind a typed application boundary. Verify provider behavior independently. Windows is the initial development target, with portable code boundaries. Platform *claims* (what README and release notes may say works) are [ADR-017](#adr-017--platform-claims-windows-verified-linux-scheduled-macos-unverified).
 
 Reference APIs to recheck during implementation: [Ollama chat](https://docs.ollama.com/api/chat), [Ollama embeddings](https://docs.ollama.com/api/embed), [llama.cpp server](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md), and [LM Studio APIs](https://lmstudio.ai/docs/developer).
 
@@ -147,3 +147,15 @@ The existing chat loop stays mouse-reachable. A global keymap drives new session
 The character switcher is a typeahead overlay over the existing library list. Choosing a character uses the current vault-resume path, stays on Chat, and focuses the composer. It does not open the identity editor. No command palette, session picker, or user-editable bindings in this task.
 
 Consequence: T32 implements this. Customizable shortcuts, a cheat-sheet modal, and edit/regenerate/continue keys remain out of scope.
+
+## ADR-017 — Platform claims: Windows verified, Linux scheduled, macOS unverified
+
+Date: 2026-09-13. State: accepted. Basis: explicit user request to split the combined macOS/Linux verification growth item. Linux can be tested; no macOS host is available.
+
+Windows remains the verified development and release target ([ADR-002](#adr-002--desktop-stack-and-provider-boundary), T18). The character vault is already a portable Markdown layout. Portable code boundaries, including Cmd mirroring Ctrl in the keymap, are not a platform support claim.
+
+Linux desktop verification is scheduled as T33. Claim Linux only after a recorded launch, a vault round-trip from Windows, and one chat turn on a Linux host. Record the distro/desktop and the packaging artifacts that were actually produced. WSL2/WSLg is not a general Linux claim.
+
+macOS remains intended but unverified. Do not schedule a macOS task, ship a Mac download, or list macOS prerequisites until a Darwin host can launch the window. Compile-only evidence or a later CI runner still does not claim the platform.
+
+Consequence: T33 is Linux-only. README and product copy keep Windows as the verified target. Cmd bindings stay documented as portable, not tested on Mac. No GitHub Actions or notarization work is part of this decision.

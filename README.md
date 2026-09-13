@@ -27,6 +27,8 @@ Prerequisites for Windows:
 - Microsoft C++ Build Tools with Desktop development with C++
 - Microsoft Edge WebView2 Runtime (included on most supported Windows versions)
 
+Windows is the verified desktop target. Linux verification is scheduled as T33 and is not claimed yet. macOS is intended to compile and uses Cmd in the keymap; that is not a support claim, and there is no Mac download or macOS prerequisite list.
+
 Install JavaScript dependencies and verify the frontend:
 
 ```powershell
@@ -78,7 +80,7 @@ Mouse controls stay. On macOS the same chords use Cmd; that is a portable bindin
 - **Ctrl+I** — toggle Sources when the last turn retrieved memories
 - **Escape** — close the switcher, then Settings, then stop generation, then Sources, then focus the composer
 
-The Windows release is currently validated with a live Ollama smoke test. Ollama and OpenAI-compatible protocol paths have deterministic coverage, but a live llama.cpp/LM Studio endpoint has not been available for this release. MSI and NSIS bundles are produced under `src-tauri/target/release/bundle/`.
+The Windows release is currently validated with a live Ollama smoke test. Ollama and OpenAI-compatible protocol paths have deterministic coverage, but a live llama.cpp/LM Studio endpoint has not been available for this release. MSI and NSIS bundles are produced under `src-tauri/target/release/bundle/`. Linux and macOS builds are not claimed from this Windows package.
 
 ## Troubleshooting and release notes
 

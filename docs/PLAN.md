@@ -300,11 +300,33 @@ Bindings: Ctrl+N new session; Ctrl+K typeahead character switcher; Ctrl+L focus 
 
 Acceptance: the resolver covers the keymap and Escape stack; the switcher can pick a library character and resume that vault; composer focus works after new session, switch, and Ctrl+L; Cancel/Sources/New still work with the mouse; frontend lint/typecheck/build pass. Native chord click-through remains environment-limited.
 
+## Milestone 16 — Linux verification
+
+### T33 — Linux desktop verification
+
+Depends on: T17.
+
+Run the desktop app on a Linux host with a display. This is evidence, plus code only if that run finds a Linux-specific bug. Do not wait for T16/T18 Windows leftovers. WSL2/WSLg is not a general Linux claim; if that is the only host, record it as WSL.
+
+On the Linux host: install Node, Rust, and Tauri 2 system libraries (WebKitGTK 4.1, AppIndicator, rsvg, OpenSSL, build tools). Then record:
+
+1. Frontend lint/typecheck/build, `cargo test`, Clippy, and fmt.
+2. `npm run tauri dev` — the window opens and responds.
+3. Add or load a vault copied from Windows (sample Lyra or a Settings → Vault pack).
+4. Send one turn; transcript and any memory write land on disk.
+5. Restart; conversation and memories are still there.
+6. Tray icon and, if enabled, one initiative notification — or name the desktop and the gap (GNOME without AppIndicator often has no tray).
+7. `npm run tauri build` — keep the artifacts that actually appeared (AppImage and/or `.deb`). Do not require both.
+
+Acceptance: Linux launch, vault round-trip, and one chat turn are evidenced in `STATUS.md` with distro/desktop. Packaging artifacts and tray/notification results are named. Failures are written down, not inferred from Windows. README may then say Linux was tested on that distro/desktop; it must not say “Linux is supported” in general. Add Linux prerequisites and run commands only after this run.
+
+Out of scope: macOS, GitHub Actions, signing, publishing, live llama.cpp/LM Studio, and finishing T16 visual tray on Windows.
+
 ## Unscheduled feature backlog
 
 Possible later features live in `docs/PROJECT.md`. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
 
-Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30; contradiction/supersession review is T31; keyboard-first chat is T32). Named generation presets and opt-in pack export of sampling remain unscheduled.
+Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30; contradiction/supersession review is T31; keyboard-first chat is T32; Linux verification is T33). Named generation presets and opt-in pack export of sampling remain unscheduled. macOS verification remains unscheduled until a Darwin host can launch the window (ADR-017).
 
 ## Milestone exit policy
 

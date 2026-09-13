@@ -706,3 +706,17 @@ Verification and actual results: `npm run test:shortcuts` PASS 17 passed. `npm r
 Incomplete work / blockers: none for T32. Command palette, session picker in the overlay, customizable bindings, and edit/regenerate/continue keys remain out of scope. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
 
 Next concrete action: none scheduled. T16/T18 remain environment-limited.
+
+## 2026-09-13 — ADR-017: split macOS / Linux verification
+
+Scope and outcome: split the combined “macOS / Linux verification” growth item. Linux is scheduled as T33 (desktop launch, Windows-copied vault round-trip, one chat turn, named packaging/tray results). macOS stays intended but unverified: Cmd mirrors Ctrl as a portable binding, no Darwin task, no Mac download or prerequisites. Windows remains the verified target. No application code, CI, or packaging changes.
+
+Files changed: `docs/DECISIONS.md`, `docs/PROJECT.md`, `docs/PLAN.md`, `docs/STATUS.md`, `docs/Future-Growth-Notes.md`, `README.md`, and this handoff.
+
+Decisions added/superseded: ADR-017 accepted. ADR-002 remains in force; it now points at ADR-017 for platform *claims*.
+
+Verification and actual results: documentation-only. T33 appears in PLAN (Milestone 16) and STATUS (`todo`). No Linux or macOS runtime was run.
+
+Incomplete work / blockers: T33 needs a Linux host with a display; do not start it from this Windows workspace. WSL2/WSLg is not a general Linux claim. macOS remains unscheduled until a Darwin host can launch the window. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: on a Linux desktop, mark T33 `in_progress` and follow its PLAN acceptance list.

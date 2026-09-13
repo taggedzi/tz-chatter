@@ -71,8 +71,13 @@ macOS without claiming macOS verification.
 
 ## Next, still on-mission
 
-• macOS / Linux verification. The vault format is already portable; the missing 
-piece is the app itself on the other machines people would move a character to.
+• **Linux verification.** The vault format is already portable; the missing
+piece is the desktop app on a Linux machine. **Scheduled as T33.** Claim Linux
+only after a recorded desktop run (ADR-017).
+
+• **macOS remains intended but unverified.** Cmd mirrors Ctrl as a portable
+binding. No macOS task until a Darwin host exists; do not claim the platform
+from compile-time portability.
 
 ## I would keep deferred
 
