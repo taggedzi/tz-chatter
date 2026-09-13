@@ -648,3 +648,47 @@ Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.tom
 Incomplete work / blockers: none for T30. Named generation presets and opt-in pack export of sampling remain unscheduled. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
 
 Next concrete action: none scheduled. T16/T18 remain environment-limited.
+
+## 2026-09-13 — Future-Growth-Notes: mark T25 implemented
+
+Scope and outcome: documentation only. Marked background embedding rebuild and hybrid-as-default as **IMPLEMENTED (T25)** in `docs/Future-Growth-Notes.md` and moved it out of the still-on-mission list. The note now matches ADR-009 / T25: hybrid default when an embedding model is set and the index is ready, lexical fallback plus background rebuild when stale, Settings opt-out. Remaining on that item: no dedicated freshness panel; live embedding quality unmeasured. Embedding-model discovery stays under first-run provider coach.
+
+Files changed: `docs/Future-Growth-Notes.md` and this handoff.
+
+Decisions added/superseded: none.
+
+Verification and actual results: none. No application code.
+
+Incomplete work / blockers: none for this note. Contradiction/supersession review, keyboard-first chat, and macOS/Linux verification remain on-mission.
+
+Next concrete action: none scheduled. T16/T18 remain environment-limited.
+
+## 2026-09-13 — Contradiction/supersession review spec drafted
+
+Scope and outcome: documentation only. The user promoted the on-mission “these two memories disagree” list as the next feature. Approved product rules: resolve by excluding the stale Markdown file (not delete, not body mutation); contradicts sides are user-picked; a pair leaves the list when either side is excluded or deleted. Approach 1: Conflicts section on Memories over existing `memory_relationships` in durable `state.sqlite3`.
+
+Draft spec: `docs/specs/2026-09-13-contradiction-supersession-review-design.md`. Commands: `memory_conflict_pairs` (read, join Markdown, hide related/missing/excluded) and `memory_exclude_conflict_side` (fingerprint-checked exclude of one still-open pair; supersedes may only exclude `to_id` on this path). No T31/ADR yet.
+
+Files changed: `docs/specs/2026-09-13-contradiction-supersession-review-design.md`, `docs/STATUS.md`, and this handoff.
+
+Decisions added/superseded: none until acceptance.
+
+Verification and actual results: none. No application code.
+
+Incomplete work / blockers: waiting on spec review. Keyboard-first chat and macOS/Linux verification remain unscheduled.
+
+Next concrete action: user reviews the spec. On acceptance, add T31 and ADR-015, then implement.
+
+## 2026-09-13 — T31: contradiction and supersession review
+
+Scope and outcome: Memories now lists committed `contradicts` and `supersedes` pairs from durable `memory_relationships`. `memory_conflict_pairs` joins Markdown, hides `related`/missing/excluded sides, and does not write. `memory_exclude_conflict_side` fingerprint-checks and sets `review_status: excluded` on one still-open pair; supersedes may only exclude `to_id` on this path. Contradicts sides are user-picked. Both files remain; FTS drops the excluded body. Locked files can be excluded by the user. The Conflicts section sits after the proposal queue; clicking a side opens the existing editor.
+
+Files changed: `src-tauri/src/conflicts.rs`, `src-tauri/src/extraction.rs`, `src-tauri/src/lib.rs`, `src/memory.ts`, `src/MemoryPanel.tsx`, `src/App.css`, `README.md`, `docs/specs/2026-09-13-contradiction-supersession-review-design.md`, `docs/PLAN.md`, `docs/PROJECT.md`, `docs/DECISIONS.md`, `docs/STATUS.md`, `docs/Future-Growth-Notes.md`, and this handoff.
+
+Decisions added/superseded: ADR-015 accepted.
+
+Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.toml` PASS 156 passed, 2 ignored. `cargo fmt --all -- --check` PASS. `cargo clippy --all-targets -- -D warnings` PASS. `npm run lint` PASS. `npm run typecheck` PASS. `npm run build` PASS. Native window interaction was not re-run.
+
+Incomplete work / blockers: none for T31. Chat-chrome badges, keep-both dismiss, and Markdown-stored links remain out of scope. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: none scheduled. T16/T18 remain environment-limited.

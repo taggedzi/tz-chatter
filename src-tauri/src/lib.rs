@@ -14,6 +14,7 @@ use tauri_plugin_notification::NotificationExt;
 use tokio_util::sync::CancellationToken;
 
 pub mod characters;
+pub mod conflicts;
 pub mod connections;
 pub mod conversation;
 pub mod embeddings;
@@ -1638,6 +1639,35 @@ fn memory_review_queue(
 }
 
 #[tauri::command]
+fn memory_conflict_pairs(
+    vault_root: String,
+    character_id: String,
+) -> Result<Vec<conflicts::MemoryConflictPair>, String> {
+    let (vault, _) = open_character_vault(vault_root, &character_id)?;
+    let queue = extraction::ExtractionQueue::open(&vault, &character_id)
+        .map_err(|error| error.to_string())?;
+    let mut store = memory::MemoryStore::open(&vault, &character_id).map_err(String::from)?;
+    conflicts::list_conflict_pairs(&queue, &mut store).map_err(String::from)
+}
+
+#[tauri::command]
+fn memory_exclude_conflict_side(
+    vault_root: String,
+    character_id: String,
+    from_id: String,
+    to_id: String,
+    relation: extraction::ProposalRelation,
+    target_id: String,
+) -> Result<(), String> {
+    let (vault, _) = open_character_vault(vault_root, &character_id)?;
+    let queue = extraction::ExtractionQueue::open(&vault, &character_id)
+        .map_err(|error| error.to_string())?;
+    let mut store = memory::MemoryStore::open(&vault, &character_id).map_err(String::from)?;
+    conflicts::exclude_conflict_side(&queue, &mut store, &from_id, &to_id, &relation, &target_id)
+        .map_err(String::from)
+}
+
+#[tauri::command]
 fn memory_edit_proposal(
     vault_root: String,
     character_id: String,
@@ -1801,6 +1831,8 @@ pub fn run() {
             memory_upsert,
             memory_delete,
             memory_review_queue,
+            memory_conflict_pairs,
+            memory_exclude_conflict_side,
             memory_edit_proposal,
             memory_accept_proposal,
             memory_commit_proposal,

@@ -671,12 +671,19 @@ img.avatar { padding: 0; }
 .memory-check { display: flex !important; grid-template-columns: auto 1fr; align-items: center; gap: 8px !important; color: #5c665e !important; font-family: "Segoe UI", sans-serif !important; font-size: 12px !important; text-transform: none !important; letter-spacing: normal !important; }
 .memory-check input { width: auto; }
 .memory-empty { padding: 14px 4px; }
+.conflict-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.conflict-side-column { display: grid; gap: 8px; align-content: start; }
+.conflict-side { display: grid; gap: 4px; padding: 10px; border: 1px solid #d8d8cf; border-radius: 9px; color: #3f4742; background: #fffefa; text-align: left; cursor: pointer; }
+.conflict-side:hover { border-color: #c4d976; background: #ecefdb; }
+.conflict-side strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; }
+.conflict-side span { color: #858b84; font-family: "Cascadia Mono", Consolas, monospace; font-size: 9px; text-transform: uppercase; }
+.conflict-side p { margin: 4px 0 0; color: #5c665e; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
 .danger-button { color: var(--danger); }
 
 @media (max-width: 1100px) {
   .context-inspector { width: min(260px, 40%); }
   .settings-body { padding: 22px; }
-  .character-layout, .memory-layout { grid-template-columns: 1fr; }
+  .character-layout, .memory-layout, .conflict-sides { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; }

@@ -129,3 +129,11 @@ Do not write these values into `character.md`. Portable packs omit `generation.j
 Chat send/retry/regenerate/continue/edit and initiative resolve the override in Rust at request time and send sampling on the provider payload. Extraction uses the character’s resolved chat model so it can stay on already-loaded weights, but ignores character sampling and uses conservative defaults (temperature 0, a dedicated max-token bound). Embeddings stay on the global embedding model. The existing one-at-a-time model gate is unchanged.
 
 Consequence: T30 implements this. A second preset catalog, pack opt-in for generation settings, and per-character embedding models are out of scope.
+
+## ADR-015 — Contradiction and supersession review
+
+Date: 2026-09-13. State: accepted. Basis: explicit user request to implement the on-mission conflict list, with exclude-the-stale-file as resolve and user-picked contradicts sides.
+
+The Memories panel lists committed `contradicts` and `supersedes` links already stored in durable `.tz-chatter/state.sqlite3`. Membership requires both Markdown files to exist and neither to be excluded. `related` links are not disagreements and stay off the list. Resolve is user-initiated exclude of one file; workers still do not mutate existing bodies. Contradicts sides are chosen by the user. Supersedes exclude-older on this path may only target `to_memory_id`. A pair leaves the list when either side is excluded or deleted. No keep-both acknowledgement table. Links are not written into Markdown frontmatter in this task.
+
+Consequence: T31 implements this. Chat-chrome badges, delete-from-list, and auto-exclude of locked files are out of scope.

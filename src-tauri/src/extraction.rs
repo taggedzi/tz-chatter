@@ -98,6 +98,15 @@ pub struct MemoryProposal {
     pub status: ProposalStatus,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MemoryRelationshipRow {
+    pub from_memory_id: String,
+    pub to_memory_id: String,
+    pub relation: String,
+    pub proposal_id: String,
+    pub created_at: String,
+}
+
 #[derive(Debug)]
 pub enum ExtractionError {
     Storage(String),
@@ -588,6 +597,46 @@ impl ExtractionQueue {
         })?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(ExtractionError::from)
+    }
+
+    pub fn list_relationships(&self) -> Result<Vec<MemoryRelationshipRow>, ExtractionError> {
+        let mut statement = self.connection.prepare(
+            "SELECT from_memory_id, to_memory_id, relation, proposal_id, created_at
+             FROM memory_relationships
+             ORDER BY created_at DESC, from_memory_id, to_memory_id, relation",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(MemoryRelationshipRow {
+                from_memory_id: row.get(0)?,
+                to_memory_id: row.get(1)?,
+                relation: row.get(2)?,
+                proposal_id: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(ExtractionError::from)
+    }
+
+    pub fn relationship_exists(
+        &self,
+        from_memory_id: &str,
+        to_memory_id: &str,
+        relation: &ProposalRelation,
+    ) -> Result<bool, ExtractionError> {
+        let exists: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT 1 FROM memory_relationships WHERE from_memory_id = ?1 AND to_memory_id = ?2 AND relation = ?3",
+                params![
+                    from_memory_id,
+                    to_memory_id,
+                    proposal_relation_label(relation)
+                ],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(exists.is_some())
     }
 
     fn get_job(&self, id: &str) -> Result<Option<ExtractionJob>, ExtractionError> {

@@ -26,7 +26,7 @@ Windows is the first development and verification target because this workspace 
 3. Create or load a character from the Characters library, optionally set that character’s chat model and sampling, inspect its definition, and begin chatting.
 4. Receive streamed replies that use the character identity, recent conversation, and relevant memories.
 5. Inspect which memories influenced a response.
-6. Optionally view, edit, pin, exclude, or delete memories and review inferred guesses. Ordinary chatting writes supported facts without this step.
+6. Optionally view, edit, pin, exclude, or delete memories, review inferred guesses, and exclude a stale file from a contradiction or supersession pair. Ordinary chatting writes supported facts without this step.
 7. Enable spontaneous engagement and configure quiet hours, cooldowns, and frequency limits.
 8. Export or move a character and its memories, then load it on another installation.
 
@@ -34,7 +34,7 @@ Windows is the first development and verification target because this workspace 
 
 | Component | Responsibility |
 | --- | --- |
-| Desktop UI | Character library and identity editor, chat, settings, memory browsing, retrieval inspection |
+| Desktop UI | Character library and identity editor, chat, settings, memory browsing, conflict review, retrieval inspection |
 | Conversation orchestrator | Turn lifecycle, streaming, cancellation, request ordering |
 | Character loader | Versioned character schema, validation, portable paths |
 | Context builder | Prompt ordering, token budget, history selection, archival labeling |
@@ -171,11 +171,11 @@ Suggested starting cluster if one group is promoted first: memory inbox, remembe
 - **Session names, search, and archive.** Scheduled as T28: auto-title from the first user turn, rename sessions, search transcripts, and archive in place with `archived: true` without deleting the canonical Markdown.
 - **Edit, regenerate, and continue.** Scheduled as T29: rewrite the last user turn, request another assistant reply, and continue an interrupted reply. Persist superseded/complete/interrupted outcomes as transcript statuses so extraction does not double-commit.
 - **Per-character model and sampling.** Scheduled as T30: optional chat model, temperature, and max tokens per character in `.tz-chatter/generation.json`. Provider URLs and credentials stay app-global. Packs omit generation settings unless a later opt-in export is added.
+- **Contradiction and supersession review.** Scheduled as T31: list committed `contradicts`/`supersedes` pairs on Memories and exclude the stale Markdown file. Links stay in durable `state.sqlite3`.
 - **First-run provider coach.** Explain unreachable endpoints (“nothing is listening on 11434”) with retry. Give the embedding model the same discovery-backed select as chat models. Add an explicit “send memories to this endpoint” control; remote URLs must keep the current no-disclosure default.
 
 ### On-mission follow-ups
 
-- **Contradiction and supersession review.** A list of memories the reconciler has linked as conflicts, so users can keep the vault consistent instead of relying on rankers to hide stale records. Hybrid-default and background embedding rebuild are scheduled as T24/T25, not backlog.
 - **Keyboard-first chat.** Shortcuts for new session, switch character, focus composer, stop generation, and open sources.
 - **macOS and Linux verification.** The vault format is already portable; claim those platforms only after the desktop app is tested there.
 

@@ -49,14 +49,22 @@ chat-model list, would remove the biggest new-user stall. Explicit send
 memories to this endpoint belongs here too: remote URLs currently get no vault 
 context, which is correct as a default and invisible as a behavior.
 
+8. **IMPLEMENTED (T25)** Background embedding rebuild and hybrid-as-default.
+Hybrid ranking is the default when an embedding model is set and the
+per-character index is ready. A stale index lexical-falls-back on send
+without embedding, records that in the inspector, and a background worker
+rebuilds while yielding to chat. Settings still offers opt-out. A dedicated
+index-freshness panel was not part of T25; live embedding quality was not
+measured.
+
+9. **IMPLEMENTED (T31)** Contradiction / supersession review. Memories shows
+committed `contradicts` and `supersedes` pairs. Exclude the stale Markdown
+file (user picks the contradicts side; supersedes excludes the older file).
+Both files stay on disk; retrieval drops the excluded one. `related` links
+are not listed.
+
 ## Next, still on-mission
 
-• Background embedding rebuild and hybrid-as-default. Hybrid ranking exists and 
-stays opt-in until scheduling and a freshness UI exist. That is the retrieval 
-quality jump once an embedding model is selected.
-• Contradiction / supersession review. Reconciliation already links conflicts; 
-a “these two memories disagree” list would let users keep the vault honest 
-instead of hoping ranking hides the stale one.
 • Keyboard-first chat. New session, switch character, focus composer, stop 
 generation, open sources. This is a desktop chat program; it should feel like 
 one.

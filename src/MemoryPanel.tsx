@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { memoryClient, type MemoryProposal, type MemoryRecord, type MemoryReviewStatus, type MemoryType } from "./memory";
+import { memoryClient, type MemoryConflictPair, type MemoryConflictSide, type MemoryProposal, type MemoryRecord, type MemoryReviewStatus, type MemoryType } from "./memory";
 import { activeCharacterId, activeSessionChangedEvent, activeSessionStorageKeys } from "./activeSession";
 
 function newMemory(): MemoryRecord {
@@ -27,7 +27,9 @@ export function MemoryPanel({ active }: { active: boolean }) {
   const [characterId, setCharacterId] = useState(() => activeCharacterId() ?? "");
   const [query, setQuery] = useState("");
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
+  const [allMemories, setAllMemories] = useState<MemoryRecord[]>([]);
   const [proposals, setProposals] = useState<MemoryProposal[]>([]);
+  const [conflicts, setConflicts] = useState<MemoryConflictPair[]>([]);
   const [proposalDrafts, setProposalDrafts] = useState<Record<string, string>>({});
   const [autoCommit, setAutoCommit] = useState(() => window.localStorage.getItem("tz-chatter.auto-commit-proposals") === "true");
   const [selected, setSelected] = useState<MemoryRecord | null>(null);
@@ -43,7 +45,14 @@ export function MemoryPanel({ active }: { active: boolean }) {
       if (!characterId.trim()) throw new Error("Load a character conversation before opening memories.");
       const canonicalMemories = await memoryClient.browse(vaultRoot.trim(), characterId.trim());
       const queuedProposals = await memoryClient.reviewQueue(vaultRoot.trim(), characterId.trim());
+      const openConflicts = await memoryClient.conflictPairs(vaultRoot.trim(), characterId.trim());
+      setAllMemories(canonicalMemories);
+      setConflicts(openConflicts);
       setProposals(queuedProposals);
+      setSelected((current) => {
+        if (!current) return current;
+        return canonicalMemories.find((memory) => memory.id === current.id) ?? current;
+      });
       setProposalDrafts(Object.fromEntries(queuedProposals.map((proposal) => [proposal.id, proposal.candidate.body])));
       if (query.trim()) {
         const results = await memoryClient.search(vaultRoot.trim(), characterId.trim(), query.trim(), 30);
@@ -171,6 +180,28 @@ export function MemoryPanel({ active }: { active: boolean }) {
     window.localStorage.setItem("tz-chatter.auto-commit-proposals", String(value));
   }
 
+  function selectConflictSide(side: MemoryConflictSide) {
+    const record = allMemories.find((memory) => memory.id === side.id);
+    if (!record) return;
+    setSelected(record);
+    setSelectedOriginal({ memory_type: record.memory_type, id: record.id });
+  }
+
+  async function excludeConflictSide(pair: MemoryConflictPair, targetId: string) {
+    if (!vaultRoot.trim() || !characterId.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await memoryClient.excludeConflictSide(vaultRoot.trim(), characterId.trim(), pair, targetId);
+      await refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   useEffect(() => {
     const sync = () => {
       setVaultRoot(localStorage.getItem(activeSessionStorageKeys.vaultRoot) ?? "");
@@ -221,6 +252,39 @@ export function MemoryPanel({ active }: { active: boolean }) {
             </article>
           );
         })}
+        {proposals.length === 0 && <p className="muted memory-empty">No pending proposals. Completed chat turns are queued for background extraction; refresh after a provider response finishes.</p>}
+      </section>
+
+      <section className="proposal-queue" aria-label="Memory conflicts">
+        <div className="memory-list-header">
+          <div><span className="section-kicker">CONFLICTS</span><span>{conflicts.length} conflict{conflicts.length === 1 ? "" : "s"}</span></div>
+        </div>
+        {conflicts.map((pair) => (
+          <article className="proposal-card" key={`${pair.relation}:${pair.from.id}:${pair.to.id}:${pair.proposal_id}`}>
+            <div className="proposal-card-header"><div><strong>{pair.relation}</strong></div></div>
+            <div className="conflict-sides">
+              <div className="conflict-side-column">
+                <button className="conflict-side" onClick={() => selectConflictSide(pair.from)} type="button">
+                  <strong>{pair.from.id}</strong>
+                  <span>{pair.from.memory_type}{pair.from.locked ? " · locked" : ""}</span>
+                  <p>{pair.from.excerpt}</p>
+                </button>
+                {pair.relation === "contradicts" && <button className="outline-button" disabled={busy} onClick={() => void excludeConflictSide(pair, pair.from.id)} type="button">Exclude this</button>}
+              </div>
+              <div className="conflict-side-column">
+                <button className="conflict-side" onClick={() => selectConflictSide(pair.to)} type="button">
+                  <strong>{pair.to.id}</strong>
+                  <span>{pair.to.memory_type}{pair.to.locked ? " · locked" : ""}</span>
+                  <p>{pair.to.excerpt}</p>
+                </button>
+                {pair.relation === "contradicts" && <button className="outline-button" disabled={busy} onClick={() => void excludeConflictSide(pair, pair.to.id)} type="button">Exclude this</button>}
+                {pair.relation === "supersedes" && <button className="outline-button" disabled={busy} onClick={() => void excludeConflictSide(pair, pair.to.id)} type="button">Exclude older</button>}
+              </div>
+            </div>
+          </article>
+        ))}
+        {conflicts.length === 0 && <p className="muted memory-empty">No open conflicts.</p>}
+      </section>
 
       <div className="memory-layout">
         <div className="memory-list">
@@ -248,8 +312,6 @@ export function MemoryPanel({ active }: { active: boolean }) {
           ) : <div className="empty-transcript"><span className="section-kicker">MEMORY VAULT</span><h2>Select a memory to inspect it.</h2><p>Changes are written to Markdown first; the search index is rebuilt from those files.</p></div>}
         </div>
       </div>
-      {proposals.length === 0 && <p className="muted memory-empty">No pending proposals. Completed chat turns are queued for background extraction; refresh after a provider response finishes.</p>}
-      </section>
       {error && <p className="conversation-error" role="alert">{error}</p>}
     </section>
   );

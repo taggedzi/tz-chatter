@@ -276,11 +276,23 @@ Remember optional chat model, temperature, and max tokens per character. Provide
 
 Acceptance: a character override changes the chat and initiative model/temperature/max tokens while another character without an override keeps the provider default; extraction for an overridden character uses that model name with conservative sampling; `character.md` is unchanged; export does not include generation settings; invalid temperature or max tokens are rejected; frontend lint/typecheck/build pass.
 
+## Milestone 14 — Contradiction and supersession review
+
+Spec: `docs/specs/2026-09-13-contradiction-supersession-review-design.md`.
+
+### T31 — Contradiction and supersession review
+
+Depends on: T11, T12.
+
+Show committed `contradicts` and `supersedes` pairs on Memories. Read durable `memory_relationships` in `.tz-chatter/state.sqlite3`, join both Markdown records, and hide `related`, missing, or excluded sides. Resolve by excluding the chosen file (`review_status: excluded`); do not delete, mutate bodies, or write links into Markdown. Contradicts: the user picks which side to exclude. Supersedes: Exclude older targets `to_memory_id` only on this command. A pair leaves the list when either side is excluded or deleted. User-initiated exclude of a locked file is allowed. Clicking a side opens the existing editor.
+
+Acceptance: contradicts pairs appear with both excerpts; `related` links do not; a pair disappears after exclude or delete of either side; missing sides are omitted; other vaults are isolated; exclude of one contradicts side leaves the other accepted, drops FTS hits, and keeps the file browsable; supersedes exclude-older rejects `from_id` on this command; locked `to` can be excluded; a stale pair errors and writes nothing; the list command does not write; frontend lint/typecheck/build pass.
+
 ## Unscheduled feature backlog
 
 Possible later features live in `docs/PROJECT.md`. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
 
-Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30). Named generation presets and opt-in pack export of sampling remain unscheduled.
+Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30; contradiction/supersession review is T31). Named generation presets and opt-in pack export of sampling remain unscheduled.
 
 ## Milestone exit policy
 

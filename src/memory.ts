@@ -44,9 +44,46 @@ export type MemoryProposal = {
   status: "needs_review" | "accepted" | "rejected" | "superseded" | "committed";
 };
 
+export type MemoryConflictRelation = "contradicts" | "supersedes";
+
+export type MemoryConflictSide = {
+  id: string;
+  memory_type: MemoryType;
+  review_status: MemoryReviewStatus;
+  locked: boolean;
+  updated_at: string;
+  excerpt: string;
+};
+
+export type MemoryConflictPair = {
+  relation: MemoryConflictRelation;
+  from: MemoryConflictSide;
+  to: MemoryConflictSide;
+  proposal_id: string;
+  created_at: string;
+};
+
 export const memoryClient = {
   reviewQueue(vaultRoot: string, characterId: string) {
     return invoke<MemoryProposal[]>("memory_review_queue", { vaultRoot, characterId });
+  },
+  conflictPairs(vaultRoot: string, characterId: string) {
+    return invoke<MemoryConflictPair[]>("memory_conflict_pairs", { vaultRoot, characterId });
+  },
+  excludeConflictSide(
+    vaultRoot: string,
+    characterId: string,
+    pair: Pick<MemoryConflictPair, "from" | "to" | "relation">,
+    targetId: string,
+  ) {
+    return invoke<void>("memory_exclude_conflict_side", {
+      vaultRoot,
+      characterId,
+      fromId: pair.from.id,
+      toId: pair.to.id,
+      relation: pair.relation,
+      targetId,
+    });
   },
   editProposal(vaultRoot: string, characterId: string, proposalId: string, body: string, confidence: number) {
     return invoke<MemoryProposal>("memory_edit_proposal", { vaultRoot, characterId, proposalId, body, confidence });
