@@ -89,6 +89,7 @@ function App() {
     generating: false,
     sourcesOpen: false,
     sourcesAvailable: false,
+    emojiPickerOpen: false,
     newLocalOpen: false,
   });
   const isMac = typeof navigator !== "undefined" && isMacPlatform(navigator.platform);
@@ -137,7 +138,13 @@ function App() {
       window.dispatchEvent(new CustomEvent(shellEvents.closeSources));
       return;
     }
-    window.dispatchEvent(new CustomEvent(shellEvents.closeNewLocal));
+    if (action === "close-emoji-picker") {
+      window.dispatchEvent(new CustomEvent(shellEvents.closeEmojiPicker));
+      return;
+    }
+    if (action === "close-new-local") {
+      window.dispatchEvent(new CustomEvent(shellEvents.closeNewLocal));
+    }
   }, []);
 
   useEffect(() => {

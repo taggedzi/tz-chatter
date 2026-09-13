@@ -174,6 +174,7 @@ Suggested starting cluster if one group is promoted first: memory inbox, remembe
 - **Contradiction and supersession review.** Scheduled as T31: list committed `contradicts`/`supersedes` pairs on Memories and exclude the stale Markdown file. Links stay in durable `state.sqlite3`.
 - **First-run provider coach.** Explain unreachable endpoints (“nothing is listening on 11434”) with retry. Give the embedding model the same discovery-backed select as chat models. Add an explicit “send memories to this endpoint” control; remote URLs must keep the current no-disclosure default.
 - **Keyboard-first chat.** Scheduled as T32: Ctrl+N new session, Ctrl+K typeahead character switcher, Ctrl+L focus composer, Ctrl+. stop generation, Ctrl+I toggle Sources, Escape dismiss stack. Cmd mirrors Ctrl on macOS without claiming macOS verification.
+- **Composer emoji picker.** Scheduled as T34: in-app search-and-category Unicode picker on the chat composer only. Inserts at the caret; Escape closes the picker before other chat dismissals. No recents, custom emoji, or other textareas.
 
 ### On-mission follow-ups
 

@@ -745,3 +745,19 @@ Verification and actual results:
 Incomplete work / blockers: live Ollama/llama.cpp/LM Studio not present on this guest. Initiative notification not visually exercised. WSL2/WSLg was not used and is still not a general Linux claim. macOS remains unscheduled. T16/T18 Windows visual leftovers remain environment-limited.
 
 Next concrete action: none scheduled. T16/T18 remain environment-limited.
+
+## 2026-09-13 — T34: composer emoji picker
+
+Scope and outcome: added an in-app emoji picker on the chat composer only. A labeled footer button opens a popover with search and Unicode categories (smileys, people, nature, food, activity, travel, objects, symbols). Clicking a glyph inserts it at the caret or replaces the selection; the picker stays open for more inserts and returns focus to the composer. Escape, a second button click, or a click outside closes it. Opening focuses search; Enter in search does not send. The button is disabled with the composer (no vault, or while editing the last user turn). No new global shortcut, npm emoji library, Rust commands, recents, or other textareas. Glyphs are system Unicode and round-trip in Markdown transcripts.
+
+Escape order is now: switcher, Settings, rename (unchanged owner), emoji picker, new-local, stop generation, Sources, focus composer.
+
+Files: `src/emojiCatalog.ts`, `src/EmojiPicker.tsx`, `src/ConversationPanel.tsx`, `src/chatShortcuts.ts`, `src/App.tsx`, `src/activeSession.ts`, `src/App.css`, `tests/emojiPicker.test.mjs`, `tests/chatShortcuts.test.mjs`, `package.json`, `README.md`, `docs/PLAN.md`, `docs/PROJECT.md`, `docs/STATUS.md`, and this handoff.
+
+Decisions added/superseded: none. Static frontend catalog; no OS emoji panel.
+
+Verification and actual results: `npm run test:unit` 25 passed; `npm run lint`; `npm run typecheck`; `npm run build`. Native window click-through was not re-run.
+
+Incomplete work / blockers: none for T34. Recents and other textareas stay out of scope. T16/T18 visual/live-provider leftovers remain environment-limited.
+
+Next concrete action: none scheduled. T16/T18 remain environment-limited.

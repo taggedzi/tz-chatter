@@ -23,6 +23,8 @@ import {
   shellEvents,
 } from "./activeSession";
 import { isMacPlatform, shortcutModifierLabel } from "./chatShortcuts";
+import { insertAtCursor } from "./emojiCatalog";
+import { EmojiPicker } from "./EmojiPicker";
 
 const unloadedCharacter: CharacterDefinition = {
   schema_version: 1,
@@ -92,8 +94,10 @@ export function ConversationPanel() {
   const [newLocalOpen, setNewLocalOpen] = useState(false);
   const [newLocalTitle, setNewLocalTitle] = useState("");
   const [newLocalBody, setNewLocalBody] = useState("");
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const emojiPickerAnchorRef = useRef<HTMLDivElement | null>(null);
   const listFilter = useRef({ query: "", includeArchived: false });
   const modifier = shortcutModifierLabel(
     typeof navigator !== "undefined" && isMacPlatform(navigator.platform),
@@ -149,6 +153,7 @@ export function ConversationPanel() {
     setRetrievedMemories([]);
     setContextInspection(null);
     setEditingUser(false);
+    setEmojiPickerOpen(false);
     rememberActiveSession(root, result.character.id, nextSessionId, result.character.name);
     setResumeStatus(status);
     try {
@@ -345,10 +350,21 @@ export function ConversationPanel() {
         generating: busy,
         sourcesOpen: showContext && retrievedMemories.length > 0,
         sourcesAvailable: retrievedMemories.length > 0,
+        emojiPickerOpen,
         newLocalOpen,
       },
     }));
-  }, [busy, newLocalOpen, retrievedMemories.length, showContext]);
+  }, [busy, emojiPickerOpen, newLocalOpen, retrievedMemories.length, showContext]);
+
+  useEffect(() => {
+    if (!emojiPickerOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (emojiPickerAnchorRef.current?.contains(event.target as Node)) return;
+      setEmojiPickerOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [emojiPickerOpen]);
 
   useEffect(() => {
     const onFocusComposer = () => {
@@ -365,17 +381,23 @@ export function ConversationPanel() {
     };
     const onCloseSources = () => setShowContext(false);
     const onCloseNewLocal = () => setNewLocalOpen(false);
+    const onCloseEmojiPicker = () => {
+      setEmojiPickerOpen(false);
+      composerRef.current?.focus();
+    };
     window.addEventListener(shellEvents.focusComposer, onFocusComposer);
     window.addEventListener(shellEvents.stopGeneration, onStopGeneration);
     window.addEventListener(shellEvents.toggleSources, onToggleSources);
     window.addEventListener(shellEvents.closeSources, onCloseSources);
     window.addEventListener(shellEvents.closeNewLocal, onCloseNewLocal);
+    window.addEventListener(shellEvents.closeEmojiPicker, onCloseEmojiPicker);
     return () => {
       window.removeEventListener(shellEvents.focusComposer, onFocusComposer);
       window.removeEventListener(shellEvents.stopGeneration, onStopGeneration);
       window.removeEventListener(shellEvents.toggleSources, onToggleSources);
       window.removeEventListener(shellEvents.closeSources, onCloseSources);
       window.removeEventListener(shellEvents.closeNewLocal, onCloseNewLocal);
+      window.removeEventListener(shellEvents.closeEmojiPicker, onCloseEmojiPicker);
     };
   }, [busy, character.id, retrievedMemories.length, sessionId]);
 
@@ -467,8 +489,22 @@ export function ConversationPanel() {
     }
   }
 
+  function insertEmoji(glyph: string) {
+    const field = composerRef.current;
+    const start = field?.selectionStart ?? draft.length;
+    const end = field?.selectionEnd ?? draft.length;
+    const next = insertAtCursor(draft, glyph, start, end);
+    setDraft(next.text);
+    window.requestAnimationFrame(() => {
+      if (!field) return;
+      field.focus();
+      field.setSelectionRange(next.caret, next.caret);
+    });
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
+    setEmojiPickerOpen(false);
     const content = draft.trim();
     if (!content) return;
     const snapshot: RequestSnapshot = {
@@ -751,6 +787,7 @@ export function ConversationPanel() {
                       onClick={() => {
                         setEditDraft(turn.content);
                         setEditingUser(true);
+                        setEmojiPickerOpen(false);
                       }}
                       type="button"
                     >
@@ -866,19 +903,36 @@ export function ConversationPanel() {
                 ? `Enter to send · Shift+Enter newline · ${modifier}+K switch character`
                 : "Saved locally after each turn"}
           </span>
-          {busy && (
-            <button
-              aria-keyshortcuts="Escape Control+Period Meta+Period"
-              className="outline-button"
-              onClick={() => void cancel()}
-              type="button"
-            >
-              Cancel
+          <div className="composer-actions">
+            <div className="emoji-picker-anchor" ref={emojiPickerAnchorRef}>
+              <button
+                aria-controls="emoji-picker"
+                aria-expanded={emojiPickerOpen}
+                aria-haspopup="dialog"
+                aria-label="Insert emoji"
+                className="emoji-picker-button"
+                disabled={!vaultReady || editingUser}
+                onClick={() => setEmojiPickerOpen((open) => !open)}
+                type="button"
+              >
+                😊
+              </button>
+              {emojiPickerOpen && <EmojiPicker onPick={insertEmoji} />}
+            </div>
+            {busy && (
+              <button
+                aria-keyshortcuts="Escape Control+Period Meta+Period"
+                className="outline-button"
+                onClick={() => void cancel()}
+                type="button"
+              >
+                Cancel
+              </button>
+            )}
+            <button className="primary-button" disabled={busy || editingUser || !draft.trim() || !vaultReady} type="submit">
+              {busy ? "Thinking…" : "Send"}
             </button>
-          )}
-          <button className="primary-button" disabled={busy || editingUser || !draft.trim() || !vaultReady} type="submit">
-            {busy ? "Thinking…" : "Send"}
-          </button>
+          </div>
         </div>
       </form>
     </section>

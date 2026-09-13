@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:shortcuts": "node --test --experimental-strip-types tests/chatShortcuts.test.mjs",
+    "test:emoji": "node --test --experimental-strip-types tests/emojiPicker.test.mjs",
+    "test:unit": "node --test --experimental-strip-types tests/*.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

@@ -23,6 +23,7 @@ export const shellEvents = {
   stopGeneration: "tz-chatter-stop-generation",
   toggleSources: "tz-chatter-toggle-sources",
   closeSources: "tz-chatter-close-sources",
+  closeEmojiPicker: "tz-chatter-close-emoji-picker",
   closeNewLocal: "tz-chatter-close-new-local",
 } as const;
 
@@ -30,6 +31,7 @@ export type ConversationUiState = {
   generating: boolean;
   sourcesOpen: boolean;
   sourcesAvailable: boolean;
+  emojiPickerOpen: boolean;
   newLocalOpen: boolean;
 };
 

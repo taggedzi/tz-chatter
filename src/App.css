@@ -470,6 +470,95 @@ img.avatar { padding: 0; }
   font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 10px;
 }
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.emoji-picker-anchor { position: relative; }
+.emoji-picker-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #303534;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.emoji-picker-button:hover { border-color: #b9bcb4; background: #e8e5de; }
+.emoji-picker-button[aria-expanded="true"] {
+  border-color: var(--lime-deep);
+  background: #ecefdb;
+}
+.emoji-picker-button:disabled { cursor: not-allowed; opacity: 0.55; }
+.emoji-picker {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 8;
+  display: grid;
+  gap: 8px;
+  width: min(320px, calc(100vw - 72px));
+  padding: 10px;
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  background: var(--paper-2);
+  box-shadow: 0 18px 40px rgba(23, 29, 30, 0.18);
+}
+.emoji-picker input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d2d0c8;
+  border-radius: 9px;
+  color: #303534;
+  background: #fffefa;
+  font: 13px/1.4 "Segoe UI", sans-serif;
+}
+.emoji-picker-categories {
+  display: flex;
+  gap: 2px;
+}
+.emoji-picker-categories button {
+  flex: 1;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.emoji-picker-categories button:hover,
+.emoji-picker-categories button.active {
+  background: #ecefdb;
+}
+.emoji-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  max-height: 220px;
+  overflow: auto;
+}
+.emoji-picker-grid button {
+  padding: 4px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.emoji-picker-grid button:hover { background: #ecefdb; }
+.emoji-picker-empty {
+  grid-column: 1 / -1;
+  margin: 12px 4px;
+  color: #858b84;
+  font: 12px/1.4 "Segoe UI", sans-serif;
+}
 
 .context-inspector {
   display: grid;

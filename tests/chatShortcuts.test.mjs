@@ -25,6 +25,7 @@ function ui(partial = {}) {
     switcherOpen: false,
     settingsOpen: false,
     renameOpen: false,
+    emojiPickerOpen: false,
     newLocalOpen: false,
     generating: false,
     sourcesOpen: false,
@@ -114,6 +115,26 @@ test("Escape leaves session rename to the rename field", () => {
   assert.equal(
     resolveChatShortcut(key({ key: "Escape", code: "Escape" }), ui({ renameOpen: true })),
     null,
+  );
+});
+
+test("Escape closes the emoji picker after rename and before new-local", () => {
+  const escape = key({ key: "Escape", code: "Escape" });
+  assert.equal(
+    resolveChatShortcut(escape, ui({ renameOpen: true, emojiPickerOpen: true })),
+    null,
+  );
+  assert.equal(
+    resolveChatShortcut(escape, ui({ settingsOpen: true, emojiPickerOpen: true })),
+    "close-settings",
+  );
+  assert.equal(
+    resolveChatShortcut(escape, ui({
+      emojiPickerOpen: true,
+      newLocalOpen: true,
+      generating: true,
+    })),
+    "close-emoji-picker",
   );
 });
 

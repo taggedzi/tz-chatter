@@ -7,12 +7,14 @@ export type ChatShortcutAction =
   | "close-switcher"
   | "close-settings"
   | "close-sources"
+  | "close-emoji-picker"
   | "close-new-local";
 
 export type ChatShortcutUi = {
   switcherOpen: boolean;
   settingsOpen: boolean;
   renameOpen: boolean;
+  emojiPickerOpen: boolean;
   newLocalOpen: boolean;
   generating: boolean;
   sourcesOpen: boolean;
@@ -71,6 +73,7 @@ export function resolveChatShortcut(
     if (ui.switcherOpen) return "close-switcher";
     if (ui.settingsOpen) return "close-settings";
     if (ui.renameOpen) return null;
+    if (ui.emojiPickerOpen) return "close-emoji-picker";
     if (ui.newLocalOpen) return "close-new-local";
     if (ui.generating) return "stop-generation";
     if (ui.sourcesOpen) return "close-sources";

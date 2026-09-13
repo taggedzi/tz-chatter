@@ -322,11 +322,21 @@ Acceptance: Linux launch, vault round-trip, and one chat turn are evidenced in `
 
 Out of scope: macOS, GitHub Actions, signing, publishing, live llama.cpp/LM Studio, and finishing T16 visual tray on Windows.
 
+## Milestone 17 — Composer emoji picker
+
+### T34 — In-app composer emoji picker
+
+Depends on: T05, T32.
+
+Add a labeled emoji button on the chat composer footer. It opens an in-app popover with search and Unicode categories. Clicking an emoji inserts it at the caret (or replaces the current selection). The picker stays open for more inserts; Escape, a second button click, or a click outside closes it and focuses the composer. Opening the picker focuses search. Enter in search does not send the message. The button is disabled with the composer (no vault, or while editing the last user turn). No new global shortcut. Escape closes the picker after Settings/switcher/rename and before new-local / stop-generation / Sources. Ship a static frontend catalog rendered as system Unicode. No npm emoji library, no Rust commands, no recents, no custom emoji, no other textareas.
+
+Acceptance: search matches name and keywords across categories; empty search shows the selected category; insert-at-caret covers empty draft, mid-text, and selection replacement; Escape resolver returns `close-emoji-picker` in the documented stack order; frontend lint/typecheck/build and unit tests pass. Native window click-through remains environment-limited.
+
 ## Unscheduled feature backlog
 
 Possible later features live in `docs/PROJECT.md`. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
 
-Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30; contradiction/supersession review is T31; keyboard-first chat is T32; Linux verification is T33). Named generation presets and opt-in pack export of sampling remain unscheduled. macOS verification remains unscheduled until a Darwin host can launch the window (ADR-017).
+Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30; contradiction/supersession review is T31; keyboard-first chat is T32; Linux verification is T33; composer emoji picker is T34). Named generation presets and opt-in pack export of sampling remain unscheduled. macOS verification remains unscheduled until a Darwin host can launch the window (ADR-017).
 
 ## Milestone exit policy
 
