@@ -22,8 +22,8 @@ Windows is the first development and verification target because this workspace 
 ## User workflows
 
 1. Configure and test a connection to a local provider.
-2. Select a chat model and optionally a separate embedding model.
-3. Create or load a character from the Characters library, inspect its definition, and begin chatting.
+2. Select a default chat model and optionally a separate embedding model. Provider connection stays app-global.
+3. Create or load a character from the Characters library, optionally set that character’s chat model and sampling, inspect its definition, and begin chatting.
 4. Receive streamed replies that use the character identity, recent conversation, and relevant memories.
 5. Inspect which memories influenced a response.
 6. Optionally view, edit, pin, exclude, or delete memories and review inferred guesses. Ordinary chatting writes supported facts without this step.
@@ -68,6 +68,7 @@ characters/<character-id>/
   assets/
     portrait.png
   .tz-chatter/
+    generation.json
     index.sqlite
     state.sqlite
 ```
@@ -78,6 +79,7 @@ characters/<character-id>/
 - `locals/`: reusable scene/place Markdown. A local must exist here before a character default or session can select it. Sessions store a live-linked id, not a snapshot.
 - `memories/`: authoritative memory records, with stable IDs and Markdown bodies. Obsidian installation is not required.
 - `chats/`: authoritative transcripts with stable session and turn IDs, timestamps, roles, and completion/cancellation status. Define an unambiguous round-trip format during T03; rendering alone must not destroy message boundaries.
+- `generation.json`: optional per-character chat model, temperature, and max tokens. Not part of portable identity; omitted from packs unless the user later opts into exporting it.
 - `index.sqlite`: rebuildable derived search data, chunks, links, and embeddings. Deleting it must not lose memories or transcripts.
 - `state.sqlite`: durable operational state such as pending jobs, review candidates, initiative counters, and suppression of deleted memory proposals. It is not a disposable index and belongs in backup/export behavior.
 
@@ -167,8 +169,8 @@ Suggested starting cluster if one group is promoted first: memory inbox, remembe
 - **Character portraits.** Scheduled as T27: render `assets/portrait.png` in the character library, chat sidebar, and identity editor; add via GUI or by dropping the file into the vault.
 - **Open vault as files.** Open the character folder, reveal a memory in the file manager, and optionally open the vault in Obsidian.
 - **Session names, search, and archive.** Scheduled as T28: auto-title from the first user turn, rename sessions, search transcripts, and archive in place with `archived: true` without deleting the canonical Markdown.
-- **Edit, regenerate, and continue.** Rewrite the last user turn, request another assistant reply, and continue a truncated reply. Persist those outcomes as normal transcript statuses so extraction does not double-commit.
-- **Per-character model and sampling.** Remember chat model, temperature, and max tokens per character or as a named preset. Do not put machine-specific provider URLs or credentials into portable identity unless the user explicitly opts into exporting them.
+- **Edit, regenerate, and continue.** Scheduled as T29: rewrite the last user turn, request another assistant reply, and continue an interrupted reply. Persist superseded/complete/interrupted outcomes as transcript statuses so extraction does not double-commit.
+- **Per-character model and sampling.** Scheduled as T30: optional chat model, temperature, and max tokens per character in `.tz-chatter/generation.json`. Provider URLs and credentials stay app-global. Packs omit generation settings unless a later opt-in export is added.
 - **First-run provider coach.** Explain unreachable endpoints (“nothing is listening on 11434”) with retry. Give the embedding model the same discovery-backed select as chat models. Add an explicit “send memories to this endpoint” control; remote URLs must keep the current no-disclosure default.
 
 ### On-mission follow-ups

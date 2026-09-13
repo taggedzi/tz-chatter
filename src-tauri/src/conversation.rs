@@ -154,7 +154,7 @@ impl From<TranscriptDocument> for SessionSummary {
             .turns
             .iter()
             .rev()
-            .find(|turn| !turn.content.trim().is_empty())
+            .find(|turn| turn.status != TurnStatus::Superseded && !turn.content.trim().is_empty())
             .map(|turn| truncate_preview(turn.content.trim()))
             .unwrap_or_default();
         Self {
@@ -475,8 +475,15 @@ impl ConversationService {
         });
         save_transcript(vault, &mut transcript)?;
         remember_session(vault, &snapshot.session_id)?;
-        self.run_reply(vault, snapshot, transcript, cancellation, sink)
-            .await
+        self.run_reply(
+            vault,
+            snapshot,
+            transcript,
+            cancellation,
+            sink,
+            ReplyMode::Fresh,
+        )
+        .await
     }
 
     pub async fn retry(
@@ -498,25 +505,150 @@ impl ConversationService {
     ) -> Result<ConversationOutcome, ConversationError> {
         validate_snapshot(&snapshot)?;
         let mut transcript = load_or_create_transcript(vault, &snapshot)?;
-        let user_index = transcript
-            .turns
-            .iter()
-            .position(|turn| turn.id == snapshot.user_turn_id && turn.role == TurnRole::User)
-            .ok_or_else(|| {
-                ConversationError::Invalid(format!(
-                    "cannot retry missing user turn {}",
-                    snapshot.user_turn_id
-                ))
-            })?;
+        let user_index = last_exchange_user_index(&transcript, &snapshot)?;
         if transcript.turns[user_index].content != snapshot.user_content {
             return Err(ConversationError::Invalid(
                 "retry content does not match the persisted user turn".into(),
             ));
         }
-        transcript.turns.truncate(user_index + 1);
+        prepare_retry(&mut transcript, user_index)?;
         save_transcript(vault, &mut transcript)?;
         remember_session(vault, &snapshot.session_id)?;
-        self.run_reply(vault, snapshot, transcript, cancellation, sink)
+        self.run_reply(
+            vault,
+            snapshot,
+            transcript,
+            cancellation,
+            sink,
+            ReplyMode::Fresh,
+        )
+        .await
+    }
+
+    pub async fn regenerate(
+        &self,
+        vault: &Vault,
+        snapshot: RequestSnapshot,
+        cancellation: CancellationToken,
+    ) -> Result<ConversationOutcome, ConversationError> {
+        self.regenerate_streaming(vault, snapshot, cancellation, None)
+            .await
+    }
+
+    pub async fn regenerate_streaming(
+        &self,
+        vault: &Vault,
+        snapshot: RequestSnapshot,
+        cancellation: CancellationToken,
+        sink: Option<StreamSink>,
+    ) -> Result<ConversationOutcome, ConversationError> {
+        validate_snapshot(&snapshot)?;
+        let mut transcript = load_or_create_transcript(vault, &snapshot)?;
+        let user_index = last_exchange_user_index(&transcript, &snapshot)?;
+        if transcript.turns[user_index].content != snapshot.user_content {
+            return Err(ConversationError::Invalid(
+                "regenerate content does not match the persisted user turn".into(),
+            ));
+        }
+        let assistant_index =
+            live_assistant_after(&transcript.turns, user_index).ok_or_else(|| {
+                ConversationError::Invalid("cannot regenerate without an assistant reply".into())
+            })?;
+        if transcript.turns[assistant_index].status != TurnStatus::Complete {
+            return Err(ConversationError::Invalid(
+                "regenerate requires a complete assistant reply".into(),
+            ));
+        }
+        transcript.turns[assistant_index].status = TurnStatus::Superseded;
+        save_transcript(vault, &mut transcript)?;
+        remember_session(vault, &snapshot.session_id)?;
+        self.run_reply(
+            vault,
+            snapshot,
+            transcript,
+            cancellation,
+            sink,
+            ReplyMode::Fresh,
+        )
+        .await
+    }
+
+    pub async fn edit_last_user(
+        &self,
+        vault: &Vault,
+        snapshot: RequestSnapshot,
+        cancellation: CancellationToken,
+    ) -> Result<ConversationOutcome, ConversationError> {
+        self.edit_last_user_streaming(vault, snapshot, cancellation, None)
+            .await
+    }
+
+    pub async fn edit_last_user_streaming(
+        &self,
+        vault: &Vault,
+        snapshot: RequestSnapshot,
+        cancellation: CancellationToken,
+        sink: Option<StreamSink>,
+    ) -> Result<ConversationOutcome, ConversationError> {
+        validate_snapshot(&snapshot)?;
+        let mut transcript = load_or_create_transcript(vault, &snapshot)?;
+        let user_index = last_exchange_user_index(&transcript, &snapshot)?;
+        transcript.turns[user_index].content = snapshot.user_content.clone();
+        supersede_after(&mut transcript.turns, user_index);
+        save_transcript(vault, &mut transcript)?;
+        remember_session(vault, &snapshot.session_id)?;
+        self.run_reply(
+            vault,
+            snapshot,
+            transcript,
+            cancellation,
+            sink,
+            ReplyMode::Fresh,
+        )
+        .await
+    }
+
+    pub async fn continue_reply(
+        &self,
+        vault: &Vault,
+        snapshot: RequestSnapshot,
+        cancellation: CancellationToken,
+    ) -> Result<ConversationOutcome, ConversationError> {
+        self.continue_reply_streaming(vault, snapshot, cancellation, None)
+            .await
+    }
+
+    pub async fn continue_reply_streaming(
+        &self,
+        vault: &Vault,
+        snapshot: RequestSnapshot,
+        cancellation: CancellationToken,
+        sink: Option<StreamSink>,
+    ) -> Result<ConversationOutcome, ConversationError> {
+        validate_snapshot(&snapshot)?;
+        let transcript = load_or_create_transcript(vault, &snapshot)?;
+        let user_index = last_exchange_user_index(&transcript, &snapshot)?;
+        if transcript.turns[user_index].content != snapshot.user_content {
+            return Err(ConversationError::Invalid(
+                "continue content does not match the persisted user turn".into(),
+            ));
+        }
+        let assistant_index =
+            live_assistant_after(&transcript.turns, user_index).ok_or_else(|| {
+                ConversationError::Invalid("cannot continue without an assistant reply".into())
+            })?;
+        let assistant = &transcript.turns[assistant_index];
+        if assistant.status != TurnStatus::Interrupted || assistant.content.trim().is_empty() {
+            return Err(ConversationError::Invalid(
+                "continue requires an interrupted assistant reply with content".into(),
+            ));
+        }
+        remember_session(vault, &snapshot.session_id)?;
+        let spec = ReplyMode::ContinueExisting {
+            assistant_id: assistant.id.clone(),
+            prefix: assistant.content.clone(),
+        };
+        self.run_reply(vault, snapshot, transcript, cancellation, sink, spec)
             .await
     }
 
@@ -565,6 +697,7 @@ impl ConversationService {
         let event = render_initiative_event(&topic_context);
         let application_prompt = request.application_prompt.trim();
         let (persona, scene) = prompt_layers(vault, &transcript)?;
+        let generation = chat_generation(vault, &request.provider)?;
         let prompt = build_prompt_with_memories(
             &request.character,
             PromptLayers {
@@ -579,7 +712,7 @@ impl ConversationService {
             &transcript,
             &event,
             &memory_context,
-            PromptBudget::default(),
+            crate::generation::prompt_budget(&generation),
         )
         .map_err(|error| ConversationError::Invalid(error.to_string()))?;
         let events = match self
@@ -588,9 +721,11 @@ impl ConversationService {
                 &request.provider,
                 &ChatRequest {
                     provider_id: request.provider.id.clone(),
-                    model: request.provider.chat_model.clone(),
+                    model: generation.chat_model.clone(),
                     messages: prompt.messages,
                     cancellation_id: format!("initiative-{}", request.request_id),
+                    temperature: generation.temperature,
+                    max_tokens: generation.max_tokens,
                 },
                 cancellation,
             )
@@ -669,6 +804,7 @@ impl ConversationService {
         mut transcript: TranscriptDocument,
         cancellation: CancellationToken,
         sink: Option<StreamSink>,
+        mode: ReplyMode,
     ) -> Result<ConversationOutcome, ConversationError> {
         let retrieval_budget = RetrievalBudget::default();
         let (retrieval_report, retrieval_mode, mut fallback_reason) =
@@ -725,7 +861,8 @@ impl ConversationService {
                 )
             };
         let memory_context = retrieval_report.selected;
-        let mut prompt_budget = PromptBudget::default();
+        let generation = chat_generation(vault, &snapshot.provider)?;
+        let mut prompt_budget = crate::generation::prompt_budget(&generation);
         let application_prompt = snapshot.application_prompt.trim();
         let application_prompt = if application_prompt.is_empty() {
             None
@@ -738,20 +875,36 @@ impl ConversationService {
             user_persona: persona.as_deref(),
             scene_context: scene.as_deref(),
         };
+        let spec = ReplySpec::from_mode(mode, &snapshot.user_turn_id, &transcript.turns);
+        let mut prompt_transcript = transcript.clone();
+        let current_message = if spec.continue_from {
+            if let Some(turn) = prompt_transcript
+                .turns
+                .iter_mut()
+                .find(|turn| turn.id == spec.assistant_id)
+            {
+                turn.status = TurnStatus::Complete;
+            }
+            CONTINUE_INSTRUCTION
+        } else {
+            snapshot.user_content.as_str()
+        };
         let mut prompt = build_prompt_with_memories(
             &snapshot.character,
             layers,
-            &transcript,
-            &snapshot.user_content,
+            &prompt_transcript,
+            current_message,
             &memory_context,
             prompt_budget,
         )
         .map_err(|error| ConversationError::Invalid(error.to_string()))?;
         let mut request = ChatRequest {
             provider_id: snapshot.provider.id.clone(),
-            model: snapshot.provider.chat_model.clone(),
+            model: generation.chat_model.clone(),
             messages: prompt.messages.clone(),
-            cancellation_id: format!("reply-{}", snapshot.user_turn_id),
+            cancellation_id: spec.assistant_id.clone(),
+            temperature: generation.temperature,
+            max_tokens: generation.max_tokens,
         };
         let events = match self
             .transport
@@ -767,19 +920,20 @@ impl ConversationService {
             Err(error) if is_context_limit_error(&error) => {
                 prompt_budget = PromptBudget {
                     context_tokens: 2048,
-                    reserved_output_tokens: 512,
+                    reserved_output_tokens: prompt_budget.reserved_output_tokens.clamp(1, 512),
                 };
                 match build_prompt_with_memories(
                     &snapshot.character,
                     layers,
-                    &transcript,
-                    &snapshot.user_content,
+                    &prompt_transcript,
+                    current_message,
                     &memory_context,
                     prompt_budget,
                 ) {
                     Ok(reduced) => {
                         prompt = reduced;
                         request.messages = prompt.messages.clone();
+                        request.cancellation_id = spec.assistant_id.clone();
                         append_fallback_reason(
                             &mut fallback_reason,
                             "Provider context limit detected; retried with a reduced prompt.",
@@ -809,25 +963,38 @@ impl ConversationService {
                 message: error.to_string(),
             }],
         };
-        let mut content = String::new();
+        let mut generated = String::new();
         let mut status = TurnStatus::Failed;
         for event in events {
             match event {
-                ChatStreamEvent::Delta { text } => content.push_str(&text),
+                ChatStreamEvent::Delta { text } => generated.push_str(&text),
                 ChatStreamEvent::Completed { .. } => status = TurnStatus::Complete,
                 ChatStreamEvent::Cancelled => status = TurnStatus::Interrupted,
                 ChatStreamEvent::Failed { .. } => status = TurnStatus::Failed,
                 ChatStreamEvent::Started { .. } => {}
             }
         }
+        let content = format!("{}{generated}", spec.prefix);
         let assistant_turn = TranscriptTurn {
-            id: format!("reply-{}", snapshot.user_turn_id),
+            id: spec.assistant_id.clone(),
             timestamp: now_timestamp(),
             role: TurnRole::Assistant,
             status,
             content,
         };
-        transcript.turns.push(assistant_turn.clone());
+        if spec.continue_from {
+            if let Some(existing) = transcript
+                .turns
+                .iter_mut()
+                .find(|turn| turn.id == spec.assistant_id)
+            {
+                *existing = assistant_turn.clone();
+            } else {
+                transcript.turns.push(assistant_turn.clone());
+            }
+        } else {
+            transcript.turns.push(assistant_turn.clone());
+        }
         save_transcript(vault, &mut transcript)?;
         if assistant_turn.status == TurnStatus::Complete {
             enqueue_extraction(vault, &transcript, &assistant_turn.id);
@@ -853,6 +1020,122 @@ impl ConversationService {
             },
             retrieved_memories: memory_context,
         })
+    }
+}
+
+const CONTINUE_INSTRUCTION: &str =
+    "Continue the previous reply from exactly where it stopped. Do not repeat text already written.";
+
+enum ReplyMode {
+    Fresh,
+    ContinueExisting {
+        assistant_id: String,
+        prefix: String,
+    },
+}
+
+struct ReplySpec {
+    assistant_id: String,
+    prefix: String,
+    continue_from: bool,
+}
+
+impl ReplySpec {
+    fn from_mode(mode: ReplyMode, user_turn_id: &str, turns: &[TranscriptTurn]) -> Self {
+        match mode {
+            ReplyMode::Fresh => Self {
+                assistant_id: assistant_id_for_new_reply(user_turn_id, turns),
+                prefix: String::new(),
+                continue_from: false,
+            },
+            ReplyMode::ContinueExisting {
+                assistant_id,
+                prefix,
+            } => Self {
+                assistant_id,
+                prefix,
+                continue_from: true,
+            },
+        }
+    }
+}
+
+fn last_exchange_user_index(
+    transcript: &TranscriptDocument,
+    snapshot: &RequestSnapshot,
+) -> Result<usize, ConversationError> {
+    let user_index = transcript
+        .turns
+        .iter()
+        .rposition(|turn| turn.role == TurnRole::User)
+        .ok_or_else(|| {
+            ConversationError::Invalid("cannot change a transcript with no user turn".into())
+        })?;
+    if transcript.turns[user_index].id != snapshot.user_turn_id {
+        return Err(ConversationError::Invalid(
+            "only the last user turn can be changed".into(),
+        ));
+    }
+    if transcript.turns[user_index + 1..]
+        .iter()
+        .any(|turn| turn.role == TurnRole::User || turn.role == TurnRole::Initiative)
+    {
+        return Err(ConversationError::Invalid(
+            "only the last user/assistant exchange can be changed".into(),
+        ));
+    }
+    Ok(user_index)
+}
+
+fn live_assistant_after(turns: &[TranscriptTurn], user_index: usize) -> Option<usize> {
+    turns
+        .iter()
+        .enumerate()
+        .skip(user_index + 1)
+        .filter(|(_, turn)| {
+            turn.role == TurnRole::Assistant && turn.status != TurnStatus::Superseded
+        })
+        .map(|(index, _)| index)
+        .next_back()
+}
+
+fn prepare_retry(
+    transcript: &mut TranscriptDocument,
+    user_index: usize,
+) -> Result<(), ConversationError> {
+    let Some(assistant_index) = live_assistant_after(&transcript.turns, user_index) else {
+        return Ok(());
+    };
+    match transcript.turns[assistant_index].status {
+        TurnStatus::Complete => Err(ConversationError::Invalid(
+            "retry is for failed or interrupted replies; use regenerate".into(),
+        )),
+        TurnStatus::Failed | TurnStatus::Interrupted => {
+            if transcript.turns[assistant_index].content.trim().is_empty() {
+                transcript.turns.remove(assistant_index);
+            } else {
+                transcript.turns[assistant_index].status = TurnStatus::Superseded;
+            }
+            Ok(())
+        }
+        TurnStatus::Superseded => Ok(()),
+    }
+}
+
+fn supersede_after(turns: &mut [TranscriptTurn], user_index: usize) {
+    for turn in turns.iter_mut().skip(user_index + 1) {
+        if turn.status != TurnStatus::Superseded {
+            turn.status = TurnStatus::Superseded;
+        }
+    }
+}
+
+fn assistant_id_for_new_reply(user_turn_id: &str, turns: &[TranscriptTurn]) -> String {
+    let simple = format!("reply-{user_turn_id}");
+    if turns.iter().any(|turn| turn.id == simple) {
+        format!("reply-{user_turn_id}-{}", crate::storage::new_stable_id())
+    } else {
+        simple
     }
 }
 
@@ -949,6 +1232,16 @@ async fn build_hybrid_retrieval(
         candidate_count,
         selected,
     })
+}
+
+fn chat_generation(
+    vault: &Vault,
+    provider: &ProviderConfig,
+) -> Result<crate::generation::ResolvedGeneration, ConversationError> {
+    let settings = crate::generation::load(vault)
+        .map_err(|error| ConversationError::Invalid(error.to_string()))?;
+    crate::generation::resolve_chat(provider, &settings)
+        .map_err(|error| ConversationError::Invalid(error.to_string()))
 }
 
 fn validate_snapshot(snapshot: &RequestSnapshot) -> Result<(), ConversationError> {
@@ -1537,6 +1830,179 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn regenerate_supersedes_complete_reply_and_extracts_only_the_new_id() {
+        let root = root("regenerate");
+        let vault = Vault::create(&root).unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![
+            Ok(complete_reply("First take")),
+            Ok(complete_reply("Second take")),
+        ]));
+        let service = ConversationService::new(fake);
+        let request = snapshot("session-1", "lyra", "user-1", "Try again");
+        let first = service
+            .send(&vault, request.clone(), CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(first.assistant_turn.status, TurnStatus::Complete);
+        let first_id = first.assistant_turn.id.clone();
+        let regenerated = service
+            .regenerate(&vault, request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(regenerated.assistant_turn.status, TurnStatus::Complete);
+        assert_ne!(regenerated.assistant_turn.id, first_id);
+        assert_eq!(regenerated.assistant_turn.content, "Second take");
+        let assistants: Vec<_> = regenerated
+            .transcript
+            .turns
+            .iter()
+            .filter(|turn| turn.role == TurnRole::Assistant)
+            .collect();
+        assert_eq!(assistants.len(), 2);
+        assert_eq!(assistants[0].id, first_id);
+        assert_eq!(assistants[0].status, TurnStatus::Superseded);
+        assert_eq!(assistants[0].content, "First take");
+        assert_eq!(assistants[1].id, regenerated.assistant_turn.id);
+        let mut queue = ExtractionQueue::open(&vault, "lyra").unwrap();
+        assert!(queue
+            .enqueue_transcript(&regenerated.transcript, &first_id, 100)
+            .is_err());
+        let job = queue
+            .enqueue_transcript(&regenerated.transcript, &regenerated.assistant_turn.id, 100)
+            .unwrap();
+        assert!(job.source_turn_ids.contains(&regenerated.assistant_turn.id));
+        assert!(!job.source_turn_ids.contains(&first_id));
+        drop(queue);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn edit_last_user_updates_content_and_supersedes_the_previous_reply() {
+        let root = root("edit-last");
+        let vault = Vault::create(&root).unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![
+            Ok(complete_reply("About cats")),
+            Ok(complete_reply("About dogs")),
+        ]));
+        let service = ConversationService::new(fake);
+        let original = snapshot("session-1", "lyra", "user-1", "Tell me about cats");
+        service
+            .send(&vault, original.clone(), CancellationToken::new())
+            .await
+            .unwrap();
+        let mut edited = original;
+        edited.user_content = "Tell me about dogs".into();
+        let outcome = service
+            .edit_last_user(&vault, edited, CancellationToken::new())
+            .await
+            .unwrap();
+        let user = outcome
+            .transcript
+            .turns
+            .iter()
+            .find(|turn| turn.role == TurnRole::User)
+            .unwrap();
+        assert_eq!(user.content, "Tell me about dogs");
+        let assistants: Vec<_> = outcome
+            .transcript
+            .turns
+            .iter()
+            .filter(|turn| turn.role == TurnRole::Assistant)
+            .collect();
+        assert_eq!(assistants.len(), 2);
+        assert_eq!(assistants[0].status, TurnStatus::Superseded);
+        assert_eq!(assistants[1].content, "About dogs");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn continue_appends_to_interrupted_reply_with_the_same_id() {
+        let root = root("continue");
+        let vault = Vault::create(&root).unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![
+            Ok(vec![
+                ChatStreamEvent::Delta {
+                    text: "Hello from the".into(),
+                },
+                ChatStreamEvent::Cancelled,
+            ]),
+            Ok(complete_reply(" cafe window.")),
+        ]));
+        let service = ConversationService::new(fake);
+        let request = snapshot("session-1", "lyra", "user-1", "Say hello");
+        let interrupted = service
+            .send(&vault, request.clone(), CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(interrupted.assistant_turn.status, TurnStatus::Interrupted);
+        let continued = service
+            .continue_reply(&vault, request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(continued.assistant_turn.id, interrupted.assistant_turn.id);
+        assert_eq!(continued.assistant_turn.status, TurnStatus::Complete);
+        assert_eq!(
+            continued.assistant_turn.content,
+            "Hello from the cafe window."
+        );
+        assert_eq!(
+            continued
+                .transcript
+                .turns
+                .iter()
+                .filter(|turn| turn.role == TurnRole::Assistant)
+                .count(),
+            1
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn retry_of_failed_empty_reply_keeps_superseded_siblings() {
+        let root = root("retry-siblings");
+        let vault = Vault::create(&root).unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![
+            Ok(complete_reply("First take")),
+            Ok(vec![ChatStreamEvent::Failed {
+                message: "offline".into(),
+            }]),
+            Ok(complete_reply("Recovered")),
+        ]));
+        let service = ConversationService::new(fake);
+        let request = snapshot("session-1", "lyra", "user-1", "Try again");
+        let first = service
+            .send(&vault, request.clone(), CancellationToken::new())
+            .await
+            .unwrap();
+        service
+            .regenerate(&vault, request.clone(), CancellationToken::new())
+            .await
+            .unwrap();
+        let recovered = service
+            .retry(&vault, request, CancellationToken::new())
+            .await
+            .unwrap();
+        let assistants: Vec<_> = recovered
+            .transcript
+            .turns
+            .iter()
+            .filter(|turn| turn.role == TurnRole::Assistant)
+            .collect();
+        assert!(assistants.iter().any(
+            |turn| turn.id == first.assistant_turn.id && turn.status == TurnStatus::Superseded
+        ));
+        assert_eq!(recovered.assistant_turn.content, "Recovered");
+        assert_eq!(
+            assistants
+                .iter()
+                .filter(|turn| turn.status != TurnStatus::Superseded)
+                .count(),
+            1
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn provider_context_limit_retries_once_with_a_smaller_prompt() {
         let root = root("context-recovery");
         let vault = Vault::create(&root).unwrap();
@@ -1808,6 +2274,98 @@ mod tests {
         let captured = fake.requests.lock().unwrap()[0].clone();
         assert_eq!(captured.messages[0].content, "Application rules first.");
         assert!(captured.messages[1].content.contains("You are lyra."));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[tokio::test]
+    async fn send_uses_character_generation_override() {
+        let root = root("generation-override");
+        let vault = Vault::create(&root).unwrap();
+        crate::generation::save(
+            &vault,
+            &crate::generation::CharacterGeneration {
+                schema_version: 1,
+                chat_model: Some("lyra-voice".into()),
+                temperature: Some(0.85),
+                max_tokens: Some(128),
+            },
+        )
+        .unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![Ok(complete_reply("Hello back"))]));
+        let service = ConversationService::new(fake.clone());
+        service
+            .send(
+                &vault,
+                snapshot("session-1", "lyra", "user-1", "Hello"),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let captured = fake.requests.lock().unwrap()[0].clone();
+        assert_eq!(captured.model, "lyra-voice");
+        assert_eq!(captured.temperature, Some(0.85));
+        assert_eq!(captured.max_tokens, Some(128));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[tokio::test]
+    async fn send_inherits_provider_model_without_generation_file() {
+        let root = root("generation-inherit");
+        let vault = Vault::create(&root).unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![Ok(complete_reply("Hello back"))]));
+        let service = ConversationService::new(fake.clone());
+        service
+            .send(
+                &vault,
+                snapshot("session-1", "lyra", "user-1", "Hello"),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let captured = fake.requests.lock().unwrap()[0].clone();
+        assert_eq!(captured.model, "fake-model");
+        assert_eq!(captured.temperature, None);
+        assert_eq!(captured.max_tokens, None);
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[tokio::test]
+    async fn initiative_uses_character_generation_override() {
+        let root = root("initiative-generation");
+        let vault = Vault::create(&root).unwrap();
+        crate::generation::save(
+            &vault,
+            &crate::generation::CharacterGeneration {
+                schema_version: 1,
+                chat_model: Some("lyra-voice".into()),
+                temperature: Some(0.4),
+                max_tokens: Some(200),
+            },
+        )
+        .unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![Ok(vec![
+            ChatStreamEvent::Delta {
+                text: "Want to revisit the garden project?".into(),
+            },
+            ChatStreamEvent::Completed {
+                finish_reason: None,
+            },
+        ])]));
+        let service = ConversationService::new(fake.clone());
+        service
+            .send_initiative(
+                &vault,
+                initiative_request("initiative-session", "request-1"),
+                1,
+                None,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let captured = fake.requests.lock().unwrap()[0].clone();
+        assert_eq!(captured.model, "lyra-voice");
+        assert_eq!(captured.temperature, Some(0.4));
+        assert_eq!(captured.max_tokens, Some(200));
         fs::remove_dir_all(root).ok();
     }
 

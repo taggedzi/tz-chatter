@@ -156,7 +156,8 @@ export function ProviderPanel() {
         </div>
       </div>
       <p className="panel-description">
-        Endpoints and credentials stay in application settings, not in the portable character vault.
+        Endpoints, credentials, and the default chat model stay in application settings.
+        Characters can override the chat model and sampling without changing this connection.
       </p>
       <div className="settings-grid">
         <label>
@@ -177,7 +178,7 @@ export function ProviderPanel() {
         </label>
         <div className="settings-field">
           <label>
-            Chat model
+            Default chat model
             {discoveredModels.length > 0 && !enterCustomChatModel ? (
               <select
                 value={provider.chat_model}

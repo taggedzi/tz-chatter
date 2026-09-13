@@ -24,7 +24,7 @@ export type RequestSnapshot = {
 };
 
 export type TurnRole = "system" | "user" | "assistant" | "initiative";
-export type TurnStatus = "complete" | "interrupted" | "failed";
+export type TurnStatus = "complete" | "interrupted" | "failed" | "superseded";
 
 export type TranscriptTurn = {
   id: string;
@@ -160,6 +160,33 @@ export const conversationClient = {
     const onEvent = new Channel<ChatStreamEvent>();
     onEvent.onmessage = onMessage;
     return invoke<ConversationOutcome>("conversation_retry", {
+      vaultRoot,
+      snapshot,
+      onEvent,
+    });
+  },
+  regenerate(vaultRoot: string, snapshot: RequestSnapshot, onMessage: (event: ChatStreamEvent) => void) {
+    const onEvent = new Channel<ChatStreamEvent>();
+    onEvent.onmessage = onMessage;
+    return invoke<ConversationOutcome>("conversation_regenerate", {
+      vaultRoot,
+      snapshot,
+      onEvent,
+    });
+  },
+  continueReply(vaultRoot: string, snapshot: RequestSnapshot, onMessage: (event: ChatStreamEvent) => void) {
+    const onEvent = new Channel<ChatStreamEvent>();
+    onEvent.onmessage = onMessage;
+    return invoke<ConversationOutcome>("conversation_continue", {
+      vaultRoot,
+      snapshot,
+      onEvent,
+    });
+  },
+  editLastUser(vaultRoot: string, snapshot: RequestSnapshot, onMessage: (event: ChatStreamEvent) => void) {
+    const onEvent = new Channel<ChatStreamEvent>();
+    onEvent.onmessage = onMessage;
+    return invoke<ConversationOutcome>("conversation_edit_last_user", {
       vaultRoot,
       snapshot,
       onEvent,

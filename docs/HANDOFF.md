@@ -620,3 +620,31 @@ Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.tom
 Incomplete work / blockers: none for T28. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
 
 Next concrete action: none scheduled. T16/T18 remain environment-limited.
+
+## 2026-09-12 — T29: edit last message, regenerate, and continue
+
+Scope and outcome: last-exchange edit, regenerate, and continue. Transcript status `superseded` was added (schema still 1). Regenerating a complete reply keeps the previous assistant text in Markdown as superseded, mints a new assistant id, and extracts only the replacement. Continue appends to an Interrupted reply with the same turn id and extracts once when that turn becomes Complete. Edit last user updates that turn in place, supersedes following assistant turns, then generates a new assistant id. Retry remains for failed or empty replies and no longer truncates superseded siblings. Prompt history and chat bubbles omit superseded turns. Extraction jobs whose assistant source is no longer Complete are abandoned without writing memories. Memories already committed from a superseded reply are left in place.
+
+Files changed: `src-tauri/src/storage.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/extraction.rs`, `src-tauri/src/prompt.rs`, `src-tauri/src/lib.rs`, `src/conversation.ts`, `src/ConversationPanel.tsx`, `src/App.css`, `README.md`, `docs/PROJECT.md`, `docs/PLAN.md`, `docs/DECISIONS.md`, `docs/STATUS.md`, `docs/Future-Growth-Notes.md`, and this handoff.
+
+Decisions added/superseded: ADR-013 accepted.
+
+Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.toml` PASS 135 passed, 2 ignored. `cargo fmt --all -- --check` PASS. `cargo clippy --all-targets -- -D warnings` PASS. `npm run lint` PASS. `npm run typecheck` PASS. `npm run build` PASS. Native window interaction was not re-run.
+
+Incomplete work / blockers: none for T29. Swipe carousel, editing older turns, continue of Complete/max-token replies, and deleting memories from superseded replies remain out of scope. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: none scheduled. T16/T18 remain environment-limited.
+
+## 2026-09-13 — T30: per-character model and sampling
+
+Scope and outcome: optional per-character chat model, temperature, and max tokens. Provider connection (kind, endpoint, token, embedding model) stays app-global; Settings → Provider chat model is the inherit default. Overrides live in `{vault}/.tz-chatter/generation.json` and are never written to `character.md`. Empty fields inherit the active provider. Chat send/retry/regenerate/continue/edit and initiative resolve the override in Rust at request time and send sampling on Ollama `options` (`temperature`, `num_predict`) and OpenAI-compatible `temperature`/`max_tokens`. Extraction uses the character’s resolved chat model with conservative sampling (temperature 0, max tokens 1024), not the character’s creative temperature or cap. Embeddings stay on the global embedding model. Packs omit `generation.json`. The Characters editor has Chat model / Temperature / Max tokens fields; the conversation header shows the effective model.
+
+Files changed: `src-tauri/src/generation.rs`, `src-tauri/src/providers.rs`, `src-tauri/src/connections.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/extraction.rs`, `src-tauri/src/lib.rs`, `src-tauri/src/portability.rs`, `src/generation.ts`, `src/CharacterPanel.tsx`, `src/ConversationPanel.tsx`, `src/ProviderPanel.tsx`, `src/activeSession.ts`, `README.md`, `docs/PROJECT.md`, `docs/PLAN.md`, `docs/DECISIONS.md`, `docs/STATUS.md`, `docs/Future-Growth-Notes.md`, and this handoff.
+
+Decisions added/superseded: ADR-014 accepted.
+
+Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.toml` PASS 146 passed, 2 ignored. `cargo fmt --all -- --check` PASS. `cargo clippy --all-targets -- -D warnings` PASS. `npm run lint` PASS. `npm run typecheck` PASS. `npm run build` PASS. Native window interaction was not re-run.
+
+Incomplete work / blockers: none for T30. Named generation presets and opt-in pack export of sampling remain unscheduled. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: none scheduled. T16/T18 remain environment-limited.

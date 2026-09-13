@@ -360,6 +360,54 @@ mod tests {
     }
 
     #[test]
+    fn omits_superseded_and_incomplete_history() {
+        let mut history = transcript();
+        history.turns[1].status = TurnStatus::Superseded;
+        history.turns.push(TranscriptTurn {
+            id: "live-user".into(),
+            timestamp: "3".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "A later question".into(),
+        });
+        history.turns.push(TranscriptTurn {
+            id: "live-assistant".into(),
+            timestamp: "4".into(),
+            role: TurnRole::Assistant,
+            status: TurnStatus::Complete,
+            content: "A later answer".into(),
+        });
+        history.turns.push(TranscriptTurn {
+            id: "cut-assistant".into(),
+            timestamp: "5".into(),
+            role: TurnRole::Assistant,
+            status: TurnStatus::Interrupted,
+            content: "partial".into(),
+        });
+        let result = build_prompt(
+            &character(),
+            None,
+            &history,
+            "Now",
+            PromptBudget {
+                context_tokens: 512,
+                reserved_output_tokens: 64,
+            },
+        )
+        .unwrap();
+        let joined = result
+            .messages
+            .iter()
+            .map(|message| message.content.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!joined.contains("An older answer"));
+        assert!(!joined.contains("partial"));
+        assert!(joined.contains("A later question"));
+        assert!(joined.contains("A later answer"));
+    }
+
+    #[test]
     fn rejects_oversized_character_or_current_message_and_invalid_budget() {
         assert_eq!(
             build_prompt(

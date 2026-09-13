@@ -298,6 +298,26 @@ impl ExtractionQueue {
         self.get_job(job_id)
     }
 
+    pub fn abandon(
+        &mut self,
+        job_id: &str,
+        reason: &str,
+    ) -> Result<Option<ExtractionJob>, ExtractionError> {
+        let job = self
+            .get_job(job_id)?
+            .ok_or_else(|| ExtractionError::InvalidInput("job not found".into()))?;
+        if job.status != ExtractionJobStatus::Running {
+            return Err(ExtractionError::InvalidInput(
+                "only a running job can be abandoned".into(),
+            ));
+        }
+        self.connection.execute(
+            "UPDATE extraction_jobs SET status = 'failed', last_error = ?1, updated_at = ?2 WHERE id = ?3",
+            params![reason, now(), job_id],
+        )?;
+        self.get_job(job_id)
+    }
+
     pub fn defer(
         &mut self,
         job_id: &str,
@@ -619,6 +639,16 @@ pub fn effective_origin(
     }
 }
 
+pub fn assistant_source_is_complete(transcript: &TranscriptDocument, job: &ExtractionJob) -> bool {
+    job.source_turn_ids.iter().any(|id| {
+        transcript.turns.iter().any(|turn| {
+            turn.id == *id
+                && turn.role == TurnRole::Assistant
+                && turn.status == TurnStatus::Complete
+        })
+    })
+}
+
 pub fn is_auto_writable(origin: &ProposalOrigin) -> bool {
     matches!(
         origin,
@@ -675,6 +705,8 @@ pub fn build_extraction_request(
             },
         ],
         cancellation_id: format!("extract-{}", job.id),
+        temperature: None,
+        max_tokens: None,
     }
 }
 
@@ -866,11 +898,39 @@ mod tests {
             .enqueue_transcript(&transcript, "assistant-1", 10)
             .unwrap();
         assert_eq!(first.id, second.id);
-        let mut interrupted = transcript;
+        let mut interrupted = transcript.clone();
         interrupted.turns[1].status = TurnStatus::Interrupted;
         assert!(queue
             .enqueue_transcript(&interrupted, "assistant-1", 10)
             .is_err());
+        let mut superseded = transcript.clone();
+        superseded.turns[1].status = TurnStatus::Superseded;
+        assert!(queue
+            .enqueue_transcript(&superseded, "assistant-1", 10)
+            .is_err());
+        drop(queue);
+        fs_remove(&root);
+    }
+
+    #[test]
+    fn abandon_skips_superseded_source_without_proposals() {
+        let root = root("abandon-superseded");
+        let vault = Vault::create(&root).unwrap();
+        let mut queue = ExtractionQueue::open(&vault, "lyra").unwrap();
+        let mut transcript = transcript();
+        let job = queue
+            .enqueue_transcript(&transcript, "assistant-1", 10)
+            .unwrap();
+        let claimed = queue.claim_next().unwrap().unwrap();
+        assert_eq!(claimed.id, job.id);
+        transcript.turns[1].status = TurnStatus::Superseded;
+        assert!(!assistant_source_is_complete(&transcript, &claimed));
+        let abandoned = queue
+            .abandon(&claimed.id, "source turn is no longer complete")
+            .unwrap()
+            .unwrap();
+        assert_eq!(abandoned.status, ExtractionJobStatus::Failed);
+        assert!(queue.pending_proposals().unwrap().is_empty());
         drop(queue);
         fs_remove(&root);
     }

@@ -124,6 +124,7 @@ pub enum TurnStatus {
     Complete,
     Interrupted,
     Failed,
+    Superseded,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1007,6 +1008,23 @@ Hello",
         let text = fs::read_to_string(vault.transcript_path("session-named").unwrap()).unwrap();
         assert!(text.contains("title: Garden walk"));
         assert!(text.contains("archived: true"));
+
+        let mut superseded = TranscriptDocument::new("session-superseded", "lyra");
+        superseded.created_at = "3".into();
+        superseded.updated_at = "3".into();
+        superseded.turns.push(TranscriptTurn {
+            id: "turn-old".into(),
+            timestamp: "3".into(),
+            role: TurnRole::Assistant,
+            status: TurnStatus::Superseded,
+            content: "Discarded take".into(),
+        });
+        vault.save_transcript(&superseded).unwrap();
+        let loaded_superseded = vault.load_transcript("session-superseded").unwrap();
+        assert_eq!(loaded_superseded, superseded);
+        let superseded_text =
+            fs::read_to_string(vault.transcript_path("session-superseded").unwrap()).unwrap();
+        assert!(superseded_text.contains("\"status\":\"superseded\""));
         fs::remove_dir_all(root).unwrap();
     }
 }

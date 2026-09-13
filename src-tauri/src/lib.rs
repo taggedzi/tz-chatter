@@ -18,6 +18,7 @@ pub mod connections;
 pub mod conversation;
 pub mod embeddings;
 pub mod extraction;
+pub mod generation;
 pub mod initiative;
 pub mod memory;
 pub mod portability;
@@ -727,6 +728,22 @@ fn character_portrait_clear(vault_root: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn generation_load(vault_root: String) -> Result<generation::CharacterGeneration, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    generation::load(&vault).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn generation_save(
+    vault_root: String,
+    settings: generation::CharacterGeneration,
+) -> Result<generation::CharacterGeneration, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    generation::save(&vault, &settings).map_err(|error| error.to_string())?;
+    generation::load(&vault).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn application_prompt_load(app: AppHandle) -> Result<characters::ApplicationPrompt, String> {
     let path = characters::prompt_path(app_config_dir(&app)?);
     characters::load_application_prompt(&path).map_err(String::from)
@@ -801,48 +818,32 @@ fn local_delete(vault_root: String, id: String) -> Result<(), String> {
     scene::delete_local(&vault, &id).map_err(String::from)
 }
 
+#[derive(Clone, Copy)]
+enum ChatTurnKind {
+    Send,
+    Retry,
+    Regenerate,
+    Continue,
+    EditLastUser,
+}
+
 #[tauri::command]
 async fn conversation_send(
     app: AppHandle,
     state: tauri::State<'_, RuntimeState>,
     vault_root: String,
-    mut snapshot: conversation::RequestSnapshot,
+    snapshot: conversation::RequestSnapshot,
     on_event: Channel<providers::ChatStreamEvent>,
 ) -> Result<conversation::ConversationOutcome, String> {
-    let (vault, canonical_character) = open_character_vault(&vault_root, &snapshot.character.id)?;
-    snapshot.character = canonical_character;
-    snapshot.application_prompt = application_prompt_text(&app);
-    let _ = initiative::InitiativeStore::open(&vault, &snapshot.character.id)
-        .and_then(|store| store.record_user_activity(unix_now()));
-    let key = format!("{}:{}", snapshot.character.id, snapshot.session_id);
-    let extraction_provider = snapshot.provider.clone();
-    let extraction_character = snapshot.character.clone();
-    let use_hybrid = snapshot.use_hybrid_retrieval;
-    let (generation, cancellation) = state.begin(&key);
-    let sink: connections::StreamSink = Arc::new(move |event| {
-        let _ = on_event.send(event);
-    });
-    let model_guard = state.model_gate.lock().await;
-    let result = conversation::ConversationService::with_provider_client()
-        .send_streaming(&vault, snapshot, cancellation, Some(sink))
-        .await
-        .map_err(String::from);
-    drop(model_guard);
-    state.finish(&key, generation);
-    if let Ok(outcome) = &result {
-        if outcome.assistant_turn.status == storage::TurnStatus::Complete {
-            schedule_extraction(
-                app.clone(),
-                &vault_root,
-                extraction_provider.clone(),
-                extraction_character.clone(),
-            );
-        }
-        if should_schedule_embedding(use_hybrid, &extraction_provider, outcome) {
-            schedule_embedding(app, &vault_root, extraction_provider, extraction_character);
-        }
-    }
-    result
+    conversation_chat_turn(
+        app,
+        state,
+        vault_root,
+        snapshot,
+        on_event,
+        ChatTurnKind::Send,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -936,8 +937,84 @@ async fn conversation_retry(
     app: AppHandle,
     state: tauri::State<'_, RuntimeState>,
     vault_root: String,
+    snapshot: conversation::RequestSnapshot,
+    on_event: Channel<providers::ChatStreamEvent>,
+) -> Result<conversation::ConversationOutcome, String> {
+    conversation_chat_turn(
+        app,
+        state,
+        vault_root,
+        snapshot,
+        on_event,
+        ChatTurnKind::Retry,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn conversation_regenerate(
+    app: AppHandle,
+    state: tauri::State<'_, RuntimeState>,
+    vault_root: String,
+    snapshot: conversation::RequestSnapshot,
+    on_event: Channel<providers::ChatStreamEvent>,
+) -> Result<conversation::ConversationOutcome, String> {
+    conversation_chat_turn(
+        app,
+        state,
+        vault_root,
+        snapshot,
+        on_event,
+        ChatTurnKind::Regenerate,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn conversation_continue(
+    app: AppHandle,
+    state: tauri::State<'_, RuntimeState>,
+    vault_root: String,
+    snapshot: conversation::RequestSnapshot,
+    on_event: Channel<providers::ChatStreamEvent>,
+) -> Result<conversation::ConversationOutcome, String> {
+    conversation_chat_turn(
+        app,
+        state,
+        vault_root,
+        snapshot,
+        on_event,
+        ChatTurnKind::Continue,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn conversation_edit_last_user(
+    app: AppHandle,
+    state: tauri::State<'_, RuntimeState>,
+    vault_root: String,
+    snapshot: conversation::RequestSnapshot,
+    on_event: Channel<providers::ChatStreamEvent>,
+) -> Result<conversation::ConversationOutcome, String> {
+    conversation_chat_turn(
+        app,
+        state,
+        vault_root,
+        snapshot,
+        on_event,
+        ChatTurnKind::EditLastUser,
+    )
+    .await
+}
+
+async fn conversation_chat_turn(
+    app: AppHandle,
+    state: tauri::State<'_, RuntimeState>,
+    vault_root: String,
     mut snapshot: conversation::RequestSnapshot,
     on_event: Channel<providers::ChatStreamEvent>,
+    kind: ChatTurnKind,
 ) -> Result<conversation::ConversationOutcome, String> {
     let (vault, canonical_character) = open_character_vault(&vault_root, &snapshot.character.id)?;
     snapshot.character = canonical_character;
@@ -952,11 +1029,36 @@ async fn conversation_retry(
     let sink: connections::StreamSink = Arc::new(move |event| {
         let _ = on_event.send(event);
     });
+    let service = conversation::ConversationService::with_provider_client();
     let model_guard = state.model_gate.lock().await;
-    let result = conversation::ConversationService::with_provider_client()
-        .retry_streaming(&vault, snapshot, cancellation, Some(sink))
-        .await
-        .map_err(String::from);
+    let result = match kind {
+        ChatTurnKind::Send => {
+            service
+                .send_streaming(&vault, snapshot, cancellation, Some(sink))
+                .await
+        }
+        ChatTurnKind::Retry => {
+            service
+                .retry_streaming(&vault, snapshot, cancellation, Some(sink))
+                .await
+        }
+        ChatTurnKind::Regenerate => {
+            service
+                .regenerate_streaming(&vault, snapshot, cancellation, Some(sink))
+                .await
+        }
+        ChatTurnKind::Continue => {
+            service
+                .continue_reply_streaming(&vault, snapshot, cancellation, Some(sink))
+                .await
+        }
+        ChatTurnKind::EditLastUser => {
+            service
+                .edit_last_user_streaming(&vault, snapshot, cancellation, Some(sink))
+                .await
+        }
+    }
+    .map_err(String::from);
     drop(model_guard);
     state.finish(&key, generation);
     if let Ok(outcome) = &result {
@@ -1075,9 +1177,18 @@ async fn process_extraction_queue(
         let transcript = vault
             .load_transcript(&job.session_id)
             .map_err(String::from)?;
+        if !extraction::assistant_source_is_complete(&transcript, &job) {
+            let _ = queue.abandon(&job.id, "source turn is no longer complete");
+            continue;
+        }
         let mut request = extraction::build_extraction_request(&character, &transcript, &job);
+        let generation = generation::load(&vault).map_err(|error| error.to_string())?;
+        let resolved = generation::resolve_extraction(&provider, &generation)
+            .map_err(|error| error.to_string())?;
         request.provider_id = provider.id.clone();
-        request.model = provider.chat_model.clone();
+        request.model = resolved.chat_model;
+        request.temperature = resolved.temperature;
+        request.max_tokens = resolved.max_tokens;
         let events = match transport
             .stream_chat(&provider, &request, cancellation.child_token())
             .await
@@ -1655,6 +1766,8 @@ pub fn run() {
             character_portrait_load,
             character_portrait_set,
             character_portrait_clear,
+            generation_load,
+            generation_save,
             application_prompt_load,
             application_prompt_save,
             persona_load,
@@ -1675,6 +1788,9 @@ pub fn run() {
             conversation_start_session,
             conversation_set_session_local,
             conversation_retry,
+            conversation_regenerate,
+            conversation_continue,
+            conversation_edit_last_user,
             conversation_cancel,
             initiative_send,
             vault_export_pack,
@@ -1913,6 +2029,24 @@ mod tests {
         }
     }
 
+    struct CapturingExtractionTransport {
+        responses: Mutex<Vec<Result<Vec<ChatStreamEvent>, ProviderError>>>,
+        requests: Mutex<Vec<crate::providers::ChatRequest>>,
+    }
+
+    #[async_trait]
+    impl ChatTransport for CapturingExtractionTransport {
+        async fn stream_chat(
+            &self,
+            _config: &ProviderConfig,
+            request: &crate::providers::ChatRequest,
+            _cancellation: CancellationToken,
+        ) -> Result<Vec<ChatStreamEvent>, ProviderError> {
+            self.requests.lock().unwrap().push(request.clone());
+            self.responses.lock().unwrap().remove(0)
+        }
+    }
+
     fn extraction_output(source: &str) -> String {
         extraction_output_with(source, "user_stated", "User likes quiet cafes.")
     }
@@ -2034,6 +2168,61 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[tokio::test]
+    async fn extraction_worker_abandons_superseded_source_without_writing() {
+        let root = std::env::temp_dir().join(format!(
+            "tz-chatter-command-extract-superseded-{}",
+            crate::storage::new_stable_id()
+        ));
+        let vault = Vault::create(&root).unwrap();
+        let character = CharacterDefinition::new("lyra", "Lyra", "Stay grounded.");
+        vault.save_character(&character).unwrap();
+        let mut transcript = TranscriptDocument::new("session-1", "lyra");
+        transcript.turns.push(TranscriptTurn {
+            id: "user-1".into(),
+            timestamp: "1".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "I like quiet cafes.".into(),
+        });
+        transcript.turns.push(TranscriptTurn {
+            id: "assistant-1".into(),
+            timestamp: "2".into(),
+            role: TurnRole::Assistant,
+            status: TurnStatus::Complete,
+            content: "I will remember that.".into(),
+        });
+        vault.save_transcript(&transcript).unwrap();
+        let mut queue = crate::extraction::ExtractionQueue::open(&vault, "lyra").unwrap();
+        queue
+            .enqueue_transcript(&transcript, "assistant-1", 100)
+            .unwrap();
+        drop(queue);
+        transcript.turns[1].status = TurnStatus::Superseded;
+        vault.save_transcript(&transcript).unwrap();
+
+        let transport: Arc<dyn ChatTransport> = Arc::new(FakeExtractionTransport {
+            responses: Mutex::new(Vec::new()),
+        });
+        process_extraction_queue(
+            root.to_string_lossy().into_owned(),
+            extraction_provider(),
+            character,
+            CancellationToken::new(),
+            transport,
+        )
+        .await
+        .unwrap();
+
+        let mut memories = MemoryStore::open(&vault, "lyra").unwrap();
+        assert!(memories.list().unwrap().is_empty());
+        let mut queue = crate::extraction::ExtractionQueue::open(&vault, "lyra").unwrap();
+        assert!(queue.claim_next().unwrap().is_none());
+        drop(memories);
+        drop(queue);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     fn sabotage_semantic_writes(vault: &Vault) {
         let semantic = vault.root().join("memories").join("semantic");
         if semantic.is_dir() {
@@ -2054,6 +2243,80 @@ mod tests {
             embedding_model: None,
             bearer_token: None,
         }
+    }
+
+    #[tokio::test]
+    async fn extraction_uses_character_model_not_sampling() {
+        let root = std::env::temp_dir().join(format!(
+            "tz-chatter-extract-generation-{}",
+            crate::storage::new_stable_id()
+        ));
+        let vault = Vault::create(&root).unwrap();
+        let character = CharacterDefinition::new("lyra", "Lyra", "You are Lyra.");
+        vault.save_character(&character).unwrap();
+        crate::generation::save(
+            &vault,
+            &crate::generation::CharacterGeneration {
+                schema_version: 1,
+                chat_model: Some("lyra-voice".into()),
+                temperature: Some(0.9),
+                max_tokens: Some(64),
+            },
+        )
+        .unwrap();
+        let mut transcript = TranscriptDocument::new("session-1", "lyra");
+        transcript.turns.push(TranscriptTurn {
+            id: "user-1".into(),
+            timestamp: "1".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "I like quiet cafes.".into(),
+        });
+        transcript.turns.push(TranscriptTurn {
+            id: "assistant-1".into(),
+            timestamp: "2".into(),
+            role: TurnRole::Assistant,
+            status: TurnStatus::Complete,
+            content: "I will remember that.".into(),
+        });
+        vault.save_transcript(&transcript).unwrap();
+        let mut queue = crate::extraction::ExtractionQueue::open(&vault, "lyra").unwrap();
+        queue
+            .enqueue_transcript(&transcript, "assistant-1", 100)
+            .unwrap();
+        drop(queue);
+
+        let transport = Arc::new(CapturingExtractionTransport {
+            responses: Mutex::new(vec![Ok(vec![
+                ChatStreamEvent::Delta {
+                    text: extraction_output("user-1"),
+                },
+                ChatStreamEvent::Completed {
+                    finish_reason: Some("stop".into()),
+                },
+            ])]),
+            requests: Mutex::new(Vec::new()),
+        });
+        process_extraction_queue(
+            root.to_string_lossy().into_owned(),
+            extraction_provider(),
+            character,
+            CancellationToken::new(),
+            transport.clone(),
+        )
+        .await
+        .unwrap();
+        let captured = transport.requests.lock().unwrap()[0].clone();
+        assert_eq!(captured.model, "lyra-voice");
+        assert_eq!(
+            captured.temperature,
+            Some(crate::generation::EXTRACTION_TEMPERATURE)
+        );
+        assert_eq!(
+            captured.max_tokens,
+            Some(crate::generation::EXTRACTION_MAX_TOKENS)
+        );
+        fs::remove_dir_all(root).ok();
     }
 
     fn embedding_provider() -> ProviderConfig {

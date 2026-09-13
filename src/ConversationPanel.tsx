@@ -10,6 +10,7 @@ import {
   type SessionLocalSelection,
 } from "./scene";
 import type { RetrievedMemory } from "./conversation";
+import { emptyGeneration, generationClient, type CharacterGeneration } from "./generation";
 import { providerClient, type ProviderConfig } from "./providers";
 import { initiativeClient, type InitiativeOutcome } from "./initiative";
 import { memoryClient } from "./memory";
@@ -66,12 +67,14 @@ export function ConversationPanel() {
   const [draft, setDraft] = useState("");
   const [vaultRoot, setVaultRoot] = useState(() => localStorage.getItem(activeSessionStorageKeys.vaultRoot) ?? "");
   const [provider, setProvider] = useState(initialProvider);
+  const [generation, setGeneration] = useState<CharacterGeneration>(emptyGeneration);
   const [sessionId, setSessionId] = useState<string>(() => activeSessionId() ?? crypto.randomUUID());
   const [turns, setTurns] = useState<TranscriptTurn[]>([]);
   const [retrievedMemories, setRetrievedMemories] = useState<RetrievedMemory[]>([]);
   const [contextInspection, setContextInspection] = useState<ContextInspection | null>(null);
-  const [lastRequest, setLastRequest] = useState<RequestSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editingUser, setEditingUser] = useState(false);
+  const [editDraft, setEditDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [resumeStatus, setResumeStatus] = useState<string | null>(null);
   const [loadedVaultRoot, setLoadedVaultRoot] = useState<string | null>(null);
@@ -140,11 +143,12 @@ export function ConversationPanel() {
     setTurns(result.transcript?.turns ?? []);
     setRetrievedMemories([]);
     setContextInspection(null);
-    setLastRequest(null);
+    setEditingUser(false);
     rememberActiveSession(root, result.character.id, nextSessionId, result.character.name);
     setResumeStatus(status);
     try {
       await loadSceneState(root, result.transcript);
+      setGeneration(await generationClient.load(root));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     }
@@ -271,6 +275,14 @@ export function ConversationPanel() {
     const onProviderChanged = () => {
       void loadSavedProvider();
     };
+    const onGenerationChanged = () => {
+      const root = (loadedVaultRoot ?? vaultRoot).trim();
+      if (root) {
+        void generationClient.load(root).then(setGeneration).catch(() => {
+          setGeneration(emptyGeneration());
+        });
+      }
+    };
     const onSessionListFilter = (event: Event) => {
       const detail = (event as CustomEvent<{ query: string; includeArchived: boolean }>).detail;
       if (!detail) return;
@@ -306,6 +318,7 @@ export function ConversationPanel() {
     window.addEventListener(shellEvents.openSession, onOpenSession);
     window.addEventListener(shellEvents.newSession, onNewSession);
     window.addEventListener(shellEvents.providerChanged, onProviderChanged);
+    window.addEventListener(shellEvents.generationChanged, onGenerationChanged);
     window.addEventListener(shellEvents.sessionListFilter, onSessionListFilter);
     window.addEventListener(shellEvents.renameSession, onRenameSession);
     window.addEventListener(shellEvents.archiveSession, onArchiveSession);
@@ -314,6 +327,7 @@ export function ConversationPanel() {
       window.removeEventListener(shellEvents.openSession, onOpenSession);
       window.removeEventListener(shellEvents.newSession, onNewSession);
       window.removeEventListener(shellEvents.providerChanged, onProviderChanged);
+      window.removeEventListener(shellEvents.generationChanged, onGenerationChanged);
       window.removeEventListener(shellEvents.sessionListFilter, onSessionListFilter);
       window.removeEventListener(shellEvents.renameSession, onRenameSession);
       window.removeEventListener(shellEvents.archiveSession, onArchiveSession);
@@ -345,30 +359,61 @@ export function ConversationPanel() {
     transcriptEnd.current?.scrollIntoView({ block: "end" });
   }, [turns]);
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const content = draft.trim();
-    if (!content || loadedVaultRoot !== vaultRoot.trim() || busy) return;
-
-    const snapshot: RequestSnapshot = {
+  function lastUserSnapshot(contentOverride?: string): RequestSnapshot | null {
+    const lastUser = [...turns].reverse().find((turn) => turn.role === "user" && turn.status !== "superseded");
+    const content = (contentOverride ?? lastUser?.content ?? "").trim();
+    if (!lastUser || !character.id || !content) return null;
+    return {
       character,
       provider,
       session_id: sessionId,
-      user_turn_id: crypto.randomUUID(),
+      user_turn_id: lastUser.id,
       user_content: content,
       use_hybrid_retrieval: useHybridRetrieval,
     };
+  }
+
+  async function runSnapshot(
+    snapshot: RequestSnapshot,
+    action: (onMessage: (event: ChatStreamEvent) => void) => Promise<{
+      transcript: TranscriptDocument;
+      retrieved_memories: RetrievedMemory[];
+      context_inspection: ContextInspection;
+    }>,
+    options?: { replaceLive?: boolean; replyId?: string; prefix?: string; clearDraft?: boolean },
+  ) {
+    if (loadedVaultRoot !== vaultRoot.trim() || busy) return;
     setBusy(true);
     setError(null);
     setResumeStatus(null);
+    setEditingUser(false);
     rememberActiveSession(vaultRoot.trim(), character.id, sessionId, character.name);
-    setLastRequest(snapshot);
+    if (options?.replaceLive) {
+      setTurns((current) => {
+        const userIndex = current.findIndex((turn) => turn.id === snapshot.user_turn_id);
+        return current.map((turn, index) => {
+          if (turn.id === snapshot.user_turn_id) {
+            return { ...turn, content: snapshot.user_content, status: "complete" as const };
+          }
+          if (
+            userIndex >= 0
+            && index > userIndex
+            && turn.role === "assistant"
+            && turn.status !== "superseded"
+            && turn.id !== options.replyId
+          ) {
+            return { ...turn, status: "superseded" as const };
+          }
+          return turn;
+        });
+      });
+    }
     try {
-      const outcome = await conversationClient.send(vaultRoot.trim(), snapshot, streamHandler(snapshot));
+      const outcome = await action(streamHandler(snapshot, options));
       setTurns(outcome.transcript.turns);
       setRetrievedMemories(outcome.retrieved_memories);
       setContextInspection(outcome.context_inspection);
-      setDraft("");
+      if (options?.clearDraft) setDraft("");
       await publishSessions(vaultRoot.trim(), sessionId);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
@@ -377,20 +422,64 @@ export function ConversationPanel() {
     }
   }
 
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const content = draft.trim();
+    if (!content) return;
+    const snapshot: RequestSnapshot = {
+      character,
+      provider,
+      session_id: sessionId,
+      user_turn_id: crypto.randomUUID(),
+      user_content: content,
+      use_hybrid_retrieval: useHybridRetrieval,
+    };
+    await runSnapshot(
+      snapshot,
+      (onMessage) => conversationClient.send(vaultRoot.trim(), snapshot, onMessage),
+      { clearDraft: true },
+    );
+  }
+
   async function retry() {
-    if (!lastRequest || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const outcome = await conversationClient.retry(vaultRoot.trim(), lastRequest, streamHandler(lastRequest));
-      setTurns(outcome.transcript.turns);
-      setRetrievedMemories(outcome.retrieved_memories);
-      setContextInspection(outcome.context_inspection);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : String(requestError));
-    } finally {
-      setBusy(false);
-    }
+    const snapshot = lastUserSnapshot();
+    if (!snapshot) return;
+    await runSnapshot(
+      snapshot,
+      (onMessage) => conversationClient.retry(vaultRoot.trim(), snapshot, onMessage),
+      { replaceLive: true },
+    );
+  }
+
+  async function regenerate() {
+    const snapshot = lastUserSnapshot();
+    if (!snapshot) return;
+    await runSnapshot(
+      snapshot,
+      (onMessage) => conversationClient.regenerate(vaultRoot.trim(), snapshot, onMessage),
+      { replaceLive: true },
+    );
+  }
+
+  async function continueReply() {
+    const snapshot = lastUserSnapshot();
+    const latest = [...turns].reverse().find((turn) => turn.role === "assistant" && turn.status !== "superseded");
+    if (!snapshot || !latest) return;
+    await runSnapshot(
+      snapshot,
+      (onMessage) => conversationClient.continueReply(vaultRoot.trim(), snapshot, onMessage),
+      { replyId: latest.id, prefix: latest.content },
+    );
+  }
+
+  async function saveEditedUser() {
+    const snapshot = lastUserSnapshot(editDraft);
+    if (!snapshot) return;
+    await runSnapshot(
+      snapshot,
+      (onMessage) => conversationClient.editLastUser(vaultRoot.trim(), snapshot, onMessage),
+      { replaceLive: true },
+    );
   }
 
   async function cancel() {
@@ -398,16 +487,26 @@ export function ConversationPanel() {
     setError("The active model request was canceled.");
   }
 
-  function streamHandler(snapshot: RequestSnapshot) {
-    let streamedContent = "";
-    const replyId = `reply-${snapshot.user_turn_id}`;
+  function streamHandler(
+    snapshot: RequestSnapshot,
+    options?: { replyId?: string; prefix?: string },
+  ) {
+    let streamedContent = options?.prefix ?? "";
+    let replyId = options?.replyId ?? `reply-${snapshot.user_turn_id}`;
     return (streamEvent: ChatStreamEvent) => {
+      if (streamEvent.event === "started" && streamEvent.data.cancellation_id) {
+        replyId = streamEvent.data.cancellation_id;
+      }
       if (streamEvent.event === "delta") streamedContent += streamEvent.data.text;
       if (streamEvent.event !== "started" && streamEvent.event !== "delta") return;
       setTurns((current) => {
         const withoutReply = current.filter((turn) => turn.id !== replyId);
         const withUser = withoutReply.some((turn) => turn.id === snapshot.user_turn_id)
-          ? withoutReply
+          ? withoutReply.map((turn) => (
+            turn.id === snapshot.user_turn_id
+              ? { ...turn, content: snapshot.user_content, status: "complete" as const }
+              : turn
+          ))
           : [...withoutReply, {
               id: snapshot.user_turn_id,
               timestamp: new Date().toISOString(),
@@ -495,7 +594,15 @@ export function ConversationPanel() {
     }
   }
 
-  const latestAssistant = [...turns].reverse().find((turn) => turn.role === "assistant");
+  const visibleTurns = turns.filter((turn) => turn.status !== "superseded");
+  const latestAssistant = [...visibleTurns].reverse().find((turn) => turn.role === "assistant");
+  const lastVisibleUser = [...visibleTurns].reverse().find((turn) => turn.role === "user");
+  const lastVisibleUserIndex = visibleTurns.map((turn) => turn.role).lastIndexOf("user");
+  const canEditLastUser = lastVisibleUserIndex >= 0
+    && visibleTurns.slice(lastVisibleUserIndex + 1).every((turn) => turn.role === "assistant");
+  const canRegenerate = latestAssistant?.status === "complete" && canEditLastUser;
+  const canContinue = latestAssistant?.status === "interrupted" && Boolean(latestAssistant.content.trim()) && canEditLastUser;
+  const canRetry = Boolean(latestAssistant && latestAssistant.status !== "complete" && canEditLastUser);
   const vaultReady = loadedVaultRoot === vaultRoot.trim() && Boolean(character.id);
   const sessionLocalValue =
     sessionLocal.kind === "default"
@@ -513,7 +620,7 @@ export function ConversationPanel() {
         <div>
           <h2>{vaultReady ? character.name : "Open a character to chat"}</h2>
           <p className="chat-header-meta">
-            {vaultReady ? `${provider.chat_model} · ${turns.length} message${turns.length === 1 ? "" : "s"}` : "History appears here after you open a vault"}
+            {vaultReady ? `${generation.chat_model?.trim() || provider.chat_model} · ${visibleTurns.length} message${visibleTurns.length === 1 ? "" : "s"}` : "History appears here after you open a vault"}
           </p>
         </div>
         <div className="chat-header-actions">
@@ -561,16 +668,51 @@ export function ConversationPanel() {
               }}
               vaultRoot={vaultRoot}
             />
-          ) : turns.length === 0 ? (
+          ) : visibleTurns.length === 0 ? (
             <div className="empty-transcript">
               <span className="section-kicker">READY WHEN YOU ARE</span>
               <h2>Say hello to {character.name}.</h2>
               <p>Your first exchange will create a portable Markdown transcript in this conversation.</p>
             </div>
-          ) : turns.map((turn) => (
+          ) : visibleTurns.map((turn) => (
             <article className={`message ${turn.role}`} key={turn.id}>
               <div className="message-meta">{roleLabel(turn, character.name)} · {turn.status}</div>
-              <p>{turn.content || (turn.status === "failed" ? "The model did not return a response." : "Response interrupted.")}</p>
+              {editingUser && turn.id === lastVisibleUser?.id ? (
+                <textarea
+                  aria-label="Edit last message"
+                  className="message-edit"
+                  onChange={(event) => setEditDraft(event.target.value)}
+                  rows={3}
+                  value={editDraft}
+                />
+              ) : (
+                <p>{turn.content || (turn.status === "failed" ? "The model did not return a response." : "Response interrupted.")}</p>
+              )}
+              {turn.id === lastVisibleUser?.id && canEditLastUser && !busy && (
+                <div className="message-actions">
+                  {editingUser ? (
+                    <>
+                      <button className="text-button" disabled={!editDraft.trim()} onClick={() => void saveEditedUser()} type="button">
+                        Save and send
+                      </button>
+                      <button className="text-button" onClick={() => setEditingUser(false)} type="button">
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="text-button"
+                      onClick={() => {
+                        setEditDraft(turn.content);
+                        setEditingUser(true);
+                      }}
+                      type="button"
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
+              )}
             </article>
           ))}
           <div ref={transcriptEnd} />
@@ -634,13 +776,29 @@ export function ConversationPanel() {
       )}
       {resumeStatus && <p className="inline-status chat-status" role="status">{resumeStatus}</p>}
       {error && <p className="conversation-error" role="alert">{error}</p>}
-      {latestAssistant && latestAssistant.status !== "complete" && (
-        <button className="text-button retry-button" disabled={busy} onClick={() => void retry()} type="button">Retry response</button>
+      {(canRegenerate || canContinue || canRetry) && (
+        <div className="turn-actions">
+          {canRegenerate && (
+            <button className="text-button" disabled={busy} onClick={() => void regenerate()} type="button">
+              Regenerate
+            </button>
+          )}
+          {canContinue && (
+            <button className="text-button" disabled={busy} onClick={() => void continueReply()} type="button">
+              Continue
+            </button>
+          )}
+          {canRetry && (
+            <button className="text-button" disabled={busy} onClick={() => void retry()} type="button">
+              Retry response
+            </button>
+          )}
+        </div>
       )}
       <form className="composer" onSubmit={submit}>
         <textarea
           aria-label="Message"
-          disabled={!vaultReady}
+          disabled={!vaultReady || editingUser}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
@@ -655,7 +813,7 @@ export function ConversationPanel() {
         <div className="composer-footer">
           <span>{busy ? "Waiting for local model…" : vaultReady ? "Enter to send · Shift+Enter for a new line" : "Saved locally after each turn"}</span>
           {busy && <button className="outline-button" onClick={() => void cancel()} type="button">Cancel</button>}
-          <button className="primary-button" disabled={busy || !draft.trim() || !vaultReady} type="submit">
+          <button className="primary-button" disabled={busy || editingUser || !draft.trim() || !vaultReady} type="submit">
             {busy ? "Thinking…" : "Send"}
           </button>
         </div>

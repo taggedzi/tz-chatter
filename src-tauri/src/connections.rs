@@ -298,6 +298,16 @@ struct OllamaChatPayload<'a> {
     model: &'a str,
     messages: &'a [ChatMessage],
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<OllamaChatOptions>,
+}
+
+#[derive(Debug, Serialize)]
+struct OllamaChatOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_predict: Option<u32>,
 }
 
 fn build_ollama_chat_payload(request: &ChatRequest) -> OllamaChatPayload<'_> {
@@ -305,6 +315,18 @@ fn build_ollama_chat_payload(request: &ChatRequest) -> OllamaChatPayload<'_> {
         model: &request.model,
         messages: &request.messages,
         stream: true,
+        options: ollama_sampling(request),
+    }
+}
+
+fn ollama_sampling(request: &ChatRequest) -> Option<OllamaChatOptions> {
+    if request.temperature.is_none() && request.max_tokens.is_none() {
+        None
+    } else {
+        Some(OllamaChatOptions {
+            temperature: request.temperature,
+            num_predict: request.max_tokens,
+        })
     }
 }
 
@@ -313,6 +335,10 @@ struct OpenAiChatPayload<'a> {
     model: &'a str,
     messages: &'a [ChatMessage],
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
 }
 
 fn build_openai_chat_payload(request: &ChatRequest) -> OpenAiChatPayload<'_> {
@@ -320,6 +346,8 @@ fn build_openai_chat_payload(request: &ChatRequest) -> OpenAiChatPayload<'_> {
         model: &request.model,
         messages: &request.messages,
         stream: true,
+        temperature: request.temperature,
+        max_tokens: request.max_tokens,
     }
 }
 
@@ -666,6 +694,8 @@ mod tests {
                 content: "Hello".into(),
             }],
             cancellation_id: "cancel-001".into(),
+            temperature: None,
+            max_tokens: None,
         }
     }
 
@@ -689,6 +719,21 @@ mod tests {
             serde_json::to_value(build_openai_chat_payload(&request("lm-studio"))).unwrap()
                 ["stream"],
             true
+        );
+        let mut sampled = request("ollama");
+        sampled.temperature = Some(0.7);
+        sampled.max_tokens = Some(256);
+        let ollama = serde_json::to_value(build_ollama_chat_payload(&sampled)).unwrap();
+        assert_eq!(ollama["options"]["temperature"], 0.7);
+        assert_eq!(ollama["options"]["num_predict"], 256);
+        let openai = serde_json::to_value(build_openai_chat_payload(&sampled)).unwrap();
+        assert_eq!(openai["temperature"], 0.7);
+        assert_eq!(openai["max_tokens"], 256);
+        assert!(
+            serde_json::to_value(build_ollama_chat_payload(&request("ollama")))
+                .unwrap()
+                .get("options")
+                .is_none()
         );
     }
 

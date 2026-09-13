@@ -1,14 +1,14 @@
 # Live project status
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 
 ## Current position
 
-- Project phase: Milestone 11 T28 done; Milestone 10 T27 done; Milestone 9 T26 done; Milestone 7 environment-limited leftovers (T16/T18); Milestone 8 T24 and T25 done.
-- Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, T19 completion-audit remediations A01-A15, auto-write of validated memories, hybrid retrieval by default with lexical fallback, portable user persona plus reusable scene locals, portable character portraits, and session titles/search/in-place archive.
+- Project phase: Milestone 13 T30 done; Milestone 12 T29 done; Milestone 11 T28 done; Milestone 10 T27 done; Milestone 9 T26 done; Milestone 7 environment-limited leftovers (T16/T18); Milestone 8 T24 and T25 done.
+- Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, T19 completion-audit remediations A01-A15, auto-write of validated memories, hybrid retrieval by default with lexical fallback, portable user persona plus reusable scene locals, portable character portraits, session titles/search/in-place archive, last-exchange edit/regenerate/continue, and per-character model and sampling.
 - T01 delivered: React/TypeScript shell, Rust command boundary, frontend/Rust lockfiles, validation scripts, and a Windows launch check.
 - Repository: initialized locally on `main`; no remote configured. T19/A13 commit `6a08a51` contains the reviewed application sources.
-- Active task: none. T28 session names, search, and archive is done.
+- Active task: none. T30 per-character model and sampling is done.
 - Next task: none scheduled. T16/T18 remain in_progress only for environment-limited visual tray/keyboard and live llama.cpp/LM Studio checks.
 - Blockers: no known implementation blockers. Native Computer Use visual inspection remains unavailable; process/window inspection verified launch and responsiveness.
 
@@ -50,15 +50,17 @@ The plan contains dependencies and acceptance criteria. This table is the author
 | T26 | User persona and scene locals | done | Portable `persona.md`, `scene.md`, and `locals/*.md`; character default plus session live-link override; missing local fails send; extraction cannot write persona/locals; packs include the new files. Characters New/Add/Save write those files with identity. Create scaffolds empty persona.md and scene.md. Frontend lint/typecheck/build passed after the builder follow-up. Native window not re-run. |
 | T27 | Character portraits | done | Canonical `assets/portrait.png` in the library list, chat sidebar, and identity editor; PNG picker/drag-drop/remove; folder drop detected on list; packs include the file. 124 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. Native window not re-run. |
 | T28 | Session names, search, and archive | done | Transcript YAML `title`/`archived`; auto-title from first user turn; rename sticky; default list hides archived files that stay in `chats/{id}.md`; search covers title and bodies including archived. 128 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. Native window not re-run. |
+| T29 | Edit last message, regenerate, continue | done | Last-exchange edit/regenerate/continue; `superseded` kept in Markdown; extraction abandons non-complete sources; continue appends to Interrupted with the same id. 135 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. Native window not re-run. |
+| T30 | Per-character model and sampling | done | Optional chat model/temperature/max tokens in `.tz-chatter/generation.json`; chat/initiative use full override; extraction uses character model with conservative sampling; packs omit the file. 146 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. Native window not re-run. |
 
 ## Active work and resumption
 
-Task: none (T28 session names, search, and archive done)
-Owner/session and date: Grok implementer — 2026-09-12
-Scope / files being edited: none remaining for T28.
-Completed in this session: transcript title/archived YAML, auto-title, rename/archive/search commands, sidebar search/rename/archive UI.
+Task: none (T30 per-character model and sampling done)
+Owner/session and date: Grok implementer — 2026-09-13
+Scope / files being edited: none remaining for T30.
+Completed in this session: per-character generation overrides, chat/initiative sampling, extraction conservative sampling on the character model, pack omission, Characters editor controls.
 Remaining acceptance criteria: none.
-Verification commands and outcomes: `cargo test --manifest-path src-tauri/Cargo.toml` PASS 128 passed, 2 ignored; `cargo fmt --all -- --check` PASS; `cargo clippy --all-targets -- -D warnings` PASS; `npm run lint` PASS; `npm run typecheck` PASS; `npm run build` PASS.
+Verification commands and outcomes: `cargo test --manifest-path src-tauri/Cargo.toml` PASS 146 passed, 2 ignored; `cargo fmt --all -- --check` PASS; `cargo clippy --all-targets -- -D warnings` PASS; `npm run lint` PASS; `npm run typecheck` PASS; `npm run build` PASS.
 Blocker and unblock action (if any): none.
 Exact next step: none scheduled. T16/T18 remain environment-limited.
 
@@ -160,3 +162,5 @@ Update the task board and append a handoff entry in the same change. Keep this f
 | 2026-09-12 | T26 character builder add/edit | create-character test; clippy; fmt; npm lint/typecheck/build | PASS: New/Add/Save include persona and locals; create writes persona.md and scene.md; frontend checks passed; native window not re-run |
 | 2026-09-12 | T27 character portraits | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 124 passed and 2 ignored including assets scaffold, set/clear/folder-drop, non-PNG and 5 MB reject, pack portrait round-trip; frontend checks passed; native window not re-run |
 | 2026-09-12 | T28 session names, search, and archive | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 128 passed and 2 ignored including legacy YAML load, auto-title, sticky rename, in-place archive/unarchive, character-isolated search including archived; frontend checks passed; native window not re-run |
+| 2026-09-12 | T29 edit, regenerate, and continue | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 135 passed and 2 ignored including superseded round-trip, regenerate new id, edit last user, continue same id, retry keeps superseded siblings, extraction abandon of superseded source; frontend checks passed; native window not re-run |
+| 2026-09-13 | T30 per-character model and sampling | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 146 passed and 2 ignored including generation round-trip without touching character.md, inherit vs override, extraction conservative sampling, pack omission, Ollama/OpenAI sampling payloads; frontend checks passed; native window not re-run |

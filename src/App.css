@@ -416,6 +416,30 @@ img.avatar { padding: 0; }
 .message p { margin: 7px 0 0; color: #333937; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
 .conversation-error { margin: 0 22px 8px; padding: 10px 12px; border-radius: 8px; color: var(--danger); background: #f5dfd6; font-size: 12px; }
 .retry-button { align-self: flex-start; margin: 0 22px 8px; }
+.turn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-self: flex-start;
+  margin: 0 22px 8px;
+}
+.message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.message-edit {
+  width: 100%;
+  margin-top: 7px;
+  resize: vertical;
+  padding: 8px 6px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  color: #303534;
+  background: var(--paper);
+  font: 13px/1.5 "Segoe UI", sans-serif;
+}
 .chat-status { margin: 0 22px 8px; }
 
 .composer {

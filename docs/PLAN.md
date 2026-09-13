@@ -256,11 +256,31 @@ Give the conversation sidebar readable titles, transcript search, and archive wi
 
 Acceptance: files without `title`/`archived` still load; auto-title uses the first user turn and does not replace a rename; archive hides from the default list while `chats/{id}.md` remains and unarchive restores it; search matches title and body, stays character-isolated, and returns archived hits; frontend lint/typecheck/build pass.
 
+## Milestone 12 — Edit, regenerate, and continue
+
+### T29 — Edit last message, regenerate, and continue
+
+Depends on: T05, T10, T24.
+
+Extend the last exchange so users can rewrite the last user turn, request another assistant reply, and continue an interrupted reply. Retry remains for failed or empty replies. Add transcript status `superseded` (schema still 1). Regenerating a complete reply keeps the previous assistant text in Markdown as `superseded`, mints a new assistant id, and extracts only the replacement. Continue appends to the same Interrupted turn id and extracts once when that turn becomes Complete. Edit last user updates that turn in place, supersedes following assistant turns, then generates a new assistant id. Prompt history and the chat UI omit superseded turns. Extraction jobs whose assistant source is no longer Complete are abandoned without writing memories. Do not delete memories from superseded replies. Last exchange only: no editing older turns, no swipe carousel, no continue of Complete replies.
+
+Acceptance: legacy transcripts without `superseded` still load; regenerate keeps the old assistant in the file as superseded and extracts only the new complete id; pending extraction of a superseded source does not commit; edit changes the last user turn and does not overwrite a sticky session title; continue appends to Interrupted with the same id and extracts once on Complete; retry of a failed empty reply does not drop earlier superseded siblings; frontend lint/typecheck/build pass.
+
+## Milestone 13 — Per-character model and sampling
+
+### T30 — Per-character model and sampling
+
+Depends on: T02, T05, T21.
+
+Remember optional chat model, temperature, and max tokens per character. Provider connection (kind, endpoint, token, embedding model) stays app-global; Settings → Provider chat model is the inherit default. Store overrides in `{vault}/.tz-chatter/generation.json`, never in `character.md`. Empty fields inherit the active provider. Chat and initiative use the resolved model and sampling. Extraction uses the character’s chat model name with conservative sampling (temperature 0, its own max tokens), not the character’s creative temperature or cap. Embeddings stay on the global embedding model. Packs omit `generation.json` unless a later opt-in export is added. Resolve in Rust at send/schedule time.
+
+Acceptance: a character override changes the chat and initiative model/temperature/max tokens while another character without an override keeps the provider default; extraction for an overridden character uses that model name with conservative sampling; `character.md` is unchanged; export does not include generation settings; invalid temperature or max tokens are rejected; frontend lint/typecheck/build pass.
+
 ## Unscheduled feature backlog
 
 Possible later features live in `docs/PROJECT.md`. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
 
-Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28).
+Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30). Named generation presets and opt-in pack export of sampling remain unscheduled.
 
 ## Milestone exit policy
 

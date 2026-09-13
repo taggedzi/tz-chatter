@@ -8,9 +8,12 @@ import { CharacterPortraitMark } from "./CharacterPortrait";
 import type { CharacterDefinition } from "./conversation";
 import {
   activeSessionStorageKeys,
+  notifyGenerationChanged,
   notifyPortraitChanged,
   requestLoadVault,
 } from "./activeSession";
+import { emptyGeneration, generationClient, type CharacterGeneration } from "./generation";
+import { providerClient } from "./providers";
 import {
   localIdFromTitle,
   sceneClient,
@@ -82,6 +85,11 @@ export function CharacterPanel({ active }: { active: boolean }) {
   const [portraitDragging, setPortraitDragging] = useState(false);
   const portraitInputRef = useRef<HTMLInputElement>(null);
   const selectedRootRef = useRef(selectedRoot);
+  const [generation, setGeneration] = useState<CharacterGeneration>(emptyGeneration);
+  const [temperatureText, setTemperatureText] = useState("");
+  const [maxTokensText, setMaxTokensText] = useState("");
+  const [discoveredModels, setDiscoveredModels] = useState<string[]>([]);
+  const [defaultChatModel, setDefaultChatModel] = useState("llama3.2:latest");
 
   function applyDraft(character: CharacterDefinition, vaultRoot: string) {
     setSelectedRoot(vaultRoot);
@@ -108,6 +116,20 @@ export function CharacterPanel({ active }: { active: boolean }) {
     }
   }, []);
 
+  function applyGeneration(next: CharacterGeneration) {
+    setGeneration(next);
+    setTemperatureText(next.temperature == null ? "" : String(next.temperature));
+    setMaxTokensText(next.max_tokens == null ? "" : String(next.max_tokens));
+  }
+
+  function resetGeneration() {
+    applyGeneration(emptyGeneration());
+  }
+
+  const loadGeneration = useCallback(async (vaultRoot: string) => {
+    applyGeneration(await generationClient.load(vaultRoot));
+  }, []);
+
   function resetScene() {
     setPersonaBody("");
     setSceneSettings({ schema_version: 1, default_local: null });
@@ -117,6 +139,7 @@ export function CharacterPanel({ active }: { active: boolean }) {
     setCreatePersona("");
     setCreateLocalTitle("");
     setCreateLocalBody("");
+    resetGeneration();
   }
 
   async function persistLocalRecord(vaultRoot: string, draft: LocalRecord) {
@@ -165,6 +188,36 @@ export function CharacterPanel({ active }: { active: boolean }) {
     let cancelled = false;
     void (async () => {
       try {
+        const saved = await providerClient.loadSettings();
+        const current = saved.providers.find((candidate) => candidate.id === saved.active_provider_id)
+          ?? saved.providers[0];
+        if (!current || cancelled) return;
+        setDefaultChatModel(current.chat_model);
+        const result = await providerClient.discover({
+          ...current,
+          chat_model: current.chat_model.trim() || "discovery",
+        });
+        if (cancelled) return;
+        setDiscoveredModels(
+          result.models
+            .filter((model) => model.supports_chat)
+            .map((model) => model.id)
+            .filter((id, index, all) => id && all.indexOf(id) === index),
+        );
+      } catch {
+        if (!cancelled) setDiscoveredModels([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    void (async () => {
+      try {
         const { view, portraits: loadedPortraits } = await reloadList();
         if (cancelled) return;
         const activeRoot = localStorage.getItem(activeSessionStorageKeys.vaultRoot) ?? "";
@@ -174,6 +227,7 @@ export function CharacterPanel({ active }: { active: boolean }) {
           if (!cancelled) applyDraft(loaded, match.vault_root);
           if (!cancelled) setEditorPortrait(portraitFor(match.vault_root, loadedPortraits));
           if (!cancelled) await loadScene(match.vault_root);
+          if (!cancelled) await loadGeneration(match.vault_root);
         } else if (match) {
           setSelectedRoot(match.vault_root);
           setEditorPortrait(null);
@@ -201,7 +255,7 @@ export function CharacterPanel({ active }: { active: boolean }) {
       cancelled = true;
       window.removeEventListener("focus", onFocus);
     };
-  }, [active, loadScene, reloadList]);
+  }, [active, loadGeneration, loadScene, reloadList]);
 
   async function selectEntry(entry: CharacterLibraryItem) {
     setError(null);
@@ -212,6 +266,7 @@ export function CharacterPanel({ active }: { active: boolean }) {
       setTraitsText("");
       setBoundariesText("");
       resetScene();
+      resetGeneration();
       setEditorPortrait(null);
       setError(entry.error);
       return;
@@ -225,6 +280,7 @@ export function CharacterPanel({ active }: { active: boolean }) {
           ?? (entry.has_portrait ? await characterClient.loadPortrait(entry.vault_root) : null),
       );
       await loadScene(entry.vault_root);
+      await loadGeneration(entry.vault_root);
       requestLoadVault(entry.vault_root);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
@@ -275,6 +331,7 @@ export function CharacterPanel({ active }: { active: boolean }) {
       applyDraft(loaded, created.vault_root);
       setEditorPortrait(portraitFor(created.vault_root, loadedPortraits));
       await loadScene(created.vault_root, createdLocalId);
+      await loadGeneration(created.vault_root);
       requestLoadVault(created.vault_root);
       setStatus(`Created ${created.name} with persona.md, scene.md, and locals/.`);
     } catch (requestError) {
@@ -300,10 +357,12 @@ export function CharacterPanel({ active }: { active: boolean }) {
         applyDraft(loaded, added.vault_root);
         setEditorPortrait(portraitFor(added.vault_root, loadedPortraits));
         await loadScene(added.vault_root);
+        await loadGeneration(added.vault_root);
         requestLoadVault(added.vault_root);
       } else {
         setSelectedRoot(added.vault_root);
         setEditorPortrait(null);
+        resetGeneration();
       }
       setStatus(`Added ${added.name}. Persona, scene default, and locals from that folder are in the editor.`);
     } catch (requestError) {
@@ -339,11 +398,35 @@ export function CharacterPanel({ active }: { active: boolean }) {
           sceneSettings.default_local
           || (locals.length === 0 ? savedLocal?.id ?? null : null),
       });
+      let temperature: number | null = null;
+      if (temperatureText.trim()) {
+        const parsed = Number(temperatureText);
+        if (!Number.isFinite(parsed)) {
+          throw new Error("Temperature must be a number between 0 and 2, or empty to inherit.");
+        }
+        temperature = parsed;
+      }
+      let maxTokens: number | null = null;
+      if (maxTokensText.trim()) {
+        const parsed = Number(maxTokensText);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          throw new Error("Max tokens must be a positive number, or empty to inherit.");
+        }
+        maxTokens = Math.round(parsed);
+      }
+      await generationClient.save(selectedRoot.trim(), {
+        schema_version: 1,
+        chat_model: generation.chat_model?.trim() || null,
+        temperature,
+        max_tokens: maxTokens,
+      });
+      notifyGenerationChanged();
       applyDraft(saved, selectedRoot);
       await loadScene(selectedRoot.trim(), savedLocal?.id || selectedLocalId);
+      await loadGeneration(selectedRoot.trim());
       await reloadList();
       requestLoadVault(selectedRoot);
-      setStatus("Saved character.md, persona.md, scene.md, and any open local.");
+      setStatus("Saved character.md, persona.md, scene.md, generation settings, and any open local.");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
@@ -696,6 +779,54 @@ export function CharacterPanel({ active }: { active: boolean }) {
               placeholder="One rule per line"
               rows={3}
               value={boundariesText}
+            />
+          </label>
+          <div className="character-editor-section">
+            <h3>Chat model</h3>
+            <p className="panel-description">
+              Optional override for this character. Empty fields use Settings → Provider
+              ({defaultChatModel}). Stored in <code>.tz-chatter/generation.json</code>, not <code>character.md</code>.
+            </p>
+          </div>
+          <label>
+            Chat model
+            <input
+              disabled={sceneDisabled}
+              list="character-chat-models"
+              onChange={(event) => setGeneration({ ...generation, chat_model: event.target.value || null })}
+              placeholder={`Provider default (${defaultChatModel})`}
+              value={generation.chat_model ?? ""}
+            />
+            <datalist id="character-chat-models">
+              {discoveredModels.map((model) => (
+                <option key={model} value={model} />
+              ))}
+            </datalist>
+          </label>
+          <label>
+            Temperature
+            <input
+              disabled={sceneDisabled}
+              max={2}
+              min={0}
+              onChange={(event) => setTemperatureText(event.target.value)}
+              placeholder="Provider default"
+              step={0.1}
+              type="number"
+              value={temperatureText}
+            />
+          </label>
+          <label>
+            Max tokens
+            <input
+              disabled={sceneDisabled}
+              max={2048}
+              min={16}
+              onChange={(event) => setMaxTokensText(event.target.value)}
+              placeholder="Provider default"
+              step={1}
+              type="number"
+              value={maxTokensText}
             />
           </label>
           <div className="character-editor-section">

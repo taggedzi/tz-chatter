@@ -109,3 +109,23 @@ Display names live in transcript YAML as `title`, not in the filename. `{session
 Archive is `archived: true` on the same file. Do not move chats into a subdirectory and do not delete Markdown when archiving. The default session list hides archived chats; search includes them. Transcript search reads the canonical Markdown already loaded for the session list; it is not a separate index.
 
 Consequence: T28 implements this. Session identity stays the UUID filename. Memory FTS5 remains for memories only.
+
+## ADR-013 — Last-exchange edit, regenerate, and continue
+
+Date: 2026-09-12. State: accepted. Basis: explicit user request to implement the edit/regenerate/continue backlog item, with the recommended last-exchange design.
+
+Operate only on the last user/assistant exchange. Rewrite the last user turn in place. Regenerate marks the previous assistant `superseded` and writes a new assistant id. Continue appends to an Interrupted reply with the same turn id. Retry stays for failed or empty replies. `superseded` is a normal transcript status; schema stays 1. Prompt history, chat bubbles, and extraction consider only Complete turns. A pending extraction job whose assistant source is no longer Complete is abandoned without a vault write. Memories already committed from a superseded reply are left in place.
+
+Consequence: T29 implements this. No swipe carousel, no editing older turns, no continue of Complete/max-token replies, and no automatic deletion of memories from superseded replies.
+
+## ADR-014 — Per-character model and sampling
+
+Date: 2026-09-13. State: accepted. Basis: explicit user request to implement per-character model and sampling, with per-character overrides only and the recommended extraction split.
+
+Provider connection remains app-global: kind, endpoint, credentials, and embedding model. Settings → Provider chat model is the inherit default, not the only model. Each character may store an optional chat model, temperature, and max tokens in `{vault}/.tz-chatter/generation.json`. Empty fields inherit the active provider. Named presets are deferred.
+
+Do not write these values into `character.md`. Portable packs omit `generation.json` by default so a character can move without carrying machine-specific model names; opt-in export is a later task.
+
+Chat send/retry/regenerate/continue/edit and initiative resolve the override in Rust at request time and send sampling on the provider payload. Extraction uses the character’s resolved chat model so it can stay on already-loaded weights, but ignores character sampling and uses conservative defaults (temperature 0, a dedicated max-token bound). Embeddings stay on the global embedding model. The existing one-at-a-time model gate is unchanged.
+
+Consequence: T30 implements this. A second preset catalog, pack opt-in for generation settings, and per-character embedding models are out of scope.

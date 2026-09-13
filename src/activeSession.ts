@@ -16,6 +16,7 @@ export const shellEvents = {
   renameSession: "tz-chatter-rename-session",
   archiveSession: "tz-chatter-archive-session",
   providerChanged: "tz-chatter-provider-changed",
+  generationChanged: "tz-chatter-generation-changed",
   portraitChanged: "tz-chatter-portrait-changed",
 } as const;
 
@@ -51,6 +52,10 @@ export function requestArchiveSession(sessionId: string, archived: boolean) {
 
 export function notifyProviderChanged() {
   window.dispatchEvent(new CustomEvent(shellEvents.providerChanged));
+}
+
+export function notifyGenerationChanged() {
+  window.dispatchEvent(new CustomEvent(shellEvents.generationChanged));
 }
 
 export function notifyPortraitChanged(vaultRoot: string) {

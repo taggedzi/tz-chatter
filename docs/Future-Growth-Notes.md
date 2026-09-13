@@ -32,15 +32,15 @@ chat sidebar, and identity editor.
 the first user turn, rename, search transcripts, and archive in place with
 `archived: true` without deleting the Markdown.
 
-5. Edit last message, regenerate, continue. Retry exists; character-chat users 
-also need to rewrite the last user turn, swipe another assistant reply, and 
-continue a truncated one. Persist those as normal transcript statuses so 
-extraction does not double-commit.
+5. **IMPLEMENTED (T29)** Edit last message, regenerate, continue. Rewrite the
+last user turn, request another assistant reply, and continue an interrupted
+one. Persist those as normal transcript statuses so extraction does not
+double-commit. No swipe carousel in this task.
 
-6. Per-character model and sampling. Provider settings are app-global. Users 
-will want Lyra on one local model and a different character on another, plus 
-temperature / max tokens stored with the character or as a named preset — still 
-never inside the portable identity file unless they opt into exporting it.
+6. **IMPLEMENTED (T30)** Per-character model and sampling. Provider settings stay
+app-global. Optional chat model, temperature, and max tokens live in
+`.tz-chatter/generation.json`, not `character.md`. Named presets and opt-in
+pack export remain later.
 
 7. First-run provider coach. The app connects to an already-running server and 
 does nothing if Ollama or LM Studio is down. A health panel that says “nothing 

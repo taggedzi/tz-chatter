@@ -681,6 +681,37 @@ mod tests {
     }
 
     #[test]
+    fn export_omits_character_generation_settings() {
+        let source_root = root("generation-source");
+        let pack_root = root("generation-pack");
+        let target_root = root("generation-target");
+        let source = seed_vault(&source_root, "lyra");
+        crate::generation::save(
+            &source,
+            &crate::generation::CharacterGeneration {
+                schema_version: 1,
+                chat_model: Some("lyra-voice".into()),
+                temperature: Some(0.7),
+                max_tokens: Some(256),
+            },
+        )
+        .unwrap();
+        let manifest = export_pack(&source, &pack_root).unwrap();
+        assert!(!manifest
+            .files
+            .iter()
+            .any(|file| file.contains("generation")));
+        let _ = import_pack(&pack_root, &target_root, false).unwrap();
+        let target = Vault::open(&target_root).unwrap();
+        let imported = crate::generation::load(&target).unwrap();
+        assert_eq!(imported.chat_model, None);
+        assert_eq!(imported.temperature, None);
+        fs::remove_dir_all(source_root).unwrap();
+        fs::remove_dir_all(pack_root).unwrap();
+        fs::remove_dir_all(target_root).unwrap();
+    }
+
+    #[test]
     fn export_import_round_trip_preserves_canonical_and_durable_state() {
         let source_root = root("source");
         let pack_root = root("pack");
