@@ -865,9 +865,42 @@ fn conversation_resume(
 #[tauri::command]
 fn conversation_list_sessions(
     vault_root: String,
+    include_archived: bool,
 ) -> Result<Vec<conversation::SessionSummary>, String> {
     let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
-    conversation::ConversationService::list_sessions(&vault).map_err(String::from)
+    conversation::ConversationService::list_sessions_filtered(&vault, include_archived)
+        .map_err(String::from)
+}
+
+#[tauri::command]
+fn conversation_search_sessions(
+    vault_root: String,
+    query: String,
+) -> Result<Vec<conversation::SessionSummary>, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    conversation::ConversationService::search_sessions(&vault, &query).map_err(String::from)
+}
+
+#[tauri::command]
+fn conversation_rename_session(
+    vault_root: String,
+    session_id: String,
+    title: String,
+) -> Result<storage::TranscriptDocument, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    conversation::ConversationService::rename_session(&vault, &session_id, &title)
+        .map_err(String::from)
+}
+
+#[tauri::command]
+fn conversation_set_session_archived(
+    vault_root: String,
+    session_id: String,
+    archived: bool,
+) -> Result<storage::TranscriptDocument, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    conversation::ConversationService::set_session_archived(&vault, &session_id, archived)
+        .map_err(String::from)
 }
 
 #[tauri::command]
@@ -1635,6 +1668,9 @@ pub fn run() {
             conversation_send,
             conversation_resume,
             conversation_list_sessions,
+            conversation_search_sessions,
+            conversation_rename_session,
+            conversation_set_session_archived,
             conversation_open_session,
             conversation_start_session,
             conversation_set_session_local,

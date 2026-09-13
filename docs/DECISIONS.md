@@ -99,3 +99,13 @@ Date: 2026-09-12. State: accepted. Basis: explicit user request to implement por
 The canonical portrait is `{vault}/assets/portrait.png`. The Characters library list, chat sidebar active-character card, and identity editor render it when present and fall back to initials when absent. Users add or replace it from the editor (PNG picker or drag-drop) or by placing that file in the vault folder. Remove deletes only that file. New vaults scaffold an empty `assets/` directory. Writes stay confined to the selected vault; non-PNG and files larger than 5 MB are rejected. Packs include the portrait when it is a valid PNG. Extraction cannot write this path.
 
 Consequence: T27 implements this. Open-folder / Reveal / Obsidian remain unscheduled. JPEG/WebP conversion and animated avatars stay deferred.
+
+## ADR-012 — Session titles and in-place archive
+
+Date: 2026-09-12. State: accepted. Basis: explicit user request to implement the session names/search/archive backlog item, with archived chats staying in `chats/`.
+
+Display names live in transcript YAML as `title`, not in the filename. `{session_id}.md` remains the stable path for resume, extraction, initiative, and packs. Missing `title` is untitled; the first user turn is used as a display title and is persisted on the next transcript save unless a non-empty title already exists. Rename writes `title` and is never auto-overwritten.
+
+Archive is `archived: true` on the same file. Do not move chats into a subdirectory and do not delete Markdown when archiving. The default session list hides archived chats; search includes them. Transcript search reads the canonical Markdown already loaded for the session list; it is not a separate index.
+
+Consequence: T28 implements this. Session identity stays the UUID filename. Memory FTS5 remains for memories only.

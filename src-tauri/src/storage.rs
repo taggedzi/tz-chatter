@@ -146,6 +146,10 @@ pub struct TranscriptDocument {
     /// `Some(id)` live-links `locals/{id}.md`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
     pub turns: Vec<TranscriptTurn>,
 }
 
@@ -158,6 +162,8 @@ impl TranscriptDocument {
             created_at: String::new(),
             updated_at: String::new(),
             local: None,
+            title: String::new(),
+            archived: false,
             turns: Vec::new(),
         }
     }
@@ -549,6 +555,10 @@ struct TranscriptMetadata {
     updated_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     local: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    title: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    archived: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -568,6 +578,8 @@ fn render_transcript(transcript: &TranscriptDocument) -> Result<Vec<u8>, Storage
         created_at: transcript.created_at.clone(),
         updated_at: transcript.updated_at.clone(),
         local: transcript.local.clone(),
+        title: transcript.title.clone(),
+        archived: transcript.archived,
     };
     let yaml =
         serde_yaml::to_string(&metadata).map_err(|error| StorageError::Parse(error.to_string()))?;
@@ -645,6 +657,8 @@ fn parse_transcript_body(
         created_at: metadata.created_at,
         updated_at: metadata.updated_at,
         local: metadata.local,
+        title: metadata.title,
+        archived: metadata.archived,
         turns,
     })
 }
@@ -949,5 +963,50 @@ mod tests {
             .unwrap()
             .body
             .contains("quiet"));
+    }
+
+    #[test]
+    fn transcript_title_and_archived_round_trip_and_legacy_files_still_load() {
+        let root = test_root("transcript-title");
+        let vault = Vault::create(&root).unwrap();
+        let chats = vault.root().join("chats");
+        fs::create_dir_all(&chats).unwrap();
+        fs::write(
+            chats.join("session-legacy.md"),
+            "---\n\
+schema_version: 1\n\
+session_id: session-legacy\n\
+character_id: lyra\n\
+created_at: '1'\n\
+updated_at: '1'\n\
+---\n\
+<!-- tz-chatter-turn: {\"id\":\"turn-1\",\"timestamp\":\"1\",\"role\":\"user\",\"status\":\"complete\",\"content_length\":5} -->\n\
+Hello",
+        )
+        .unwrap();
+        let legacy = vault.load_transcript("session-legacy").unwrap();
+        assert_eq!(legacy.title, "");
+        assert!(!legacy.archived);
+        assert_eq!(legacy.turns[0].content, "Hello");
+
+        let mut titled = TranscriptDocument::new("session-named", "lyra");
+        titled.created_at = "2".into();
+        titled.updated_at = "2".into();
+        titled.title = "Garden walk".into();
+        titled.archived = true;
+        titled.turns.push(TranscriptTurn {
+            id: "turn-2".into(),
+            timestamp: "2".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "We walked in the garden.".into(),
+        });
+        vault.save_transcript(&titled).unwrap();
+        let loaded = vault.load_transcript("session-named").unwrap();
+        assert_eq!(loaded, titled);
+        let text = fs::read_to_string(vault.transcript_path("session-named").unwrap()).unwrap();
+        assert!(text.contains("title: Garden walk"));
+        assert!(text.contains("archived: true"));
+        fs::remove_dir_all(root).unwrap();
     }
 }

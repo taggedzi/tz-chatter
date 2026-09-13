@@ -12,6 +12,9 @@ export const shellEvents = {
   openSession: "tz-chatter-open-session",
   newSession: "tz-chatter-new-session",
   sessionsUpdated: "tz-chatter-sessions-updated",
+  sessionListFilter: "tz-chatter-session-list-filter",
+  renameSession: "tz-chatter-rename-session",
+  archiveSession: "tz-chatter-archive-session",
   providerChanged: "tz-chatter-provider-changed",
   portraitChanged: "tz-chatter-portrait-changed",
 } as const;
@@ -26,6 +29,24 @@ export function requestOpenSession(sessionId: string) {
 
 export function requestNewSession() {
   window.dispatchEvent(new CustomEvent(shellEvents.newSession));
+}
+
+export function requestSessionListFilter(query: string, includeArchived: boolean) {
+  window.dispatchEvent(new CustomEvent(shellEvents.sessionListFilter, {
+    detail: { query, includeArchived },
+  }));
+}
+
+export function requestRenameSession(sessionId: string, title: string) {
+  window.dispatchEvent(new CustomEvent(shellEvents.renameSession, {
+    detail: { sessionId, title },
+  }));
+}
+
+export function requestArchiveSession(sessionId: string, archived: boolean) {
+  window.dispatchEvent(new CustomEvent(shellEvents.archiveSession, {
+    detail: { sessionId, archived },
+  }));
 }
 
 export function notifyProviderChanged() {

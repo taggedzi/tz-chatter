@@ -4,6 +4,7 @@ session_id: session-welcome
 character_id: lyra
 created_at: 2026-09-12T15:00:00Z
 updated_at: '1789261516604'
+title: Trying tz-chatter
 ---
 <!-- tz-chatter-turn: {"id":"turn-001","timestamp":"2026-09-12T15:00:00Z","role":"user","status":"complete","content_length":139} -->
 I opened this sample vault to try tz-chatter. Keep my notes in Markdown, and remember that Mina still sketches in a quiet café on Sundays.

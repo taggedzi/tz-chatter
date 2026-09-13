@@ -166,7 +166,7 @@ Suggested starting cluster if one group is promoted first: memory inbox, remembe
 - **User persona and scene notes.** Scheduled as T26: portable `persona.md` plus a `locals/` library with character default and session override.
 - **Character portraits.** Scheduled as T27: render `assets/portrait.png` in the character library, chat sidebar, and identity editor; add via GUI or by dropping the file into the vault.
 - **Open vault as files.** Open the character folder, reveal a memory in the file manager, and optionally open the vault in Obsidian.
-- **Session names, search, and archive.** Auto-title from the first user turn, rename sessions, search transcripts, and archive without deleting the canonical Markdown.
+- **Session names, search, and archive.** Scheduled as T28: auto-title from the first user turn, rename sessions, search transcripts, and archive in place with `archived: true` without deleting the canonical Markdown.
 - **Edit, regenerate, and continue.** Rewrite the last user turn, request another assistant reply, and continue a truncated reply. Persist those outcomes as normal transcript statuses so extraction does not double-commit.
 - **Per-character model and sampling.** Remember chat model, temperature, and max tokens per character or as a named preset. Do not put machine-specific provider URLs or credentials into portable identity unless the user explicitly opts into exporting them.
 - **First-run provider coach.** Explain unreachable endpoints (“nothing is listening on 11434”) with retry. Give the embedding model the same discovery-backed select as chat models. Add an explicit “send memories to this endpoint” control; remote URLs must keep the current no-disclosure default.

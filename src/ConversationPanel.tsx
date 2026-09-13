@@ -52,10 +52,12 @@ function roleLabel(turn: TranscriptTurn, characterName: string) {
 function draftSession(sessionId: string): SessionSummary {
   return {
     session_id: sessionId,
+    title: "",
     created_at: "",
     updated_at: "",
     turn_count: 0,
     preview: "New conversation",
+    archived: false,
   };
 }
 
@@ -87,15 +89,25 @@ export function ConversationPanel() {
   const [newLocalTitle, setNewLocalTitle] = useState("");
   const [newLocalBody, setNewLocalBody] = useState("");
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
+  const listFilter = useRef({ query: "", includeArchived: false });
 
   const publishSessions = useCallback(async (root: string, activeId: string) => {
     try {
-      const listed = await conversationClient.listSessions(root);
-      const sessions = listed.some((session) => session.session_id === activeId)
-        ? listed
-        : [draftSession(activeId), ...listed];
+      const { query, includeArchived } = listFilter.current;
+      let listed = query.trim()
+        ? await conversationClient.searchSessions(root, query)
+        : await conversationClient.listSessions(root, includeArchived);
+      if (!listed.some((session) => session.session_id === activeId)) {
+        if (!query.trim()) {
+          const known = includeArchived
+            ? listed
+            : await conversationClient.listSessions(root, true);
+          const active = known.find((session) => session.session_id === activeId);
+          listed = active ? [active, ...listed.filter((session) => session.session_id !== activeId)] : [draftSession(activeId), ...listed];
+        }
+      }
       window.dispatchEvent(new CustomEvent(shellEvents.sessionsUpdated, {
-        detail: { sessions, sessionId: activeId },
+        detail: { sessions: listed, sessionId: activeId },
       }));
     } catch {
       window.dispatchEvent(new CustomEvent(shellEvents.sessionsUpdated, {
@@ -259,17 +271,54 @@ export function ConversationPanel() {
     const onProviderChanged = () => {
       void loadSavedProvider();
     };
+    const onSessionListFilter = (event: Event) => {
+      const detail = (event as CustomEvent<{ query: string; includeArchived: boolean }>).detail;
+      if (!detail) return;
+      listFilter.current = {
+        query: detail.query ?? "",
+        includeArchived: Boolean(detail.includeArchived),
+      };
+      const root = (loadedVaultRoot ?? vaultRoot).trim();
+      const activeId = activeSessionId() ?? sessionId;
+      if (root && activeId) void publishSessions(root, activeId);
+    };
+    const onRenameSession = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId: string; title: string }>).detail;
+      const root = (loadedVaultRoot ?? vaultRoot).trim();
+      if (!detail?.sessionId || !root || busy) return;
+      void conversationClient.renameSession(root, detail.sessionId, detail.title)
+        .then(() => publishSessions(root, activeSessionId() ?? sessionId))
+        .catch((requestError: unknown) => {
+          setError(requestError instanceof Error ? requestError.message : String(requestError));
+        });
+    };
+    const onArchiveSession = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId: string; archived: boolean }>).detail;
+      const root = (loadedVaultRoot ?? vaultRoot).trim();
+      if (!detail?.sessionId || !root || busy) return;
+      void conversationClient.setSessionArchived(root, detail.sessionId, detail.archived)
+        .then(() => publishSessions(root, activeSessionId() ?? sessionId))
+        .catch((requestError: unknown) => {
+          setError(requestError instanceof Error ? requestError.message : String(requestError));
+        });
+    };
     window.addEventListener(shellEvents.loadVault, onLoadVault);
     window.addEventListener(shellEvents.openSession, onOpenSession);
     window.addEventListener(shellEvents.newSession, onNewSession);
     window.addEventListener(shellEvents.providerChanged, onProviderChanged);
+    window.addEventListener(shellEvents.sessionListFilter, onSessionListFilter);
+    window.addEventListener(shellEvents.renameSession, onRenameSession);
+    window.addEventListener(shellEvents.archiveSession, onArchiveSession);
     return () => {
       window.removeEventListener(shellEvents.loadVault, onLoadVault);
       window.removeEventListener(shellEvents.openSession, onOpenSession);
       window.removeEventListener(shellEvents.newSession, onNewSession);
       window.removeEventListener(shellEvents.providerChanged, onProviderChanged);
+      window.removeEventListener(shellEvents.sessionListFilter, onSessionListFilter);
+      window.removeEventListener(shellEvents.renameSession, onRenameSession);
+      window.removeEventListener(shellEvents.archiveSession, onArchiveSession);
     };
-  }, [loadSavedProvider, openSession, resumeVault, startSession]);
+  }, [busy, loadSavedProvider, loadedVaultRoot, openSession, publishSessions, resumeVault, sessionId, startSession, vaultRoot]);
 
   useEffect(() => {
     let disposed = false;

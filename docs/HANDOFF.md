@@ -606,3 +606,17 @@ Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.tom
 Incomplete work / blockers: none for T27. JPEG/WebP conversion, animated avatars, and open-vault-as-files remain unscheduled. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
 
 Next concrete action: none scheduled. T16/T18 remain environment-limited.
+
+## 2026-09-12 — T28: session names, search, and archive
+
+Scope and outcome: conversation sidebar titles, transcript search, and archive without deleting Markdown. Transcript YAML gained optional `title` and `archived` (schema still 1; missing fields load as untitled/active). Filenames stay `{session_id}.md` in `chats/`. The first user turn auto-fills an empty title on the next conversation save and never overwrites a rename. Archive is `archived: true` on the same file. Default `list_sessions` hides archived chats; `list_sessions_filtered(..., true)` and search include them. Search is a case-insensitive substring over title and turn bodies for the loaded character, with a snippet on hits. No transcript SQLite index. Packs already include `chats/*.md`. The sidebar shows titles, a search field, rename, archive/unarchive, and a Show archived control.
+
+Files changed: `src-tauri/src/storage.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/lib.rs`, `src-tauri/src/prompt.rs`, `src-tauri/src/portability.rs`, `src/conversation.ts`, `src/activeSession.ts`, `src/App.tsx`, `src/ConversationPanel.tsx`, `src/App.css`, `examples/characters/lyra/chats/session-welcome.md`, `README.md`, `docs/PROJECT.md`, `docs/PLAN.md`, `docs/DECISIONS.md`, `docs/STATUS.md`, `docs/Future-Growth-Notes.md`, and this handoff.
+
+Decisions added/superseded: ADR-012 accepted.
+
+Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.toml` PASS 128 passed, 2 ignored. `cargo fmt --all -- --check` PASS. `cargo clippy --all-targets -- -D warnings` PASS. `npm run lint` PASS. `npm run typecheck` PASS. `npm run build` PASS. Native window interaction was not re-run.
+
+Incomplete work / blockers: none for T28. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: none scheduled. T16/T18 remain environment-limited.

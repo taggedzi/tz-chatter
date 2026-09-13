@@ -41,6 +41,8 @@ export type TranscriptDocument = {
   created_at: string;
   updated_at: string;
   local?: string | null;
+  title?: string;
+  archived?: boolean;
   turns: TranscriptTurn[];
 };
 
@@ -77,10 +79,13 @@ export type ConversationResume = {
 
 export type SessionSummary = {
   session_id: string;
+  title: string;
   created_at: string;
   updated_at: string;
   turn_count: number;
   preview: string;
+  archived: boolean;
+  snippet?: string | null;
 };
 
 export type RetrievedMemory = {
@@ -102,8 +107,28 @@ export const conversationClient = {
       expectedCharacterId: expectedCharacterId ?? null,
     });
   },
-  listSessions(vaultRoot: string) {
-    return invoke<SessionSummary[]>("conversation_list_sessions", { vaultRoot });
+  listSessions(vaultRoot: string, includeArchived = false) {
+    return invoke<SessionSummary[]>("conversation_list_sessions", {
+      vaultRoot,
+      includeArchived,
+    });
+  },
+  searchSessions(vaultRoot: string, query: string) {
+    return invoke<SessionSummary[]>("conversation_search_sessions", { vaultRoot, query });
+  },
+  renameSession(vaultRoot: string, sessionId: string, title: string) {
+    return invoke<TranscriptDocument>("conversation_rename_session", {
+      vaultRoot,
+      sessionId,
+      title,
+    });
+  },
+  setSessionArchived(vaultRoot: string, sessionId: string, archived: boolean) {
+    return invoke<TranscriptDocument>("conversation_set_session_archived", {
+      vaultRoot,
+      sessionId,
+      archived,
+    });
   },
   openSession(vaultRoot: string, sessionId: string) {
     return invoke<ConversationResume>("conversation_open_session", { vaultRoot, sessionId });

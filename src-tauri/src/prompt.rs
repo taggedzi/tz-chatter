@@ -275,6 +275,8 @@ mod tests {
             created_at: "1".into(),
             updated_at: "1".into(),
             local: None,
+            title: String::new(),
+            archived: false,
             turns: vec![
                 TranscriptTurn {
                     id: "old-user".into(),

@@ -246,11 +246,21 @@ Render `assets/portrait.png` in the Characters library list, the chat sidebar ac
 
 Acceptance: create scaffolds `assets/`; set/clear round-trip `assets/portrait.png`; reject non-PNG and files larger than 5 MB; missing portrait is not an error; a PNG dropped into `assets/portrait.png` is detected on the next library list; pack export/import preserves the file; frontend lint/typecheck/build pass.
 
+## Milestone 11 — Session names, search, and archive
+
+### T28 — Session names, search, and archive
+
+Depends on: T20.
+
+Give the conversation sidebar readable titles, transcript search, and archive without deleting Markdown. Store optional `title` and `archived` in transcript YAML; keep filenames as `{session_id}.md` in `chats/`. Auto-title from the first user turn on the next transcript save when `title` is empty; never overwrite a non-empty title. Rename writes `title` immediately. Archive sets `archived: true` in place. The default list hides archived sessions; a sidebar control shows them. Search is a case-insensitive substring over title and turn bodies for the loaded character and includes archived hits with a snippet. No new SQLite table; Markdown remains canonical. Packs already include `chats/*.md`.
+
+Acceptance: files without `title`/`archived` still load; auto-title uses the first user turn and does not replace a rename; archive hides from the default list while `chats/{id}.md` remains and unarchive restores it; search matches title and body, stays character-isolated, and returns archived hits; frontend lint/typecheck/build pass.
+
 ## Unscheduled feature backlog
 
 Possible later features live in `docs/PROJECT.md`. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
 
-Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27).
+Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28).
 
 ## Milestone exit policy
 

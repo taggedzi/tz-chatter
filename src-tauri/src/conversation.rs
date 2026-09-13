@@ -138,10 +138,14 @@ pub struct ConversationResume {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct SessionSummary {
     pub session_id: String,
+    pub title: String,
     pub created_at: String,
     pub updated_at: String,
     pub turn_count: usize,
     pub preview: String,
+    pub archived: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
 }
 
 impl From<TranscriptDocument> for SessionSummary {
@@ -154,11 +158,14 @@ impl From<TranscriptDocument> for SessionSummary {
             .map(|turn| truncate_preview(turn.content.trim()))
             .unwrap_or_default();
         Self {
+            title: session_display_title(&transcript),
             session_id: transcript.session_id,
             created_at: transcript.created_at,
             updated_at: transcript.updated_at,
             turn_count: transcript.turns.len(),
             preview,
+            archived: transcript.archived,
+            snippet: None,
         }
     }
 }
@@ -289,20 +296,69 @@ impl ConversationService {
     }
 
     pub fn list_sessions(vault: &Vault) -> Result<Vec<SessionSummary>, ConversationError> {
+        Self::list_sessions_filtered(vault, false)
+    }
+
+    pub fn list_sessions_filtered(
+        vault: &Vault,
+        include_archived: bool,
+    ) -> Result<Vec<SessionSummary>, ConversationError> {
         let character = vault.load_character()?;
         let mut sessions: Vec<SessionSummary> = vault
             .list_transcripts()?
             .into_iter()
             .filter(|transcript| transcript.character_id == character.id)
+            .filter(|transcript| include_archived || !transcript.archived)
             .map(SessionSummary::from)
             .collect();
-        sessions.sort_by(|left, right| {
-            right
-                .updated_at
-                .cmp(&left.updated_at)
-                .then_with(|| right.session_id.cmp(&left.session_id))
-        });
+        sort_sessions(&mut sessions);
         Ok(sessions)
+    }
+
+    pub fn search_sessions(
+        vault: &Vault,
+        query: &str,
+    ) -> Result<Vec<SessionSummary>, ConversationError> {
+        let needle = query.trim();
+        if needle.is_empty() {
+            return Self::list_sessions_filtered(vault, true);
+        }
+        let character = vault.load_character()?;
+        let mut sessions: Vec<SessionSummary> = vault
+            .list_transcripts()?
+            .into_iter()
+            .filter(|transcript| transcript.character_id == character.id)
+            .filter_map(|transcript| {
+                let snippet = session_search_hit(&transcript, needle)?;
+                let mut summary = SessionSummary::from(transcript);
+                summary.snippet = Some(snippet);
+                Some(summary)
+            })
+            .collect();
+        sort_sessions(&mut sessions);
+        Ok(sessions)
+    }
+
+    pub fn rename_session(
+        vault: &Vault,
+        session_id: &str,
+        title: &str,
+    ) -> Result<TranscriptDocument, ConversationError> {
+        let mut transcript = owned_session_transcript(vault, session_id)?;
+        transcript.title = truncate_preview(title.trim());
+        save_transcript(vault, &mut transcript)?;
+        Ok(transcript)
+    }
+
+    pub fn set_session_archived(
+        vault: &Vault,
+        session_id: &str,
+        archived: bool,
+    ) -> Result<TranscriptDocument, ConversationError> {
+        let mut transcript = owned_session_transcript(vault, session_id)?;
+        transcript.archived = archived;
+        save_transcript(vault, &mut transcript)?;
+        Ok(transcript)
     }
 
     pub fn open_session(
@@ -1013,9 +1069,92 @@ fn save_transcript(
     vault: &Vault,
     transcript: &mut TranscriptDocument,
 ) -> Result<(), ConversationError> {
+    apply_auto_title(transcript);
     transcript.updated_at = now_timestamp();
     vault.save_transcript(transcript)?;
     Ok(())
+}
+
+fn owned_session_transcript(
+    vault: &Vault,
+    session_id: &str,
+) -> Result<TranscriptDocument, ConversationError> {
+    ConversationService::open_session(vault, session_id)?
+        .transcript
+        .ok_or_else(|| {
+            ConversationError::Invalid("session transcript is missing after open".into())
+        })
+}
+
+fn apply_auto_title(transcript: &mut TranscriptDocument) {
+    if !transcript.title.trim().is_empty() {
+        return;
+    }
+    if let Some(content) = first_user_content(transcript) {
+        transcript.title = truncate_preview(content);
+    }
+}
+
+fn first_user_content(transcript: &TranscriptDocument) -> Option<&str> {
+    transcript
+        .turns
+        .iter()
+        .find(|turn| turn.role == TurnRole::User && !turn.content.trim().is_empty())
+        .map(|turn| turn.content.as_str())
+}
+
+fn session_display_title(transcript: &TranscriptDocument) -> String {
+    let titled = transcript.title.trim();
+    if !titled.is_empty() {
+        return titled.to_owned();
+    }
+    first_user_content(transcript)
+        .map(truncate_preview)
+        .unwrap_or_default()
+}
+
+fn sort_sessions(sessions: &mut [SessionSummary]) {
+    sessions.sort_by(|left, right| {
+        right
+            .updated_at
+            .cmp(&left.updated_at)
+            .then_with(|| right.session_id.cmp(&left.session_id))
+    });
+}
+
+fn session_search_hit(transcript: &TranscriptDocument, query: &str) -> Option<String> {
+    let title = session_display_title(transcript);
+    if contains_ignore_case(&title, query) {
+        return Some(title);
+    }
+    transcript
+        .turns
+        .iter()
+        .find_map(|turn| match_snippet(&turn.content, query))
+}
+
+fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
+    haystack.to_lowercase().contains(&needle.to_lowercase())
+}
+
+fn match_snippet(text: &str, query: &str) -> Option<String> {
+    let flattened = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let haystack = flattened.to_lowercase();
+    let needle = query.to_lowercase();
+    let index = haystack.find(&needle)?;
+    if flattened.len() != haystack.len() {
+        return Some(truncate_preview(&flattened));
+    }
+    let start = flattened.floor_char_boundary(index.saturating_sub(24));
+    let end = flattened.ceil_char_boundary((index + needle.len() + 32).min(flattened.len()));
+    let mut snippet = flattened[start..end].to_string();
+    if start > 0 {
+        snippet = format!("…{snippet}");
+    }
+    if end < flattened.len() {
+        snippet.push('…');
+    }
+    Some(snippet)
 }
 
 fn remember_session(vault: &Vault, session_id: &str) -> Result<(), ConversationError> {
@@ -1600,6 +1739,8 @@ mod tests {
                 created_at: "1".into(),
                 updated_at: "1".into(),
                 local: None,
+                title: String::new(),
+                archived: false,
                 turns: vec![TranscriptTurn {
                     id: "user-1".into(),
                     timestamp: "1".into(),
@@ -1965,6 +2106,164 @@ mod tests {
             Some("Hybrid retrieval requested without an embedding model; lexical fallback used.")
         );
         assert!(fake.embeddings.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auto_titles_from_first_user_turn_and_keeps_renames() {
+        let root = root("titles");
+        let vault = Vault::create(&root).unwrap();
+        vault
+            .save_character(&CharacterDefinition::new("lyra", "Lyra", "You are Lyra."))
+            .unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![
+            Ok(complete_reply("Hi")),
+            Ok(complete_reply("Still here")),
+        ]));
+        let service = ConversationService::new(fake);
+        service
+            .send(
+                &vault,
+                snapshot(
+                    "session-1",
+                    "lyra",
+                    "user-1",
+                    "Let's talk about Markdown notes",
+                ),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let listed = ConversationService::list_sessions(&vault).unwrap();
+        assert_eq!(listed[0].title, "Let's talk about Markdown notes");
+        assert_eq!(
+            vault.load_transcript("session-1").unwrap().title,
+            "Let's talk about Markdown notes"
+        );
+
+        ConversationService::rename_session(&vault, "session-1", "Vault notes").unwrap();
+        service
+            .send(
+                &vault,
+                snapshot("session-1", "lyra", "user-2", "Another message"),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            vault.load_transcript("session-1").unwrap().title,
+            "Vault notes"
+        );
+        assert_eq!(
+            ConversationService::list_sessions(&vault).unwrap()[0].title,
+            "Vault notes"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn archive_hides_from_default_list_and_keeps_markdown() {
+        let root = root("archive");
+        let vault = Vault::create(&root).unwrap();
+        vault
+            .save_character(&CharacterDefinition::new("lyra", "Lyra", "You are Lyra."))
+            .unwrap();
+        let mut transcript = TranscriptDocument::new("session-keep", "lyra");
+        transcript.created_at = "1".into();
+        transcript.updated_at = "1".into();
+        transcript.turns.push(TranscriptTurn {
+            id: "user-1".into(),
+            timestamp: "1".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "Keep this chat".into(),
+        });
+        vault.save_transcript(&transcript).unwrap();
+
+        ConversationService::set_session_archived(&vault, "session-keep", true).unwrap();
+        assert!(ConversationService::list_sessions(&vault)
+            .unwrap()
+            .is_empty());
+        let with_archived = ConversationService::list_sessions_filtered(&vault, true).unwrap();
+        assert_eq!(with_archived.len(), 1);
+        assert!(with_archived[0].archived);
+        let path = vault.transcript_path("session-keep").unwrap();
+        assert!(path.exists());
+        assert_eq!(path.file_name().unwrap(), "session-keep.md");
+        assert!(vault.load_transcript("session-keep").unwrap().archived);
+
+        ConversationService::set_session_archived(&vault, "session-keep", false).unwrap();
+        let restored = ConversationService::list_sessions(&vault).unwrap();
+        assert_eq!(restored.len(), 1);
+        assert!(!restored[0].archived);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn search_matches_title_and_body_including_archived_and_isolates_characters() {
+        let root = root("search");
+        let vault = Vault::create(&root).unwrap();
+        vault
+            .save_character(&CharacterDefinition::new("lyra", "Lyra", "You are Lyra."))
+            .unwrap();
+
+        let mut cafe = TranscriptDocument::new("session-cafe", "lyra");
+        cafe.created_at = "1".into();
+        cafe.updated_at = "1".into();
+        cafe.turns.push(TranscriptTurn {
+            id: "user-cafe".into(),
+            timestamp: "1".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "Mina sketches in a quiet cafe on Sundays.".into(),
+        });
+        vault.save_transcript(&cafe).unwrap();
+
+        let mut garden = TranscriptDocument::new("session-garden", "lyra");
+        garden.created_at = "2".into();
+        garden.updated_at = "2".into();
+        garden.title = "Garden walk".into();
+        garden.turns.push(TranscriptTurn {
+            id: "user-garden".into(),
+            timestamp: "2".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "We talked about roses.".into(),
+        });
+        vault.save_transcript(&garden).unwrap();
+
+        let mut foreign = TranscriptDocument::new("session-foreign", "nova");
+        foreign.created_at = "3".into();
+        foreign.updated_at = "3".into();
+        foreign.turns.push(TranscriptTurn {
+            id: "user-foreign".into(),
+            timestamp: "3".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "Mina sketches in a quiet cafe on Sundays.".into(),
+        });
+        vault.save_transcript(&foreign).unwrap();
+
+        let cafe_hits = ConversationService::search_sessions(&vault, "cafe").unwrap();
+        assert_eq!(
+            cafe_hits
+                .iter()
+                .map(|session| session.session_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["session-cafe"]
+        );
+        assert!(cafe_hits[0]
+            .snippet
+            .as_deref()
+            .is_some_and(|snippet| snippet.to_lowercase().contains("cafe")));
+
+        let title_hits = ConversationService::search_sessions(&vault, "Garden").unwrap();
+        assert_eq!(title_hits[0].session_id, "session-garden");
+
+        ConversationService::set_session_archived(&vault, "session-cafe", true).unwrap();
+        let archived_hits = ConversationService::search_sessions(&vault, "cafe").unwrap();
+        assert_eq!(archived_hits.len(), 1);
+        assert!(archived_hits[0].archived);
         fs::remove_dir_all(root).unwrap();
     }
 }

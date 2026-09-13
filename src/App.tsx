@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { CharacterPanel } from "./CharacterPanel";
 import { ConversationPanel } from "./ConversationPanel";
@@ -9,8 +9,11 @@ import {
   activeSessionChangedEvent,
   activeSessionId,
   activeSessionStorageKeys,
+  requestArchiveSession,
   requestNewSession,
   requestOpenSession,
+  requestRenameSession,
+  requestSessionListFilter,
   shellEvents,
 } from "./activeSession";
 import type { SessionSummary } from "./conversation";
@@ -46,6 +49,10 @@ function sameVault(left: string, right: string) {
   return left.replace(/[\\/]+$/, "").toLowerCase() === right.replace(/[\\/]+$/, "").toLowerCase();
 }
 
+function sessionHeading(session: SessionSummary) {
+  return session.title.trim() || session.preview.trim() || "New conversation";
+}
+
 function App() {
   const [activeView, setActiveView] = useState<AppView>("chat");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -57,6 +64,11 @@ function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionId, setSessionId] = useState(() => activeSessionId() ?? "");
   const [portraitSrc, setPortraitSrc] = useState<string | null>(null);
+  const [sessionQuery, setSessionQuery] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const skipRenameBlur = useRef(false);
 
   useEffect(() => {
     invoke<AppInfo>("app_info")
@@ -83,6 +95,10 @@ function App() {
       window.removeEventListener(shellEvents.sessionsUpdated, onSessions);
     };
   }, []);
+
+  useEffect(() => {
+    requestSessionListFilter(sessionQuery, showArchived);
+  }, [sessionQuery, showArchived]);
 
   useEffect(() => {
     let cancelled = false;
@@ -207,31 +223,128 @@ function App() {
               New
             </button>
           </div>
+          <label className="session-search">
+            <span className="visually-hidden">Search conversations</span>
+            <input
+              disabled={!vaultRoot.trim() || !activeCharacter}
+              onChange={(event) => setSessionQuery(event.target.value)}
+              placeholder="Search chats"
+              type="search"
+              value={sessionQuery}
+            />
+          </label>
           {sessions.length === 0 && (
             <p className="muted session-empty">
-              {activeCharacter ? "No saved chats yet. Send a message to start one." : "Open a vault to see past chats."}
+              {activeCharacter
+                ? sessionQuery.trim()
+                  ? "No chats match that search."
+                  : "No saved chats yet. Send a message to start one."
+                : "Open a vault to see past chats."}
             </p>
           )}
           {sessions.map((session) => (
-            <button
-              className={session.session_id === sessionId ? "session-row selected" : "session-row"}
+            <div
+              className={[
+                "session-row",
+                session.session_id === sessionId ? "selected" : "",
+                session.archived ? "archived" : "",
+              ].filter(Boolean).join(" ")}
               key={session.session_id}
-              onClick={() => {
-                setSettingsOpen(false);
-                setActiveView("chat");
-                if (session.session_id !== sessionId) requestOpenSession(session.session_id);
-              }}
-              type="button"
             >
-              <span className="session-row-top">
-                <strong>{session.preview || "New conversation"}</strong>
-                <time>{formatSessionTime(session.updated_at)}</time>
-              </span>
-              <span className="session-row-meta">
-                {session.turn_count} message{session.turn_count === 1 ? "" : "s"}
-              </span>
-            </button>
+              {renamingId === session.session_id ? (
+                <form
+                  className="session-rename"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    requestRenameSession(session.session_id, renameDraft);
+                    setRenamingId(null);
+                  }}
+                >
+                  <label>
+                    <span className="visually-hidden">Session name</span>
+                    <input
+                      autoFocus
+                      onBlur={() => {
+                        if (skipRenameBlur.current) {
+                          skipRenameBlur.current = false;
+                          return;
+                        }
+                        requestRenameSession(session.session_id, renameDraft);
+                        setRenamingId(null);
+                      }}
+                      onChange={(event) => setRenameDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          skipRenameBlur.current = true;
+                          setRenamingId(null);
+                        }
+                      }}
+                      type="text"
+                      value={renameDraft}
+                    />
+                  </label>
+                </form>
+              ) : (
+                <button
+                  className="session-row-main"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    setActiveView("chat");
+                    if (session.session_id !== sessionId) requestOpenSession(session.session_id);
+                  }}
+                  onDoubleClick={(event) => {
+                    event.preventDefault();
+                    setRenamingId(session.session_id);
+                    setRenameDraft(sessionHeading(session));
+                  }}
+                  type="button"
+                >
+                  <span className="session-row-top">
+                    <strong>{sessionHeading(session)}</strong>
+                    <time>{formatSessionTime(session.updated_at)}</time>
+                  </span>
+                  <span className="session-row-meta">
+                    {session.archived ? "Archived · " : ""}
+                    {session.turn_count} message{session.turn_count === 1 ? "" : "s"}
+                  </span>
+                  {session.snippet ? (
+                    <span className="session-row-snippet">{session.snippet}</span>
+                  ) : null}
+                </button>
+              )}
+              <div className="session-row-actions">
+                <button
+                  className="text-button"
+                  disabled={!vaultRoot.trim()}
+                  onClick={() => {
+                    setRenamingId(session.session_id);
+                    setRenameDraft(sessionHeading(session));
+                  }}
+                  type="button"
+                >
+                  Rename
+                </button>
+                <button
+                  className="text-button"
+                  disabled={!vaultRoot.trim()}
+                  onClick={() => requestArchiveSession(session.session_id, !session.archived)}
+                  type="button"
+                >
+                  {session.archived ? "Unarchive" : "Archive"}
+                </button>
+              </div>
+            </div>
           ))}
+          <label className="session-archive-toggle">
+            <input
+              checked={showArchived}
+              disabled={!vaultRoot.trim() || !activeCharacter}
+              onChange={(event) => setShowArchived(event.target.checked)}
+              type="checkbox"
+            />
+            Show archived
+          </label>
         </section>
 
         <div className="sidebar-footer">

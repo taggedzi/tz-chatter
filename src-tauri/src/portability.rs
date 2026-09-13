@@ -625,6 +625,8 @@ mod tests {
             created_at: "1".into(),
             updated_at: "2".into(),
             local: None,
+            title: String::new(),
+            archived: false,
             turns: vec![TranscriptTurn {
                 id: "user".into(),
                 timestamp: "1".into(),

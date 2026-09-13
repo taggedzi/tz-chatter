@@ -28,9 +28,9 @@ Markdown. Open folder, Open in Obsidian, and Reveal this memory would make that
 real. **IMPLEMENTED (T27)** Portraits from assets/portrait.png in the library, 
 chat sidebar, and identity editor.
 
-4. Session names, search, and archive. The sidebar lists chats/*.md. After a 
-week of use that becomes unreadable. Auto-title from the first user turn, 
-rename, search transcripts, and archive without deleting the Markdown.
+4. **IMPLEMENTED (T28)** Session names, search, and archive. Auto-title from
+the first user turn, rename, search transcripts, and archive in place with
+`archived: true` without deleting the Markdown.
 
 5. Edit last message, regenerate, continue. Retry exists; character-chat users 
 also need to rewrite the last user turn, swipe another assistant reply, and 
