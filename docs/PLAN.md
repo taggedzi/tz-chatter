@@ -226,11 +226,31 @@ When the active provider has an embedding model and hybrid is not opted out, use
 
 Acceptance: tests prove superseded memories are not retrieved as current; hybrid mode is used when an embedding model is set and the index is ready; a not-ready index does not call embed during send and falls back to lexical with a rebuild reason; no embedding model still lexical-falls-back; the T14 evaluation fixture still holds. Frontend lint/typecheck pass. README states that chatting accumulates memories without an Accept step.
 
+## Milestone 9 — Persona and reusable locals
+
+### T26 — User persona and scene locals
+
+Depends on: T06, T17, T21.
+
+Add first-class portable Markdown for who the user is and where the scene is, outside `character.md`. Store `persona.md` and a `locals/` library of reusable scene documents in the character vault, with `scene.md` holding the character default local id. A session may follow that default, select another existing local, or clear the scene; it cannot point at a file that is not already in `locals/`. Resolve live at send time (edit `cafe.md`, the next turn reads the new text). Prompt order: application rules, character identity, user persona, current scene, memories, history, current message. Empty sections are omitted. Extraction still cannot write identity, persona, or locals. Packs include the new files.
+
+Acceptance: tests cover persona/local round-trip; default vs session override vs none; missing local fails send; live-link after editing a local; extraction cannot write `persona.md`/`locals/`; pack export/import preserves persona, scene default, and locals. Frontend lint/typecheck/build pass. Characters can edit persona and locals and set the default; chat can pick a session local from existing files or create a local then select it.
+
+## Milestone 10 — Character portraits
+
+### T27 — Character portraits
+
+Depends on: T17, T21.
+
+Render `assets/portrait.png` in the Characters library list, the chat sidebar active-character card, and the character identity editor. Users can add or replace the file from the editor (PNG file picker or drag-drop) or by placing `assets/portrait.png` in the vault folder. Remove deletes that file. Missing portraits fall back to initials. Writes stay confined to the selected vault. Packs include the portrait when present. Open-folder / Obsidian remain unscheduled.
+
+Acceptance: create scaffolds `assets/`; set/clear round-trip `assets/portrait.png`; reject non-PNG and files larger than 5 MB; missing portrait is not an error; a PNG dropped into `assets/portrait.png` is detected on the next library list; pack export/import preserves the file; frontend lint/typecheck/build pass.
+
 ## Unscheduled feature backlog
 
-Possible later features live in `docs/PROJECT.md`. They have no task IDs and are not the next work except T24 and T25 above. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
+Possible later features live in `docs/PROJECT.md`. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
 
-Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files.
+Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27).
 
 ## Milestone exit policy
 

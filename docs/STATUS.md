@@ -4,11 +4,11 @@ Last updated: 2026-09-12
 
 ## Current position
 
-- Project phase: Milestone 7 environment-limited leftovers (T16/T18); Milestone 8 T24 and T25 done.
-- Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, T19 completion-audit remediations A01-A15, auto-write of validated memories, and hybrid retrieval by default with lexical fallback.
+- Project phase: Milestone 10 T27 done; Milestone 9 T26 done; Milestone 7 environment-limited leftovers (T16/T18); Milestone 8 T24 and T25 done.
+- Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, T19 completion-audit remediations A01-A15, auto-write of validated memories, hybrid retrieval by default with lexical fallback, portable user persona plus reusable scene locals, and portable character portraits.
 - T01 delivered: React/TypeScript shell, Rust command boundary, frontend/Rust lockfiles, validation scripts, and a Windows launch check.
 - Repository: initialized locally on `main`; no remote configured. T19/A13 commit `6a08a51` contains the reviewed application sources.
-- Active task: none. T24/T25 remain done; Milestone 8 important findings (orphan Accepted on auto-commit Err, drain abort, missing embed-worker test) are fixed.
+- Active task: none. T27 character portraits is done.
 - Next task: none scheduled. T16/T18 remain in_progress only for environment-limited visual tray/keyboard and live llama.cpp/LM Studio checks.
 - Blockers: no known implementation blockers. Native Computer Use visual inspection remains unavailable; process/window inspection verified launch and responsiveness.
 
@@ -47,19 +47,21 @@ The plan contains dependencies and acceptance criteria. This table is the author
 | T23 | LM Studio provider settings | done | Named LM Studio provider uses OpenAI-compatible `/v1` transport with default `http://127.0.0.1:1234/v1`. Saved `open_ai_compatible` settings still load. 92 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. Live LM Studio on port 1234 was not reachable. |
 | T24 | Auto-write validated memories | done | Origin classification from transcript evidence; auto-commit of user-stated/event/character facts as new Markdown files; inferred stays inbox-only. Failed `commit_accepted` after Accepted restores NeedsReview. Extraction drain continues after per-proposal or store-open errors. 110 Rust tests passed and 2 ignored; fmt check and clippy -D warnings passed. |
 | T25 | Hybrid retrieval by default | done | Hybrid when an embedding model is set and the index is ready; stale index lexical-falls-back without embedding on send; background embed worker yields to chat; superseded targets skipped. `process_embedding_rebuild` fake-embed tests cover ready index and cancel-before-finish. 110 Rust tests passed and 2 ignored; fmt, clippy -D warnings passed. Live embedding quality not claimed. |
+| T26 | User persona and scene locals | done | Portable `persona.md`, `scene.md`, and `locals/*.md`; character default plus session live-link override; missing local fails send; extraction cannot write persona/locals; packs include the new files. Characters New/Add/Save write those files with identity. Create scaffolds empty persona.md and scene.md. Frontend lint/typecheck/build passed after the builder follow-up. Native window not re-run. |
+| T27 | Character portraits | done | Canonical `assets/portrait.png` in the library list, chat sidebar, and identity editor; PNG picker/drag-drop/remove; folder drop detected on list; packs include the file. 124 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. Native window not re-run. |
 
 ## Active work and resumption
 
-Task: none (T24/T25 important findings fixed)
+Task: none (T27 portraits done)
 Owner/session and date: Grok implementer — 2026-09-12
-Scope / files being edited: `src-tauri/src/reconciliation.rs`, `src-tauri/src/lib.rs`, `docs/STATUS.md`, `docs/HANDOFF.md`. No overlapping work reported.
-Completed in this session: auto-commit Err restores NeedsReview; extraction drain continues after per-proposal/store-open errors; `process_embedding_rebuild` fake-embed ready/cancel tests.
-Remaining acceptance criteria: none for this fix wave.
-Verification commands and outcomes: `cargo test --manifest-path src-tauri/Cargo.toml` PASS 110 passed, 2 ignored; `cargo fmt --all -- --check` PASS; `cargo clippy --all-targets -- -D warnings` PASS.
+Scope / files being edited: none remaining for T27.
+Completed in this session: confined portrait read/write, library/sidebar/editor rendering, pack allowlist, and verification.
+Remaining acceptance criteria: none.
+Verification commands and outcomes: `cargo test --manifest-path src-tauri/Cargo.toml` PASS 124 passed, 2 ignored; `cargo fmt --all -- --check` PASS; `cargo clippy --all-targets -- -D warnings` PASS; `npm run lint` PASS; `npm run typecheck` PASS; `npm run build` PASS.
 Blocker and unblock action (if any): none.
 Exact next step: none scheduled. T16/T18 remain environment-limited.
 
-Sample vault: `examples/characters/lyra` now includes six Markdown memories and `chats/session-welcome.md` for first-run testing.
+Sample vault: `examples/characters/lyra` includes Lyra's definition, `persona.md`, `scene.md`, `locals/cafe.md`, six Markdown memories, and `chats/session-welcome.md`.
 
 No background development jobs or running application servers remain.
 
@@ -153,3 +155,6 @@ Update the task board and append a handoff entry in the same change. Keep this f
 | 2026-09-12 | T24 auto-write validated memories | cargo test; cargo fmt --check; clippy -D warnings | PASS: 101 Rust tests passed and 2 ignored including origin reclassification, auto-commit to new Markdown/FTS5, inferred inbox-only, duplicate/lock/suppress/supersede, and worker resume cafe fixture |
 | 2026-09-12 | T25 hybrid retrieval by default | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck | PASS: 106 passed and 2 ignored including skip superseded targets, hybrid when index ready, no-embed lexical fallback on rebuild, no-model lexical fallback, T14 fixture with empty skip IDs, and extraction/embedding background key uniqueness. Live embedding quality not claimed. |
 | 2026-09-12 | Milestone 8 important-finding fixes | cargo test; cargo fmt --check; clippy -D warnings | PASS: 110 passed and 2 ignored including auto-commit Err restores NeedsReview, extraction drain continues after auto-commit failure, and embedding rebuild ready/cancel-before-finish |
+| 2026-09-12 | T26 user persona and scene locals | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 120 passed and 2 ignored including persona/local round-trip, default vs session override vs none, missing local fails send, live-link, memory writes cannot touch persona/locals, pack includes persona/scene/locals; frontend checks passed; native window not re-run |
+| 2026-09-12 | T26 character builder add/edit | create-character test; clippy; fmt; npm lint/typecheck/build | PASS: New/Add/Save include persona and locals; create writes persona.md and scene.md; frontend checks passed; native window not re-run |
+| 2026-09-12 | T27 character portraits | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 124 passed and 2 ignored including assets scaffold, set/clear/folder-drop, non-PNG and 5 MB reject, pack portrait round-trip; frontend checks passed; native window not re-run |

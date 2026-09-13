@@ -54,7 +54,7 @@ export function PortabilityPanel() {
         <span className="pill">Markdown-first</span>
       </div>
       <p className="panel-description">
-        Packs include identity, memories, transcripts, and durable review state. Rebuildable indexes,
+        Packs include identity, persona, locals, memories, transcripts, and durable review state. Rebuildable indexes,
         provider settings, credentials, and machine-specific paths stay behind.
       </p>
       <div className="settings-grid">

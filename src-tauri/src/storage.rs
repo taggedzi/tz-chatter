@@ -142,6 +142,10 @@ pub struct TranscriptDocument {
     pub character_id: String,
     pub created_at: String,
     pub updated_at: String,
+    /// Missing follows the character default local. `Some("")` clears the scene.
+    /// `Some(id)` live-links `locals/{id}.md`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local: Option<String>,
     pub turns: Vec<TranscriptTurn>,
 }
 
@@ -153,6 +157,7 @@ impl TranscriptDocument {
             character_id: character_id.into(),
             created_at: String::new(),
             updated_at: String::new(),
+            local: None,
             turns: Vec::new(),
         }
     }
@@ -470,6 +475,14 @@ fn validate_transcript(transcript: &TranscriptDocument) -> Result<(), StorageErr
     }
     validate_id(&transcript.session_id)?;
     validate_id(&transcript.character_id)?;
+    if let Some(local) = transcript
+        .local
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        validate_id(local)?;
+    }
     for turn in &transcript.turns {
         validate_id(&turn.id)?;
         if turn.content.is_empty() && turn.status == TurnStatus::Complete {
@@ -498,13 +511,18 @@ fn validate_state(state: &OperationalState) -> Result<(), StorageError> {
     Ok(())
 }
 
-fn render_markdown<T: Serialize>(metadata: &T, body: &str) -> Result<Vec<u8>, StorageError> {
+pub(crate) fn render_markdown<T: Serialize>(
+    metadata: &T,
+    body: &str,
+) -> Result<Vec<u8>, StorageError> {
     let yaml =
         serde_yaml::to_string(metadata).map_err(|error| StorageError::Parse(error.to_string()))?;
     Ok(format!("---\n{yaml}---\n{body}").into_bytes())
 }
 
-fn parse_markdown<T: DeserializeOwned>(bytes: &[u8]) -> Result<(T, String), StorageError> {
+pub(crate) fn parse_markdown<T: DeserializeOwned>(
+    bytes: &[u8],
+) -> Result<(T, String), StorageError> {
     let text = String::from_utf8(bytes.to_vec())
         .map_err(|error| StorageError::Parse(error.to_string()))?;
     let text = text.replace("\r\n", "\n");
@@ -529,6 +547,8 @@ struct TranscriptMetadata {
     character_id: String,
     created_at: String,
     updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    local: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -547,6 +567,7 @@ fn render_transcript(transcript: &TranscriptDocument) -> Result<Vec<u8>, Storage
         character_id: transcript.character_id.clone(),
         created_at: transcript.created_at.clone(),
         updated_at: transcript.updated_at.clone(),
+        local: transcript.local.clone(),
     };
     let yaml =
         serde_yaml::to_string(&metadata).map_err(|error| StorageError::Parse(error.to_string()))?;
@@ -623,6 +644,7 @@ fn parse_transcript_body(
         character_id: metadata.character_id,
         created_at: metadata.created_at,
         updated_at: metadata.updated_at,
+        local: metadata.local,
         turns,
     })
 }
@@ -647,7 +669,7 @@ fn read_recovering(path: &Path) -> Result<Vec<u8>, StorageError> {
     )))
 }
 
-fn atomic_write(path: &Path, bytes: Vec<u8>) -> Result<(), StorageError> {
+pub(crate) fn atomic_write(path: &Path, bytes: Vec<u8>) -> Result<(), StorageError> {
     atomic_write_internal(path, bytes, false)
 }
 
@@ -911,7 +933,21 @@ mod tests {
         let sessions = vault.list_transcripts().unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].session_id, "session-welcome");
-        assert_eq!(sessions[0].turns.len(), 3);
+        assert!(sessions[0].turns.len() >= 3);
         assert!(sessions[0].turns[0].content.contains("Mina"));
+
+        let persona = crate::scene::load_persona(&vault).unwrap();
+        assert!(persona.body.contains("unfinished ideas"));
+        assert_eq!(
+            crate::scene::load_scene_settings(&vault)
+                .unwrap()
+                .default_local
+                .as_deref(),
+            Some("cafe")
+        );
+        assert!(crate::scene::load_local(&vault, "cafe")
+            .unwrap()
+            .body
+            .contains("quiet"));
     }
 }

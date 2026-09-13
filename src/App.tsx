@@ -14,6 +14,8 @@ import {
   shellEvents,
 } from "./activeSession";
 import type { SessionSummary } from "./conversation";
+import { characterClient } from "./characters";
+import { CharacterPortraitMark } from "./CharacterPortrait";
 import "./App.css";
 
 type AppInfo = {
@@ -40,10 +42,8 @@ function formatSessionTime(value: string) {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "tz";
-  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
+function sameVault(left: string, right: string) {
+  return left.replace(/[\\/]+$/, "").toLowerCase() === right.replace(/[\\/]+$/, "").toLowerCase();
 }
 
 function App() {
@@ -56,6 +56,7 @@ function App() {
   const [vaultRoot, setVaultRoot] = useState(() => localStorage.getItem(activeSessionStorageKeys.vaultRoot) ?? "");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionId, setSessionId] = useState(() => activeSessionId() ?? "");
+  const [portraitSrc, setPortraitSrc] = useState<string | null>(null);
 
   useEffect(() => {
     invoke<AppInfo>("app_info")
@@ -83,6 +84,39 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPortrait(root: string) {
+      if (!root.trim()) {
+        if (!cancelled) setPortraitSrc(null);
+        return;
+      }
+      try {
+        const src = await characterClient.loadPortrait(root);
+        if (!cancelled) setPortraitSrc(src);
+      } catch {
+        if (!cancelled) setPortraitSrc(null);
+      }
+    }
+    void loadPortrait(vaultRoot);
+    const onFocus = () => {
+      void loadPortrait(vaultRoot);
+    };
+    const onPortrait = (event: Event) => {
+      const detail = (event as CustomEvent<{ vaultRoot: string }>).detail;
+      if (detail && sameVault(detail.vaultRoot, vaultRoot)) {
+        void loadPortrait(vaultRoot);
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    window.addEventListener(shellEvents.portraitChanged, onPortrait);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener(shellEvents.portraitChanged, onPortrait);
+    };
+  }, [vaultRoot]);
+
   const characterLabel = activeCharacter ?? "No character loaded";
 
   return (
@@ -102,7 +136,15 @@ function App() {
           type="button"
           aria-label="Open character library"
         >
-          <div className="avatar">{activeCharacter ? initials(activeCharacter) : "—"}</div>
+          {activeCharacter ? (
+            <CharacterPortraitMark
+              className="avatar"
+              name={activeCharacter}
+              src={portraitSrc}
+            />
+          ) : (
+            <div aria-hidden="true" className="avatar">—</div>
+          )}
           <div>
             <p className="eyebrow">ACTIVE CHARACTER</p>
             <h2>{characterLabel}</h2>

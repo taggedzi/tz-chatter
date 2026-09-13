@@ -81,3 +81,21 @@ The user is not required to manage memories. Chatting is sufficient. After a com
 Retrieval is hybrid by default when an embedding model is configured. Vectors remain a rebuildable SQLite projection of the files, not an external database. If embeddings are missing, stale, or fail, chat uses lexical search and records that in the inspector. Embedding rebuild runs in the background and yields to user chat.
 
 Consequence: T24/T25 implement this. ADR-004’s lexical product default and ADR-005’s all-proposals-need-review default are superseded. File-canonical storage, character isolation, and “assistant text is not a user fact” remain.
+
+## ADR-010 — User persona and reusable locals
+
+Date: 2026-09-12. State: accepted. Basis: explicit user request to implement the persona/scene backlog item, with session override via a `locals/` library.
+
+Store who the user is as portable `persona.md` in the character vault, not in `character.md` and not in app config. Store reusable scene documents as Markdown files under `locals/`; a local must exist in that folder before it can be selected. `scene.md` records the character default local. A session follows that default, selects another existing local, or clears the scene. Resolution is a live link: each send reads the current files. Automatic extraction cannot write persona, locals, or character identity.
+
+Prompt order inserts labeled user persona after character identity and labeled current scene after persona. Empty files omit those messages. Packs include `persona.md`, `scene.md`, and `locals/*.md`. Locals are not memory-index records.
+
+Consequence: T26 implements this. Application rules remain machine-scoped (ADR-008). Character identity remains author-controlled Markdown.
+
+## ADR-011 — Portable character portraits
+
+Date: 2026-09-12. State: accepted. Basis: explicit user request to implement portraits from the open-vault-as-files backlog item, without folder/Obsidian actions.
+
+The canonical portrait is `{vault}/assets/portrait.png`. The Characters library list, chat sidebar active-character card, and identity editor render it when present and fall back to initials when absent. Users add or replace it from the editor (PNG picker or drag-drop) or by placing that file in the vault folder. Remove deletes only that file. New vaults scaffold an empty `assets/` directory. Writes stay confined to the selected vault; non-PNG and files larger than 5 MB are rejected. Packs include the portrait when it is a valid PNG. Extraction cannot write this path.
+
+Consequence: T27 implements this. Open-folder / Reveal / Obsidian remain unscheduled. JPEG/WebP conversion and animated avatars stay deferred.

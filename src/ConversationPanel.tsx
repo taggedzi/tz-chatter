@@ -1,6 +1,14 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { conversationClient, type CharacterDefinition, type ChatStreamEvent, type ContextInspection, type RequestSnapshot, type SessionSummary, type TranscriptTurn } from "./conversation";
+import { conversationClient, type CharacterDefinition, type ChatStreamEvent, type ContextInspection, type RequestSnapshot, type SessionSummary, type TranscriptDocument, type TranscriptTurn } from "./conversation";
+import {
+  localIdFromTitle,
+  sceneClient,
+  selectionFromTranscript,
+  type LocalSummary,
+  type SceneSettings,
+  type SessionLocalSelection,
+} from "./scene";
 import type { RetrievedMemory } from "./conversation";
 import { providerClient, type ProviderConfig } from "./providers";
 import { initiativeClient, type InitiativeOutcome } from "./initiative";
@@ -69,6 +77,15 @@ export function ConversationPanel() {
     () => localStorage.getItem("tz-chatter.use-hybrid-retrieval") !== "false",
   );
   const [showContext, setShowContext] = useState(true);
+  const [locals, setLocals] = useState<LocalSummary[]>([]);
+  const [sceneSettings, setSceneSettings] = useState<SceneSettings>({
+    schema_version: 1,
+    default_local: null,
+  });
+  const [sessionLocal, setSessionLocal] = useState<SessionLocalSelection>({ kind: "default" });
+  const [newLocalOpen, setNewLocalOpen] = useState(false);
+  const [newLocalTitle, setNewLocalTitle] = useState("");
+  const [newLocalBody, setNewLocalBody] = useState("");
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
 
   const publishSessions = useCallback(async (root: string, activeId: string) => {
@@ -87,9 +104,20 @@ export function ConversationPanel() {
     }
   }, []);
 
+  const loadSceneState = useCallback(async (root: string, transcript: TranscriptDocument | null) => {
+    const [listed, settings] = await Promise.all([
+      sceneClient.listLocals(root),
+      sceneClient.loadSettings(root),
+    ]);
+    setLocals(listed);
+    setSceneSettings(settings);
+    setSessionLocal(selectionFromTranscript(transcript?.local));
+    setNewLocalOpen(false);
+  }, []);
+
   const applyResume = useCallback(async (
     root: string,
-    result: { character: CharacterDefinition; transcript: { session_id: string; turns: TranscriptTurn[] } | null },
+    result: { character: CharacterDefinition; transcript: TranscriptDocument | null },
     status: string,
   ) => {
     const nextSessionId = result.transcript?.session_id ?? crypto.randomUUID();
@@ -103,8 +131,13 @@ export function ConversationPanel() {
     setLastRequest(null);
     rememberActiveSession(root, result.character.id, nextSessionId, result.character.name);
     setResumeStatus(status);
+    try {
+      await loadSceneState(root, result.transcript);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    }
     await publishSessions(root, nextSessionId);
-  }, [publishSessions]);
+  }, [loadSceneState, publishSessions]);
 
   const resumeVault = useCallback(async (root: string) => {
     const trimmedRoot = root.trim();
@@ -357,8 +390,73 @@ export function ConversationPanel() {
     }
   }
 
+  async function changeSessionLocal(value: string) {
+    if (!vaultRoot.trim() || !sessionId) return;
+    if (value === "__new") {
+      setNewLocalOpen(true);
+      return;
+    }
+    const selection: SessionLocalSelection =
+      value === "default"
+        ? { kind: "default" }
+        : value === "none"
+          ? { kind: "none" }
+          : { kind: "local", id: value };
+    setBusy(true);
+    setError(null);
+    try {
+      const transcript = await conversationClient.setSessionLocal(vaultRoot.trim(), sessionId, selection);
+      setSessionLocal(selectionFromTranscript(transcript.local));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createSessionLocal(event: FormEvent) {
+    event.preventDefault();
+    if (!vaultRoot.trim() || !sessionId || !newLocalTitle.trim()) return;
+    const id = localIdFromTitle(newLocalTitle);
+    if (!id) {
+      setError("Local title must contain letters or numbers so it can become a file id.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await sceneClient.saveLocal(vaultRoot.trim(), {
+        schema_version: 1,
+        id,
+        title: newLocalTitle.trim(),
+        body: newLocalBody,
+      });
+      const transcript = await conversationClient.setSessionLocal(vaultRoot.trim(), sessionId, {
+        kind: "local",
+        id,
+      });
+      setNewLocalTitle("");
+      setNewLocalBody("");
+      setNewLocalOpen(false);
+      await loadSceneState(vaultRoot.trim(), transcript);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const latestAssistant = [...turns].reverse().find((turn) => turn.role === "assistant");
   const vaultReady = loadedVaultRoot === vaultRoot.trim() && Boolean(character.id);
+  const sessionLocalValue =
+    sessionLocal.kind === "default"
+      ? "default"
+      : sessionLocal.kind === "none"
+        ? "none"
+        : sessionLocal.id;
+  const defaultLocalLabel = sceneSettings.default_local
+    ? locals.find((entry) => entry.id === sceneSettings.default_local)?.title || sceneSettings.default_local
+    : "none";
 
   return (
     <section className="conversation-panel" aria-label="Conversation">
@@ -370,6 +468,26 @@ export function ConversationPanel() {
           </p>
         </div>
         <div className="chat-header-actions">
+          {vaultReady && (
+            <label className="scene-picker">
+              Scene
+              <select
+                aria-label="Session scene"
+                disabled={busy}
+                onChange={(event) => void changeSessionLocal(event.target.value)}
+                value={sessionLocalValue}
+              >
+                <option value="default">Character default ({defaultLocalLabel})</option>
+                <option value="none">None</option>
+                {locals.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.title || entry.id}
+                  </option>
+                ))}
+                <option value="__new">New local…</option>
+              </select>
+            </label>
+          )}
           {retrievedMemories.length > 0 && (
             <button
               aria-pressed={showContext}
@@ -436,6 +554,35 @@ export function ConversationPanel() {
         )}
       </div>
 
+      {newLocalOpen && vaultReady && (
+        <form className="new-local-form" onSubmit={(event) => void createSessionLocal(event)}>
+          <label>
+            New local title
+            <input
+              onChange={(event) => setNewLocalTitle(event.target.value)}
+              placeholder="Evening cafe"
+              value={newLocalTitle}
+            />
+          </label>
+          <label>
+            Scene notes
+            <textarea
+              onChange={(event) => setNewLocalBody(event.target.value)}
+              placeholder="Where you are tonight. Saved to locals/ before this session can use it."
+              rows={3}
+              value={newLocalBody}
+            />
+          </label>
+          <div className="action-row">
+            <button className="primary-button" disabled={busy || !newLocalTitle.trim()} type="submit">
+              Create and use
+            </button>
+            <button className="text-button" onClick={() => setNewLocalOpen(false)} type="button">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
       {resumeStatus && <p className="inline-status chat-status" role="status">{resumeStatus}</p>}
       {error && <p className="conversation-error" role="alert">{error}</p>}
       {latestAssistant && latestAssistant.status !== "complete" && (

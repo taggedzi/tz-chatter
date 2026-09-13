@@ -53,6 +53,10 @@ Suggested portable layout:
 ```text
 characters/<character-id>/
   character.md
+  persona.md
+  scene.md
+  locals/
+    cafe.md
   memories/
     people/
     episodic/
@@ -69,6 +73,9 @@ characters/<character-id>/
 ```
 
 - `character.md`: author-controlled identity, traits, speech, motivations, and boundaries. Automatic memory extraction cannot edit it.
+- `persona.md`: who the user is to this character. Portable Markdown outside identity; extraction cannot edit it.
+- `scene.md`: character default local id. Empty means no default scene.
+- `locals/`: reusable scene/place Markdown. A local must exist here before a character default or session can select it. Sessions store a live-linked id, not a snapshot.
 - `memories/`: authoritative memory records, with stable IDs and Markdown bodies. Obsidian installation is not required.
 - `chats/`: authoritative transcripts with stable session and turn IDs, timestamps, roles, and completion/cancellation status. Define an unambiguous round-trip format during T03; rendering alone must not destroy message boundaries.
 - `index.sqlite`: rebuildable derived search data, chunks, links, and embeddings. Deleting it must not lose memories or transcripts.
@@ -109,10 +116,11 @@ Prompt order:
 
 1. Application behavior rules (user-editable in Settings; omitted when empty).
 2. Character identity and author-defined boundaries.
-3. Current relationship or scene context.
-4. Relevant memories labeled as archival data with source IDs.
-5. Selected recent conversation turns.
-6. Current user message, or a clearly labeled internal initiative event.
+3. User persona (who the user is; omitted when empty).
+4. Current scene from the resolved local (character default unless the session overrides or clears it; omitted when none).
+5. Relevant memories labeled as archival data with source IDs.
+6. Selected recent conversation turns.
+7. Current user message, or a clearly labeled internal initiative event.
 
 Reserve output capacity and account for the whole request. Use provider/model tokenization when supported; otherwise use a documented conservative estimate and recover gracefully from context-limit errors. Expose selected memories, omissions, and budget estimates in the context inspector. Do not manufacture a user message to represent spontaneous engagement.
 
@@ -155,8 +163,9 @@ Suggested starting cluster if one group is promoted first: memory inbox, remembe
 
 - **Memory inbox.** Surface pending extraction proposals on the chat chrome (badge, count, auto-refresh) so review does not require opening Memories and clicking Refresh.
 - **Remember this.** Create a Markdown memory from a selected transcript turn with known source IDs, without waiting for the extraction worker.
-- **User persona and scene notes.** First-class “who I am” and “current scene / relationship” fields that occupy the existing prompt slots. Store them as portable Markdown outside `character.md` so extraction still cannot rewrite identity.
-- **Open vault as files.** Open the character folder, reveal a memory in the file manager, and optionally open the vault in Obsidian. Render `assets/portrait.png` in the character library and chat chrome when present.
+- **User persona and scene notes.** Scheduled as T26: portable `persona.md` plus a `locals/` library with character default and session override.
+- **Character portraits.** Scheduled as T27: render `assets/portrait.png` in the character library, chat sidebar, and identity editor; add via GUI or by dropping the file into the vault.
+- **Open vault as files.** Open the character folder, reveal a memory in the file manager, and optionally open the vault in Obsidian.
 - **Session names, search, and archive.** Auto-title from the first user turn, rename sessions, search transcripts, and archive without deleting the canonical Markdown.
 - **Edit, regenerate, and continue.** Rewrite the last user turn, request another assistant reply, and continue a truncated reply. Persist those outcomes as normal transcript statuses so extraction does not double-commit.
 - **Per-character model and sampling.** Remember chat model, temperature, and max tokens per character or as a named preset. Do not put machine-specific provider URLs or credentials into portable identity unless the user explicitly opts into exporting them.

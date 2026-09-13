@@ -7,7 +7,7 @@ use crate::{
         select_open_topics, InitiativeModelChoice, InitiativeRequest,
     },
     memory::MemoryStore,
-    prompt::{build_prompt_with_memories, PromptBudget},
+    prompt::{build_prompt_with_memories, PromptBudget, PromptLayers},
     providers::{
         ChatRequest, ChatStreamEvent, EmbeddingRequest, EmbeddingResponse, ProviderConfig,
         ProviderError,
@@ -347,6 +347,23 @@ impl ConversationService {
         })
     }
 
+    pub fn set_session_local(
+        vault: &Vault,
+        session_id: &str,
+        selection: crate::scene::SessionLocalSelection,
+    ) -> Result<TranscriptDocument, ConversationError> {
+        crate::scene::validate_selection(vault, &selection)
+            .map_err(|error| ConversationError::Invalid(error.to_string()))?;
+        let mut resume = Self::open_session(vault, session_id)?;
+        let mut transcript = resume.transcript.take().ok_or_else(|| {
+            ConversationError::Invalid("session transcript is missing after open".into())
+        })?;
+        crate::scene::apply_selection(&mut transcript, &selection);
+        transcript.updated_at = now_timestamp();
+        vault.save_transcript(&transcript)?;
+        Ok(transcript)
+    }
+
     pub async fn send(
         &self,
         vault: &Vault,
@@ -491,18 +508,22 @@ impl ConversationService {
 
         let event = render_initiative_event(&topic_context);
         let application_prompt = request.application_prompt.trim();
+        let (persona, scene) = prompt_layers(vault, &transcript)?;
         let prompt = build_prompt_with_memories(
             &request.character,
-            None,
+            PromptLayers {
+                application_prompt: if application_prompt.is_empty() {
+                    None
+                } else {
+                    Some(application_prompt)
+                },
+                user_persona: persona.as_deref(),
+                scene_context: scene.as_deref(),
+            },
             &transcript,
             &event,
             &memory_context,
             PromptBudget::default(),
-            if application_prompt.is_empty() {
-                None
-            } else {
-                Some(application_prompt)
-            },
         )
         .map_err(|error| ConversationError::Invalid(error.to_string()))?;
         let events = match self
@@ -655,14 +676,19 @@ impl ConversationService {
         } else {
             Some(application_prompt)
         };
+        let (persona, scene) = prompt_layers(vault, &transcript)?;
+        let layers = PromptLayers {
+            application_prompt,
+            user_persona: persona.as_deref(),
+            scene_context: scene.as_deref(),
+        };
         let mut prompt = build_prompt_with_memories(
             &snapshot.character,
-            None,
+            layers,
             &transcript,
             &snapshot.user_content,
             &memory_context,
             prompt_budget,
-            application_prompt,
         )
         .map_err(|error| ConversationError::Invalid(error.to_string()))?;
         let mut request = ChatRequest {
@@ -689,12 +715,11 @@ impl ConversationService {
                 };
                 match build_prompt_with_memories(
                     &snapshot.character,
-                    None,
+                    layers,
                     &transcript,
                     &snapshot.user_content,
                     &memory_context,
                     prompt_budget,
-                    application_prompt,
                 ) {
                     Ok(reduced) => {
                         prompt = reduced;
@@ -928,6 +953,20 @@ fn local_memory_endpoint(endpoint: &str) -> bool {
         .ok()
         .and_then(|url| url.host_str().map(str::to_owned))
         .is_some_and(|host| matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]" | "::1"))
+}
+
+fn prompt_layers(
+    vault: &Vault,
+    transcript: &TranscriptDocument,
+) -> Result<(Option<String>, Option<String>), ConversationError> {
+    let context =
+        crate::scene::resolve_prompt_context(vault, transcript).map_err(|error| match &error {
+            StorageError::InvalidSchema(message) | StorageError::InvalidPath(message) => {
+                ConversationError::Invalid(message.clone())
+            }
+            _ => ConversationError::Storage(error.to_string()),
+        })?;
+    Ok((context.persona, context.scene))
 }
 
 fn load_or_create_transcript(
@@ -1560,6 +1599,7 @@ mod tests {
                 character_id: "lyra".into(),
                 created_at: "1".into(),
                 updated_at: "1".into(),
+                local: None,
                 turns: vec![TranscriptTurn {
                     id: "user-1".into(),
                     timestamp: "1".into(),
@@ -1627,6 +1667,109 @@ mod tests {
         let captured = fake.requests.lock().unwrap()[0].clone();
         assert_eq!(captured.messages[0].content, "Application rules first.");
         assert!(captured.messages[1].content.contains("You are lyra."));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[tokio::test]
+    async fn send_injects_persona_and_live_linked_session_local() {
+        let root = root("persona-scene");
+        let vault = Vault::create(&root).unwrap();
+        vault
+            .save_character(&CharacterDefinition::new("lyra", "Lyra", "You are lyra."))
+            .unwrap();
+        crate::scene::save_persona(
+            &vault,
+            &crate::scene::PersonaNotes {
+                schema_version: crate::storage::STORAGE_SCHEMA_VERSION,
+                body: "I am Alex.".into(),
+            },
+        )
+        .unwrap();
+        crate::scene::save_local(
+            &vault,
+            &crate::scene::LocalRecord {
+                schema_version: crate::storage::STORAGE_SCHEMA_VERSION,
+                id: "cafe".into(),
+                title: "Evening cafe".into(),
+                body: "Rain on the windows.".into(),
+            },
+        )
+        .unwrap();
+        crate::scene::save_scene_settings(
+            &vault,
+            &crate::scene::SceneSettings {
+                schema_version: crate::storage::STORAGE_SCHEMA_VERSION,
+                default_local: Some("cafe".into()),
+            },
+        )
+        .unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![
+            Ok(complete_reply("Hello back")),
+            Ok(complete_reply("Still here")),
+        ]));
+        let service = ConversationService::new(fake.clone());
+        let first = snapshot("session-1", "lyra", "user-1", "Hello");
+        service
+            .send(&vault, first, CancellationToken::new())
+            .await
+            .unwrap();
+        let first_request = fake.requests.lock().unwrap()[0].clone();
+        assert!(first_request
+            .messages
+            .iter()
+            .any(|message| { message.content == "User persona (who the user is):\nI am Alex." }));
+        assert!(first_request.messages.iter().any(|message| {
+            message.content == "Current scene (Evening cafe):\nRain on the windows."
+        }));
+
+        ConversationService::set_session_local(
+            &vault,
+            "session-1",
+            crate::scene::SessionLocalSelection::Local { id: "cafe".into() },
+        )
+        .unwrap();
+        crate::scene::save_local(
+            &vault,
+            &crate::scene::LocalRecord {
+                schema_version: crate::storage::STORAGE_SCHEMA_VERSION,
+                id: "cafe".into(),
+                title: "Evening cafe".into(),
+                body: "The cafe is closing.".into(),
+            },
+        )
+        .unwrap();
+        let second = snapshot("session-1", "lyra", "user-2", "Still raining?");
+        service
+            .send(&vault, second, CancellationToken::new())
+            .await
+            .unwrap();
+        let second_request = fake.requests.lock().unwrap()[1].clone();
+        assert!(second_request.messages.iter().any(|message| {
+            message.content == "Current scene (Evening cafe):\nThe cafe is closing."
+        }));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[tokio::test]
+    async fn send_fails_when_session_local_is_missing() {
+        let root = root("missing-local-send");
+        let vault = Vault::create(&root).unwrap();
+        let mut transcript = crate::storage::TranscriptDocument::new("session-1", "lyra");
+        transcript.created_at = "1".into();
+        transcript.updated_at = "1".into();
+        transcript.local = Some("cafe".into());
+        vault.save_transcript(&transcript).unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![Ok(complete_reply("Hello back"))]));
+        let service = ConversationService::new(fake);
+        let error = service
+            .send(
+                &vault,
+                snapshot("session-1", "lyra", "user-1", "Hello"),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("add it to locals"));
         fs::remove_dir_all(root).ok();
     }
 

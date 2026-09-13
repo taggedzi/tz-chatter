@@ -13,6 +13,7 @@ export const shellEvents = {
   newSession: "tz-chatter-new-session",
   sessionsUpdated: "tz-chatter-sessions-updated",
   providerChanged: "tz-chatter-provider-changed",
+  portraitChanged: "tz-chatter-portrait-changed",
 } as const;
 
 export function requestLoadVault(vaultRoot: string) {
@@ -29,6 +30,10 @@ export function requestNewSession() {
 
 export function notifyProviderChanged() {
   window.dispatchEvent(new CustomEvent(shellEvents.providerChanged));
+}
+
+export function notifyPortraitChanged(vaultRoot: string) {
+  window.dispatchEvent(new CustomEvent(shellEvents.portraitChanged, { detail: { vaultRoot } }));
 }
 
 export function rememberActiveSession(vaultRoot: string, characterId: string, sessionId: string, characterName = characterId) {

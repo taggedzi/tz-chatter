@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { ProviderConfig } from "./providers";
+import type { SessionLocalSelection } from "./scene";
 
 export type CharacterDefinition = {
   schema_version: number;
@@ -39,6 +40,7 @@ export type TranscriptDocument = {
   character_id: string;
   created_at: string;
   updated_at: string;
+  local?: string | null;
   turns: TranscriptTurn[];
 };
 
@@ -108,6 +110,17 @@ export const conversationClient = {
   },
   startSession(vaultRoot: string) {
     return invoke<ConversationResume>("conversation_start_session", { vaultRoot });
+  },
+  setSessionLocal(
+    vaultRoot: string,
+    sessionId: string,
+    selection: SessionLocalSelection,
+  ) {
+    return invoke<TranscriptDocument>("conversation_set_session_local", {
+      vaultRoot,
+      sessionId,
+      selection,
+    });
   },
   send(vaultRoot: string, snapshot: RequestSnapshot, onMessage: (event: ChatStreamEvent) => void) {
     const onEvent = new Channel<ChatStreamEvent>();

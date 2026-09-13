@@ -215,6 +215,37 @@ fn canonical_files(
     character: &CharacterDefinition,
 ) -> Result<Vec<String>, PortabilityError> {
     let mut files = vec!["character.md".to_owned()];
+    for extra in ["persona.md", "scene.md"] {
+        if vault.root().join(extra).exists() {
+            files.push(extra.to_owned());
+        }
+    }
+    if crate::characters::load_portrait(vault.root())
+        .map_err(|error| PortabilityError::Invalid(error.to_string()))?
+        .is_some()
+    {
+        files.push("assets/portrait.png".to_owned());
+    }
+    let locals = vault.root().join("locals");
+    if locals.is_dir() {
+        for entry in fs::read_dir(locals)? {
+            let path = entry?.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("md") {
+                continue;
+            }
+            let id = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .ok_or_else(|| {
+                    PortabilityError::Invalid("local filename is not valid UTF-8".into())
+                })?;
+            crate::storage::validate_id(id)
+                .map_err(|error| PortabilityError::Invalid(error.to_string()))?;
+            let _ = crate::scene::load_local(vault, id)
+                .map_err(|error| PortabilityError::Invalid(error.to_string()))?;
+            files.push(format!("locals/{id}.md"));
+        }
+    }
     for (memory_type, folder) in memory_type_folders() {
         let directory = vault.root().join("memories").join(folder);
         if !directory.exists() {
@@ -311,6 +342,10 @@ fn validate_manifest(manifest: &PackManifest) -> Result<(), PortabilityError> {
                 )
             })
             || !(file == "character.md"
+                || file == "persona.md"
+                || file == "scene.md"
+                || file == "assets/portrait.png"
+                || file.starts_with("locals/")
                 || file.starts_with("memories/")
                 || file.starts_with("chats/")
                 || file == "state/state.json"
@@ -380,6 +415,24 @@ fn validate_staged_vault(vault: &Vault, manifest: &PackManifest) -> Result<(), P
                 PortabilityError::Invalid(format!("invalid memory filename: {file}"))
             })?;
             let _ = vault.load_memory(&memory_type, id)?;
+        } else if relative == "assets/portrait.png" {
+            let bytes = crate::characters::load_portrait(vault.root())
+                .map_err(|error| PortabilityError::Invalid(error.to_string()))?
+                .ok_or_else(|| PortabilityError::Invalid("pack portrait is missing".into()))?;
+            crate::characters::validate_portrait_bytes(&bytes)
+                .map_err(|error| PortabilityError::Invalid(error.to_string()))?;
+        } else if relative == "persona.md" {
+            let _ = crate::scene::load_persona(vault)
+                .map_err(|error| PortabilityError::Invalid(error.to_string()))?;
+        } else if relative == "scene.md" {
+            let _ = crate::scene::load_scene_settings(vault)
+                .map_err(|error| PortabilityError::Invalid(error.to_string()))?;
+        } else if let Some(id) = relative
+            .strip_prefix("locals/")
+            .and_then(|value| value.strip_suffix(".md"))
+        {
+            let _ = crate::scene::load_local(vault, id)
+                .map_err(|error| PortabilityError::Invalid(error.to_string()))?;
         } else if let Some(session_id) = relative
             .strip_prefix("chats/")
             .and_then(|value| value.strip_suffix(".md"))
@@ -532,6 +585,32 @@ mod tests {
         let vault = Vault::create(root).unwrap();
         let character = CharacterDefinition::new(character_id, character_id, "Stay grounded.");
         vault.save_character(&character).unwrap();
+        crate::scene::save_persona(
+            &vault,
+            &crate::scene::PersonaNotes {
+                schema_version: crate::storage::STORAGE_SCHEMA_VERSION,
+                body: "I am Alex.".into(),
+            },
+        )
+        .unwrap();
+        crate::scene::save_local(
+            &vault,
+            &crate::scene::LocalRecord {
+                schema_version: crate::storage::STORAGE_SCHEMA_VERSION,
+                id: "cafe".into(),
+                title: "Evening cafe".into(),
+                body: "Rain on the windows.".into(),
+            },
+        )
+        .unwrap();
+        crate::scene::save_scene_settings(
+            &vault,
+            &crate::scene::SceneSettings {
+                schema_version: crate::storage::STORAGE_SCHEMA_VERSION,
+                default_local: Some("cafe".into()),
+            },
+        )
+        .unwrap();
         let mut memory = MemoryRecord::new("topic", MemoryType::OpenThreads, "Plan the garden.");
         memory.created_at = "1".into();
         memory.updated_at = "2".into();
@@ -545,6 +624,7 @@ mod tests {
             character_id: character_id.into(),
             created_at: "1".into(),
             updated_at: "2".into(),
+            local: None,
             turns: vec![TranscriptTurn {
                 id: "user".into(),
                 timestamp: "1".into(),
@@ -564,6 +644,40 @@ mod tests {
         vault
     }
 
+    fn tiny_png() -> Vec<u8> {
+        vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ]
+    }
+
+    #[test]
+    fn export_import_includes_portrait_png() {
+        let source_root = root("portrait-source");
+        let pack_root = root("portrait-pack");
+        let target_root = root("portrait-target");
+        let source = seed_vault(&source_root, "lyra");
+        crate::characters::set_portrait(source.root(), &tiny_png()).unwrap();
+        let manifest = export_pack(&source, &pack_root).unwrap();
+        assert!(manifest
+            .files
+            .iter()
+            .any(|file| file == "assets/portrait.png"));
+        let _ = import_pack(&pack_root, &target_root, false).unwrap();
+        assert_eq!(
+            crate::characters::load_portrait(&target_root)
+                .unwrap()
+                .as_deref(),
+            Some(tiny_png().as_slice())
+        );
+        fs::remove_dir_all(source_root).unwrap();
+        fs::remove_dir_all(pack_root).unwrap();
+        fs::remove_dir_all(target_root).unwrap();
+    }
+
     #[test]
     fn export_import_round_trip_preserves_canonical_and_durable_state() {
         let source_root = root("source");
@@ -580,6 +694,24 @@ mod tests {
         assert_eq!(result.files_restored, manifest.files.len());
         let target = Vault::create(&target_root).unwrap();
         assert_eq!(target.load_character().unwrap().id, "lyra");
+        assert!(manifest.files.iter().any(|file| file == "persona.md"));
+        assert!(manifest.files.iter().any(|file| file == "scene.md"));
+        assert!(manifest.files.iter().any(|file| file == "locals/cafe.md"));
+        assert_eq!(
+            crate::scene::load_persona(&target).unwrap().body.trim(),
+            "I am Alex."
+        );
+        assert_eq!(
+            crate::scene::load_scene_settings(&target)
+                .unwrap()
+                .default_local
+                .as_deref(),
+            Some("cafe")
+        );
+        assert!(crate::scene::load_local(&target, "cafe")
+            .unwrap()
+            .body
+            .contains("Rain on the windows."));
         assert_eq!(
             target
                 .load_memory(&MemoryType::OpenThreads, "topic")

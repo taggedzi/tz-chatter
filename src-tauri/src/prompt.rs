@@ -57,6 +57,13 @@ impl fmt::Display for PromptError {
 
 impl std::error::Error for PromptError {}
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PromptLayers<'a> {
+    pub application_prompt: Option<&'a str>,
+    pub user_persona: Option<&'a str>,
+    pub scene_context: Option<&'a str>,
+}
+
 pub fn build_prompt(
     character: &CharacterDefinition,
     scene_context: Option<&str>,
@@ -66,30 +73,32 @@ pub fn build_prompt(
 ) -> Result<PromptBuild, PromptError> {
     build_prompt_with_memories(
         character,
-        scene_context,
+        PromptLayers {
+            scene_context,
+            ..PromptLayers::default()
+        },
         transcript,
         current_message,
         &[],
         budget,
-        None,
     )
 }
 
 pub fn build_prompt_with_memories(
     character: &CharacterDefinition,
-    scene_context: Option<&str>,
+    layers: PromptLayers<'_>,
     transcript: &TranscriptDocument,
     current_message: &str,
     memory_context: &[RetrievedMemory],
     budget: PromptBudget,
-    application_prompt: Option<&str>,
 ) -> Result<PromptBuild, PromptError> {
     let input_limit = budget.input_tokens()?;
     let character_message = ChatMessage {
         role: ChatRole::System,
         content: character_context(character),
     };
-    let scene_message = scene_context
+    let scene_message = layers
+        .scene_context
         .filter(|context| !context.trim().is_empty())
         .map(|context| ChatMessage {
             role: ChatRole::System,
@@ -101,7 +110,8 @@ pub fn build_prompt_with_memories(
     };
 
     let mut base_messages = Vec::new();
-    if let Some(rules) = application_prompt
+    if let Some(rules) = layers
+        .application_prompt
         .map(str::trim)
         .filter(|text| !text.is_empty())
     {
@@ -111,6 +121,16 @@ pub fn build_prompt_with_memories(
         });
     }
     base_messages.push(character_message);
+    if let Some(persona) = layers
+        .user_persona
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        base_messages.push(ChatMessage {
+            role: ChatRole::System,
+            content: persona.to_owned(),
+        });
+    }
     if let Some(scene) = scene_message {
         base_messages.push(scene);
     }
@@ -254,6 +274,7 @@ mod tests {
             character_id: "lyra".into(),
             created_at: "1".into(),
             updated_at: "1".into(),
+            local: None,
             turns: vec![
                 TranscriptTurn {
                     id: "old-user".into(),
@@ -377,7 +398,7 @@ mod tests {
     fn includes_retrieved_memory_with_an_explicit_source_label() {
         let result = build_prompt_with_memories(
             &character(),
-            None,
+            PromptLayers::default(),
             &transcript(),
             "What does Mina like?",
             &[RetrievedMemory {
@@ -392,7 +413,6 @@ mod tests {
                 semantic_score: None,
             }],
             PromptBudget::default(),
-            None,
         )
         .unwrap();
         let memory_message = result
@@ -412,12 +432,15 @@ mod tests {
     fn application_rules_precede_character_and_are_omitted_when_empty() {
         let with_rules = build_prompt_with_memories(
             &character(),
-            Some("Scene: a quiet library."),
+            PromptLayers {
+                application_prompt: Some("  Application rules first.  "),
+                scene_context: Some("Scene: a quiet library."),
+                ..PromptLayers::default()
+            },
             &transcript(),
             "Hello",
             &[],
             PromptBudget::default(),
-            Some("  Application rules first.  "),
         )
         .unwrap();
         assert_eq!(with_rules.messages[0].role, ChatRole::System);
@@ -429,16 +452,68 @@ mod tests {
 
         let without_rules = build_prompt_with_memories(
             &character(),
-            None,
+            PromptLayers {
+                application_prompt: Some("   "),
+                ..PromptLayers::default()
+            },
             &transcript(),
             "Hello",
             &[],
             PromptBudget::default(),
-            Some("   "),
         )
         .unwrap();
         assert!(without_rules.messages[0]
             .content
             .contains("Be warm and concise."));
+    }
+
+    #[test]
+    fn persona_follows_character_and_precedes_scene_and_is_omitted_when_empty() {
+        let with_persona = build_prompt_with_memories(
+            &character(),
+            PromptLayers {
+                application_prompt: Some("Application rules first."),
+                user_persona: Some("  User persona (who the user is):\nI am Alex.  "),
+                scene_context: Some("Current scene (Evening cafe):\nRain on the windows."),
+            },
+            &transcript(),
+            "Hello",
+            &[],
+            PromptBudget::default(),
+        )
+        .unwrap();
+        assert_eq!(with_persona.messages[0].content, "Application rules first.");
+        assert!(with_persona.messages[1]
+            .content
+            .contains("Be warm and concise."));
+        assert_eq!(
+            with_persona.messages[2].content,
+            "User persona (who the user is):\nI am Alex."
+        );
+        assert_eq!(
+            with_persona.messages[3].content,
+            "Current scene (Evening cafe):\nRain on the windows."
+        );
+
+        let without_persona = build_prompt_with_memories(
+            &character(),
+            PromptLayers {
+                user_persona: Some("   "),
+                scene_context: Some("Current scene (Evening cafe):\nRain on the windows."),
+                ..PromptLayers::default()
+            },
+            &transcript(),
+            "Hello",
+            &[],
+            PromptBudget::default(),
+        )
+        .unwrap();
+        assert!(without_persona.messages[0]
+            .content
+            .contains("Be warm and concise."));
+        assert_eq!(
+            without_persona.messages[1].content,
+            "Current scene (Evening cafe):\nRain on the windows."
+        );
     }
 }

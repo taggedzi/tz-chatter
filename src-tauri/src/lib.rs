@@ -25,6 +25,7 @@ pub mod prompt;
 pub mod providers;
 pub mod reconciliation;
 pub mod retrieval;
+pub mod scene;
 pub mod storage;
 
 #[derive(Default)]
@@ -707,6 +708,25 @@ fn character_save(
 }
 
 #[tauri::command]
+fn character_portrait_load(vault_root: String) -> Result<Option<String>, String> {
+    match characters::load_portrait(vault_root).map_err(String::from)? {
+        Some(bytes) => Ok(Some(characters::portrait_data_url(&bytes))),
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+fn character_portrait_set(vault_root: String, data_base64: String) -> Result<(), String> {
+    let bytes = characters::decode_portrait_base64(&data_base64).map_err(String::from)?;
+    characters::set_portrait(vault_root, &bytes).map_err(String::from)
+}
+
+#[tauri::command]
+fn character_portrait_clear(vault_root: String) -> Result<(), String> {
+    characters::clear_portrait(vault_root).map_err(String::from)
+}
+
+#[tauri::command]
 fn application_prompt_load(app: AppHandle) -> Result<characters::ApplicationPrompt, String> {
     let path = characters::prompt_path(app_config_dir(&app)?);
     characters::load_application_prompt(&path).map_err(String::from)
@@ -719,6 +739,66 @@ fn application_prompt_save(
 ) -> Result<(), String> {
     let path = characters::prompt_path(app_config_dir(&app)?);
     characters::save_application_prompt(&path, &prompt).map_err(String::from)
+}
+
+#[tauri::command]
+fn persona_load(vault_root: String) -> Result<scene::PersonaNotes, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    scene::load_persona(&vault).map_err(String::from)
+}
+
+#[tauri::command]
+fn persona_save(
+    vault_root: String,
+    notes: scene::PersonaNotes,
+) -> Result<scene::PersonaNotes, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    scene::save_persona(&vault, &notes).map_err(String::from)?;
+    scene::load_persona(&vault).map_err(String::from)
+}
+
+#[tauri::command]
+fn scene_settings_load(vault_root: String) -> Result<scene::SceneSettings, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    scene::load_scene_settings(&vault).map_err(String::from)
+}
+
+#[tauri::command]
+fn scene_settings_save(
+    vault_root: String,
+    settings: scene::SceneSettings,
+) -> Result<scene::SceneSettings, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    scene::save_scene_settings(&vault, &settings).map_err(String::from)?;
+    scene::load_scene_settings(&vault).map_err(String::from)
+}
+
+#[tauri::command]
+fn locals_list(vault_root: String) -> Result<Vec<scene::LocalSummary>, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    scene::list_locals(&vault).map_err(String::from)
+}
+
+#[tauri::command]
+fn local_load(vault_root: String, id: String) -> Result<scene::LocalRecord, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    scene::load_local(&vault, &id).map_err(String::from)
+}
+
+#[tauri::command]
+fn local_save(
+    vault_root: String,
+    record: scene::LocalRecord,
+) -> Result<scene::LocalRecord, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    scene::save_local(&vault, &record).map_err(String::from)?;
+    scene::load_local(&vault, &record.id).map_err(String::from)
+}
+
+#[tauri::command]
+fn local_delete(vault_root: String, id: String) -> Result<(), String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    scene::delete_local(&vault, &id).map_err(String::from)
 }
 
 #[tauri::command]
@@ -805,6 +885,17 @@ fn conversation_start_session(
 ) -> Result<conversation::ConversationResume, String> {
     let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
     conversation::ConversationService::start_session(&vault).map_err(String::from)
+}
+
+#[tauri::command]
+fn conversation_set_session_local(
+    vault_root: String,
+    session_id: String,
+    selection: scene::SessionLocalSelection,
+) -> Result<storage::TranscriptDocument, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    conversation::ConversationService::set_session_local(&vault, &session_id, selection)
+        .map_err(String::from)
 }
 
 #[tauri::command]
@@ -1528,13 +1619,25 @@ pub fn run() {
             character_library_remove,
             character_load,
             character_save,
+            character_portrait_load,
+            character_portrait_set,
+            character_portrait_clear,
             application_prompt_load,
             application_prompt_save,
+            persona_load,
+            persona_save,
+            scene_settings_load,
+            scene_settings_save,
+            locals_list,
+            local_load,
+            local_save,
+            local_delete,
             conversation_send,
             conversation_resume,
             conversation_list_sessions,
             conversation_open_session,
             conversation_start_session,
+            conversation_set_session_local,
             conversation_retry,
             conversation_cancel,
             initiative_send,

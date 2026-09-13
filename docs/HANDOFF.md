@@ -566,3 +566,43 @@ Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.tom
 Incomplete work / blockers: live embedding quality not claimed. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
 
 Next concrete action: none scheduled. T16/T18 remain environment-limited.
+
+## 2026-09-12 — T26: user persona and reusable locals
+
+Scope and outcome: first-class portable Markdown for who the user is and where the scene is, outside `character.md`. Vault files: `persona.md`, `scene.md` (character default local id), and `locals/<id>.md`. A local must exist in `locals/` before the character default or a session can select it. Session frontmatter `local` is a live link: missing follows the default, empty clears the scene, `cafe` reads `locals/cafe.md` at send time. Prompt order is application rules, character identity, labeled user persona, labeled current scene, memories, history, current message; empty sections are omitted. Extraction still writes only `memories/`. Packs include persona, scene, and locals. Characters edits persona, locals, and the default; chat picks Character default / None / an existing local, or creates a local then selects it.
+
+Files changed: `src-tauri/src/scene.rs`, `src-tauri/src/storage.rs`, `src-tauri/src/prompt.rs`, `src-tauri/src/conversation.rs`, `src-tauri/src/portability.rs`, `src-tauri/src/characters.rs`, `src-tauri/src/lib.rs`, `src/scene.ts`, `src/conversation.ts`, `src/CharacterPanel.tsx`, `src/ConversationPanel.tsx`, `src/PortabilityPanel.tsx`, `src/App.css`, `examples/characters/lyra/persona.md`, `examples/characters/lyra/scene.md`, `examples/characters/lyra/locals/cafe.md`, `README.md`, `docs/PROJECT.md`, `docs/PLAN.md`, `docs/DECISIONS.md`, `docs/STATUS.md`, and this handoff.
+
+Decisions added/superseded: ADR-010 accepted.
+
+Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.toml` PASS 120 passed, 2 ignored. `cargo fmt --all -- --check` PASS. `cargo clippy --all-targets -- -D warnings` PASS. `npm run lint` PASS. `npm run typecheck` PASS. `npm run build` PASS. Native window interaction was not re-run.
+
+Incomplete work / blockers: none for T26. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: none scheduled. T16/T18 remain environment-limited.
+
+## 2026-09-12 — T26 follow-up: persona and locals in character add/edit
+
+Scope and outcome: Characters New, Add, and Save now treat persona and locals as part of building a character, not a side editor. Creating a vault writes empty `persona.md` and `scene.md` next to `character.md` and `locals/`. The New form collects user persona and an optional first local (used as the default scene). Add loads those files into the editor. Save character files writes identity, persona, scene default, and the local currently in the form.
+
+Files changed: `src-tauri/src/characters.rs`, `src/CharacterPanel.tsx`, `src/App.css`, `README.md`, `docs/STATUS.md`, and this handoff.
+
+Verification and actual results: create-character test asserts persona.md and scene.md exist; Clippy, fmt check, frontend lint/typecheck/build passed. Native window not re-run.
+
+Incomplete work / blockers: none for this follow-up. T16/T18 remain environment-limited.
+
+Next concrete action: none scheduled. T16/T18 remain environment-limited.
+
+## 2026-09-12 — T27: character portraits
+
+Scope and outcome: portable `assets/portrait.png` renders in the Characters library list, the chat sidebar active-character card, and the identity editor. Missing files fall back to initials. The editor can choose, replace, drag-drop, or remove a PNG; dropping `assets/portrait.png` into the vault folder is detected on the next library list or window focus. New vaults scaffold an empty `assets/` directory. Writes stay confined to the selected vault; non-PNG and files larger than 5 MB are rejected. Packs include a valid portrait when present. Open-folder / Obsidian remain unscheduled.
+
+Files changed: `src-tauri/src/characters.rs`, `src-tauri/src/lib.rs`, `src-tauri/src/portability.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src/characters.ts`, `src/CharacterPanel.tsx`, `src/CharacterPortrait.tsx`, `src/App.tsx`, `src/App.css`, `src/activeSession.ts`, `README.md`, `docs/PROJECT.md`, `docs/PLAN.md`, `docs/DECISIONS.md`, `docs/STATUS.md`, `docs/Future-Growth-Notes.md`, and this handoff.
+
+Decisions added/superseded: ADR-011 accepted.
+
+Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.toml` PASS 124 passed, 2 ignored. `cargo fmt --all -- --check` PASS. `cargo clippy --all-targets -- -D warnings` PASS. `npm run lint` PASS. `npm run typecheck` PASS. `npm run build` PASS. Native window interaction was not re-run.
+
+Incomplete work / blockers: none for T27. JPEG/WebP conversion, animated avatars, and open-vault-as-files remain unscheduled. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: none scheduled. T16/T18 remain environment-limited.
