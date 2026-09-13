@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { CharacterPanel } from "./CharacterPanel";
+import { CharacterSwitcher } from "./CharacterSwitcher";
 import { ConversationPanel } from "./ConversationPanel";
 import { MemoryPanel } from "./MemoryPanel";
 import { SettingsPanel, type SettingsSection } from "./SettingsPanel";
@@ -10,16 +11,30 @@ import {
   activeSessionId,
   activeSessionStorageKeys,
   requestArchiveSession,
+  requestLoadVault,
   requestNewSession,
   requestOpenSession,
   requestRenameSession,
   requestSessionListFilter,
   shellEvents,
+  type ConversationUiState,
 } from "./activeSession";
 import type { SessionSummary } from "./conversation";
 import { characterClient } from "./characters";
 import { CharacterPortraitMark } from "./CharacterPortrait";
+import {
+  fromKeyboardEvent,
+  isMacPlatform,
+  resolveChatShortcut,
+  type ChatShortcutAction,
+} from "./chatShortcuts";
 import "./App.css";
+
+function focusComposerSoon() {
+  window.requestAnimationFrame(() => {
+    window.dispatchEvent(new CustomEvent(shellEvents.focusComposer));
+  });
+}
 
 type AppInfo = {
   name: string;
@@ -68,13 +83,92 @@ function App() {
   const [showArchived, setShowArchived] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [switcherOpen, setSwitcherOpen] = useState(false);
   const skipRenameBlur = useRef(false);
+  const conversationUi = useRef<ConversationUiState>({
+    generating: false,
+    sourcesOpen: false,
+    sourcesAvailable: false,
+    newLocalOpen: false,
+  });
+  const isMac = typeof navigator !== "undefined" && isMacPlatform(navigator.platform);
+  const modifierShortcut = isMac ? "Meta" : "Control";
+
+  const applyShortcut = useCallback((action: ChatShortcutAction) => {
+    if (action === "close-switcher") {
+      setSwitcherOpen(false);
+      return;
+    }
+    if (action === "toggle-character-switcher") {
+      setSwitcherOpen((open) => !open);
+      return;
+    }
+    if (action === "close-settings") {
+      setSettingsOpen(false);
+      return;
+    }
+    if (action === "new-session") {
+      setSwitcherOpen(false);
+      setSettingsOpen(false);
+      setActiveView("chat");
+      requestNewSession();
+      focusComposerSoon();
+      return;
+    }
+    if (action === "focus-composer") {
+      setSwitcherOpen(false);
+      setSettingsOpen(false);
+      setActiveView("chat");
+      focusComposerSoon();
+      return;
+    }
+    if (action === "stop-generation") {
+      window.dispatchEvent(new CustomEvent(shellEvents.stopGeneration));
+      return;
+    }
+    if (action === "toggle-sources") {
+      setSwitcherOpen(false);
+      setSettingsOpen(false);
+      setActiveView("chat");
+      window.dispatchEvent(new CustomEvent(shellEvents.toggleSources));
+      return;
+    }
+    if (action === "close-sources") {
+      window.dispatchEvent(new CustomEvent(shellEvents.closeSources));
+      return;
+    }
+    window.dispatchEvent(new CustomEvent(shellEvents.closeNewLocal));
+  }, []);
 
   useEffect(() => {
     invoke<AppInfo>("app_info")
       .then(setAppInfo)
       .catch(() => setShellError("Rust core is unavailable"));
   }, []);
+
+  useEffect(() => {
+    const onUi = (event: Event) => {
+      const detail = (event as CustomEvent<ConversationUiState>).detail;
+      if (detail) conversationUi.current = detail;
+    };
+    const onKey = (event: KeyboardEvent) => {
+      const action = resolveChatShortcut(fromKeyboardEvent(event), {
+        switcherOpen,
+        settingsOpen,
+        renameOpen: renamingId !== null,
+        ...conversationUi.current,
+      }, { isMac: isMacPlatform(navigator.platform) });
+      if (!action) return;
+      event.preventDefault();
+      applyShortcut(action);
+    };
+    window.addEventListener(shellEvents.conversationUi, onUi);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener(shellEvents.conversationUi, onUi);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [applyShortcut, renamingId, settingsOpen, switcherOpen]);
 
   useEffect(() => {
     const update = () => {
@@ -150,6 +244,7 @@ function App() {
           className="character-card"
           onClick={() => { setSettingsOpen(false); setActiveView("characters"); }}
           type="button"
+          aria-keyshortcuts={`${modifierShortcut}+K`}
           aria-label="Open character library"
         >
           {activeCharacter ? (
@@ -211,12 +306,14 @@ function App() {
           <div className="session-list-header">
             <span className="eyebrow">Conversations</span>
             <button
+              aria-keyshortcuts={`${modifierShortcut}+N`}
               className="text-button"
               disabled={!vaultRoot.trim() || !activeCharacter}
               onClick={() => {
                 setSettingsOpen(false);
                 setActiveView("chat");
                 requestNewSession();
+                focusComposerSoon();
               }}
               type="button"
             >
@@ -370,6 +467,20 @@ function App() {
           onClose={() => setSettingsOpen(false)}
           onSection={setSettingsSection}
           section={settingsSection}
+        />
+      )}
+
+      {switcherOpen && (
+        <CharacterSwitcher
+          activeVaultRoot={vaultRoot}
+          onClose={() => setSwitcherOpen(false)}
+          onSelect={(root) => {
+            setSwitcherOpen(false);
+            setSettingsOpen(false);
+            setActiveView("chat");
+            if (!sameVault(root, vaultRoot)) requestLoadVault(root);
+            focusComposerSoon();
+          }}
         />
       )}
     </div>

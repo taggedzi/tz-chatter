@@ -63,11 +63,14 @@ file (user picks the contradicts side; supersedes excludes the older file).
 Both files stay on disk; retrieval drops the excluded one. `related` links
 are not listed.
 
+10. **IMPLEMENTED (T32)** Keyboard-first chat. Ctrl+N new session, Ctrl+K
+typeahead character switcher, Ctrl+L focus composer, Ctrl+. stop generation,
+Ctrl+I toggle Sources, Escape dismisses switcher / Settings / generation /
+Sources then focuses the composer. Mouse paths stay. Cmd mirrors Ctrl on
+macOS without claiming macOS verification.
+
 ## Next, still on-mission
 
-• Keyboard-first chat. New session, switch character, focus composer, stop 
-generation, open sources. This is a desktop chat program; it should feel like 
-one.
 • macOS / Linux verification. The vault format is already portable; the missing 
 piece is the app itself on the other machines people would move a character to.
 

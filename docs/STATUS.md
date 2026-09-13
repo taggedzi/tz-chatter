@@ -4,11 +4,11 @@ Last updated: 2026-09-13
 
 ## Current position
 
-- Project phase: Milestone 14 T31 done; Milestone 13 T30 done; Milestone 12 T29 done; Milestone 11 T28 done; Milestone 10 T27 done; Milestone 9 T26 done; Milestone 7 environment-limited leftovers (T16/T18); Milestone 8 T24 and T25 done.
-- Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, T19 completion-audit remediations A01-A15, auto-write of validated memories, hybrid retrieval by default with lexical fallback, portable user persona plus reusable scene locals, portable character portraits, session titles/search/in-place archive, last-exchange edit/regenerate/continue, per-character model and sampling, and contradiction/supersession review.
+- Project phase: Milestone 15 T32 done; Milestone 14 T31 done; Milestone 13 T30 done; Milestone 12 T29 done; Milestone 11 T28 done; Milestone 10 T27 done; Milestone 9 T26 done; Milestone 7 environment-limited leftovers (T16/T18); Milestone 8 T24 and T25 done.
+- Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, T19 completion-audit remediations A01-A15, auto-write of validated memories, hybrid retrieval by default with lexical fallback, portable user persona plus reusable scene locals, portable character portraits, session titles/search/in-place archive, last-exchange edit/regenerate/continue, per-character model and sampling, contradiction/supersession review, and keyboard-first chat.
 - T01 delivered: React/TypeScript shell, Rust command boundary, frontend/Rust lockfiles, validation scripts, and a Windows launch check.
 - Repository: initialized locally on `main`; no remote configured. T19/A13 commit `6a08a51` contains the reviewed application sources.
-- Active task: none. T31 contradiction and supersession review is done.
+- Active task: none. T32 keyboard-first chat is done.
 - Next task: none scheduled. T16/T18 remain in_progress only for environment-limited visual tray/keyboard and live llama.cpp/LM Studio checks.
 - Blockers: no known implementation blockers. Native Computer Use visual inspection remains unavailable; process/window inspection verified launch and responsiveness.
 
@@ -53,15 +53,16 @@ The plan contains dependencies and acceptance criteria. This table is the author
 | T29 | Edit last message, regenerate, continue | done | Last-exchange edit/regenerate/continue; `superseded` kept in Markdown; extraction abandons non-complete sources; continue appends to Interrupted with the same id. 135 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. Native window not re-run. |
 | T30 | Per-character model and sampling | done | Optional chat model/temperature/max tokens in `.tz-chatter/generation.json`; chat/initiative use full override; extraction uses character model with conservative sampling; packs omit the file. 146 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. Native window not re-run. |
 | T31 | Contradiction and supersession review | done | Memories Conflicts lists committed contradicts/supersedes pairs; exclude marks the chosen Markdown excluded without deleting it; related/missing/excluded sides omitted; supersedes exclude-older rejects from_id. 156 Rust tests passed and 2 ignored; Clippy, fmt, frontend lint/typecheck/build passed. Native window not re-run. |
+| T32 | Keyboard-first chat | done | Global Ctrl/Cmd keymap plus typeahead character switcher; Escape stack; composer focus after new/switch/Ctrl+L. 17 shortcut tests passed; frontend lint/typecheck/build passed. Native chord click-through not re-run. |
 
 ## Active work and resumption
 
-Task: none (T31 contradiction and supersession review done)
+Task: none (T32 keyboard-first chat done)
 Owner/session and date: Grok implementer — 2026-09-13
-Scope / files being edited: none remaining for T31.
-Completed in this session: Conflicts list and exclude-stale path, ADR-015, Memories UI.
+Scope / files being edited: none remaining for T32.
+Completed in this session: keymap resolver, character switcher overlay, shell wiring, ADR-016.
 Remaining acceptance criteria: none.
-Verification commands and outcomes: `cargo test --manifest-path src-tauri/Cargo.toml` PASS 156 passed, 2 ignored; `cargo fmt --all -- --check` PASS; `cargo clippy --all-targets -- -D warnings` PASS; `npm run lint` PASS; `npm run typecheck` PASS; `npm run build` PASS.
+Verification commands and outcomes: `npm run test:shortcuts` PASS 17 passed; `npm run lint` PASS; `npm run typecheck` PASS; `npm run build` PASS.
 Blocker and unblock action (if any): none.
 Exact next step: none scheduled. T16/T18 remain environment-limited.
 
@@ -166,3 +167,4 @@ Update the task board and append a handoff entry in the same change. Keep this f
 | 2026-09-12 | T29 edit, regenerate, and continue | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 135 passed and 2 ignored including superseded round-trip, regenerate new id, edit last user, continue same id, retry keeps superseded siblings, extraction abandon of superseded source; frontend checks passed; native window not re-run |
 | 2026-09-13 | T30 per-character model and sampling | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 146 passed and 2 ignored including generation round-trip without touching character.md, inherit vs override, extraction conservative sampling, pack omission, Ollama/OpenAI sampling payloads; frontend checks passed; native window not re-run |
 | 2026-09-13 | T31 contradiction and supersession review | cargo test; cargo fmt --check; clippy -D warnings; npm lint/typecheck/build | PASS: 156 passed and 2 ignored including contradicts list, related hidden, exclude/delete leave the list, missing side omitted, vault isolation, FTS drop after exclude, supersedes from_id rejected, locked exclude, stale pair error, list does not write; frontend checks passed; native window not re-run |
+| 2026-09-13 | T32 keyboard-first chat | npm run test:shortcuts; npm run lint; npm run typecheck; npm run build | PASS: 17 shortcut-resolver tests; frontend lint/typecheck/build; native chord click-through not re-run |

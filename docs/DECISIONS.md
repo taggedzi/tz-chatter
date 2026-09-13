@@ -137,3 +137,13 @@ Date: 2026-09-13. State: accepted. Basis: explicit user request to implement the
 The Memories panel lists committed `contradicts` and `supersedes` links already stored in durable `.tz-chatter/state.sqlite3`. Membership requires both Markdown files to exist and neither to be excluded. `related` links are not disagreements and stay off the list. Resolve is user-initiated exclude of one file; workers still do not mutate existing bodies. Contradicts sides are chosen by the user. Supersedes exclude-older on this path may only target `to_memory_id`. A pair leaves the list when either side is excluded or deleted. No keep-both acknowledgement table. Links are not written into Markdown frontmatter in this task.
 
 Consequence: T31 implements this. Chat-chrome badges, delete-from-list, and auto-exclude of locked files are out of scope.
+
+## ADR-016 — Keyboard-first chat
+
+Date: 2026-09-13. State: accepted. Basis: explicit user request to implement the on-mission keyboard-first chat item, with a typeahead character switcher and the recommended Windows keymap.
+
+The existing chat loop stays mouse-reachable. A global keymap drives new session, character switch, composer focus, stop generation, and Sources. Escape closes in order: character switcher, Settings, in-flight generation, Sources, then composer focus. Session rename keeps Escape to cancel. Ctrl+. always stops a stream when one is running. Cmd mirrors Ctrl on macOS; that is a portable binding, not a macOS support claim.
+
+The character switcher is a typeahead overlay over the existing library list. Choosing a character uses the current vault-resume path, stays on Chat, and focuses the composer. It does not open the identity editor. No command palette, session picker, or user-editable bindings in this task.
+
+Consequence: T32 implements this. Customizable shortcuts, a cheat-sheet modal, and edit/regenerate/continue keys remain out of scope.

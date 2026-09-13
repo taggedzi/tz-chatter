@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test:shortcuts": "node --test --experimental-strip-types tests/chatShortcuts.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

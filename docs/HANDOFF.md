@@ -692,3 +692,17 @@ Verification and actual results: `cargo test --manifest-path src-tauri/Cargo.tom
 Incomplete work / blockers: none for T31. Chat-chrome badges, keep-both dismiss, and Markdown-stored links remain out of scope. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
 
 Next concrete action: none scheduled. T16/T18 remain environment-limited.
+
+## 2026-09-13 — T32: keyboard-first chat
+
+Scope and outcome: Chat now has a global keymap and a typeahead character switcher. Ctrl+N starts a new session, Ctrl+K opens the library picker, Ctrl+L focuses the composer, Ctrl+. stops generation, Ctrl+I toggles Sources when memories were retrieved. Escape closes switcher, then Settings, then stops generation, then Sources, then focuses the composer. Session rename still owns Escape. Cmd mirrors Ctrl on macOS without a macOS support claim. Choosing a character resumes that vault through the existing load path, stays on Chat, and focuses the composer. Mouse controls remain.
+
+Files changed: `src/chatShortcuts.ts`, `src/CharacterSwitcher.tsx`, `src/App.tsx`, `src/ConversationPanel.tsx`, `src/SettingsPanel.tsx`, `src/activeSession.ts`, `src/App.css`, `tests/chatShortcuts.test.mjs`, `package.json`, `README.md`, `docs/PLAN.md`, `docs/PROJECT.md`, `docs/DECISIONS.md`, `docs/STATUS.md`, `docs/Future-Growth-Notes.md`, and this handoff.
+
+Decisions added/superseded: ADR-016 accepted.
+
+Verification and actual results: `npm run test:shortcuts` PASS 17 passed. `npm run lint` PASS. `npm run typecheck` PASS. `npm run build` PASS. Native window chord click-through was not re-run.
+
+Incomplete work / blockers: none for T32. Command palette, session picker in the overlay, customizable bindings, and edit/regenerate/continue keys remain out of scope. T16/T18 visual tray/keyboard and live llama.cpp/LM Studio checks remain environment-limited.
+
+Next concrete action: none scheduled. T16/T18 remain environment-limited.

@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 import { activeSessionStorageKeys, requestLoadVault } from "./activeSession";
 import { InitiativePanel } from "./InitiativePanel";
 import { PortabilityPanel } from "./PortabilityPanel";
@@ -23,14 +23,6 @@ export function SettingsPanel({
   onSection: (section: SettingsSection) => void;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
     <div className="settings-overlay" role="dialog" aria-modal="true" aria-label="Settings">
       <aside className="settings-nav">

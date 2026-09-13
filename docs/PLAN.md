@@ -288,11 +288,23 @@ Show committed `contradicts` and `supersedes` pairs on Memories. Read durable `m
 
 Acceptance: contradicts pairs appear with both excerpts; `related` links do not; a pair disappears after exclude or delete of either side; missing sides are omitted; other vaults are isolated; exclude of one contradicts side leaves the other accepted, drops FTS hits, and keeps the file browsable; supersedes exclude-older rejects `from_id` on this command; locked `to` can be excluded; a stale pair errors and writes nothing; the list command does not write; frontend lint/typecheck/build pass.
 
+## Milestone 15 — Keyboard-first chat
+
+### T32 — Keyboard-first chat
+
+Depends on: T20, T21.
+
+Add a Windows-first chat keymap so the existing loop (new session, switch character, focus composer, stop generation, open sources) works without the mouse. Mouse controls stay. No new Rust commands or storage.
+
+Bindings: Ctrl+N new session; Ctrl+K typeahead character switcher; Ctrl+L focus composer; Ctrl+. stop generation; Ctrl+I toggle Sources when memories were retrieved; Escape closes in order (switcher, Settings, stop generation, Sources, then focus composer). Cmd mirrors Ctrl on macOS without claiming macOS verification. The switcher filters the existing character library, loads the chosen vault through the current resume path, stays on Chat, and focuses the composer. It does not open the identity editor. Ignore IME composition and key-repeat on new session. Session rename keeps Escape to cancel.
+
+Acceptance: the resolver covers the keymap and Escape stack; the switcher can pick a library character and resume that vault; composer focus works after new session, switch, and Ctrl+L; Cancel/Sources/New still work with the mouse; frontend lint/typecheck/build pass. Native chord click-through remains environment-limited.
+
 ## Unscheduled feature backlog
 
 Possible later features live in `docs/PROJECT.md`. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
 
-Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30; contradiction/supersession review is T31). Named generation presets and opt-in pack export of sampling remain unscheduled.
+Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30; contradiction/supersession review is T31; keyboard-first chat is T32). Named generation presets and opt-in pack export of sampling remain unscheduled.
 
 ## Milestone exit policy
 

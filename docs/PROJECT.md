@@ -173,10 +173,10 @@ Suggested starting cluster if one group is promoted first: memory inbox, remembe
 - **Per-character model and sampling.** Scheduled as T30: optional chat model, temperature, and max tokens per character in `.tz-chatter/generation.json`. Provider URLs and credentials stay app-global. Packs omit generation settings unless a later opt-in export is added.
 - **Contradiction and supersession review.** Scheduled as T31: list committed `contradicts`/`supersedes` pairs on Memories and exclude the stale Markdown file. Links stay in durable `state.sqlite3`.
 - **First-run provider coach.** Explain unreachable endpoints (“nothing is listening on 11434”) with retry. Give the embedding model the same discovery-backed select as chat models. Add an explicit “send memories to this endpoint” control; remote URLs must keep the current no-disclosure default.
+- **Keyboard-first chat.** Scheduled as T32: Ctrl+N new session, Ctrl+K typeahead character switcher, Ctrl+L focus composer, Ctrl+. stop generation, Ctrl+I toggle Sources, Escape dismiss stack. Cmd mirrors Ctrl on macOS without claiming macOS verification.
 
 ### On-mission follow-ups
 
-- **Keyboard-first chat.** Shortcuts for new session, switch character, focus composer, stop generation, and open sources.
 - **macOS and Linux verification.** The vault format is already portable; claim those platforms only after the desktop app is tested there.
 
 ## Success criteria

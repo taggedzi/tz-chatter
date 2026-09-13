@@ -22,6 +22,7 @@ import {
   rememberActiveSession,
   shellEvents,
 } from "./activeSession";
+import { isMacPlatform, shortcutModifierLabel } from "./chatShortcuts";
 
 const unloadedCharacter: CharacterDefinition = {
   schema_version: 1,
@@ -92,7 +93,11 @@ export function ConversationPanel() {
   const [newLocalTitle, setNewLocalTitle] = useState("");
   const [newLocalBody, setNewLocalBody] = useState("");
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const listFilter = useRef({ query: "", includeArchived: false });
+  const modifier = shortcutModifierLabel(
+    typeof navigator !== "undefined" && isMacPlatform(navigator.platform),
+  );
 
   const publishSessions = useCallback(async (root: string, activeId: string) => {
     try {
@@ -333,6 +338,46 @@ export function ConversationPanel() {
       window.removeEventListener(shellEvents.archiveSession, onArchiveSession);
     };
   }, [busy, loadSavedProvider, loadedVaultRoot, openSession, publishSessions, resumeVault, sessionId, startSession, vaultRoot]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(shellEvents.conversationUi, {
+      detail: {
+        generating: busy,
+        sourcesOpen: showContext && retrievedMemories.length > 0,
+        sourcesAvailable: retrievedMemories.length > 0,
+        newLocalOpen,
+      },
+    }));
+  }, [busy, newLocalOpen, retrievedMemories.length, showContext]);
+
+  useEffect(() => {
+    const onFocusComposer = () => {
+      composerRef.current?.focus();
+    };
+    const onStopGeneration = () => {
+      if (!busy) return;
+      void conversationClient.cancel(character.id, sessionId).then(() => {
+        setError("The active model request was canceled.");
+      });
+    };
+    const onToggleSources = () => {
+      if (retrievedMemories.length > 0) setShowContext((current) => !current);
+    };
+    const onCloseSources = () => setShowContext(false);
+    const onCloseNewLocal = () => setNewLocalOpen(false);
+    window.addEventListener(shellEvents.focusComposer, onFocusComposer);
+    window.addEventListener(shellEvents.stopGeneration, onStopGeneration);
+    window.addEventListener(shellEvents.toggleSources, onToggleSources);
+    window.addEventListener(shellEvents.closeSources, onCloseSources);
+    window.addEventListener(shellEvents.closeNewLocal, onCloseNewLocal);
+    return () => {
+      window.removeEventListener(shellEvents.focusComposer, onFocusComposer);
+      window.removeEventListener(shellEvents.stopGeneration, onStopGeneration);
+      window.removeEventListener(shellEvents.toggleSources, onToggleSources);
+      window.removeEventListener(shellEvents.closeSources, onCloseSources);
+      window.removeEventListener(shellEvents.closeNewLocal, onCloseNewLocal);
+    };
+  }, [busy, character.id, retrievedMemories.length, sessionId]);
 
   useEffect(() => {
     let disposed = false;
@@ -646,6 +691,7 @@ export function ConversationPanel() {
           )}
           {retrievedMemories.length > 0 && (
             <button
+              aria-keyshortcuts={`${modifier === "⌘" ? "Meta" : "Control"}+I`}
               aria-pressed={showContext}
               className={showContext ? "outline-button active-toggle" : "outline-button"}
               onClick={() => setShowContext((current) => !current)}
@@ -797,6 +843,7 @@ export function ConversationPanel() {
       )}
       <form className="composer" onSubmit={submit}>
         <textarea
+          aria-keyshortcuts="Control+L Meta+L"
           aria-label="Message"
           disabled={!vaultReady || editingUser}
           onChange={(event) => setDraft(event.target.value)}
@@ -807,12 +854,28 @@ export function ConversationPanel() {
             }
           }}
           placeholder={vaultReady ? `Message ${character.name}` : "Open a character vault to start chatting"}
+          ref={composerRef}
           rows={3}
           value={draft}
         />
         <div className="composer-footer">
-          <span>{busy ? "Waiting for local model…" : vaultReady ? "Enter to send · Shift+Enter for a new line" : "Saved locally after each turn"}</span>
-          {busy && <button className="outline-button" onClick={() => void cancel()} type="button">Cancel</button>}
+          <span>
+            {busy
+              ? "Waiting for local model…"
+              : vaultReady
+                ? `Enter to send · Shift+Enter newline · ${modifier}+K switch character`
+                : "Saved locally after each turn"}
+          </span>
+          {busy && (
+            <button
+              aria-keyshortcuts="Escape Control+Period Meta+Period"
+              className="outline-button"
+              onClick={() => void cancel()}
+              type="button"
+            >
+              Cancel
+            </button>
+          )}
           <button className="primary-button" disabled={busy || editingUser || !draft.trim() || !vaultReady} type="submit">
             {busy ? "Thinking…" : "Send"}
           </button>

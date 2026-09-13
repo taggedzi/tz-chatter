@@ -18,7 +18,20 @@ export const shellEvents = {
   providerChanged: "tz-chatter-provider-changed",
   generationChanged: "tz-chatter-generation-changed",
   portraitChanged: "tz-chatter-portrait-changed",
+  conversationUi: "tz-chatter-conversation-ui",
+  focusComposer: "tz-chatter-focus-composer",
+  stopGeneration: "tz-chatter-stop-generation",
+  toggleSources: "tz-chatter-toggle-sources",
+  closeSources: "tz-chatter-close-sources",
+  closeNewLocal: "tz-chatter-close-new-local",
 } as const;
+
+export type ConversationUiState = {
+  generating: boolean;
+  sourcesOpen: boolean;
+  sourcesAvailable: boolean;
+  newLocalOpen: boolean;
+};
 
 export function requestLoadVault(vaultRoot: string) {
   window.dispatchEvent(new CustomEvent(shellEvents.loadVault, { detail: vaultRoot }));
