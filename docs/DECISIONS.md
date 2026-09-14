@@ -159,3 +159,13 @@ Linux desktop verification ran as T33 on Ubuntu 24.04.5 LTS, GNOME on Wayland, i
 macOS remains intended but unverified. Do not schedule a macOS task, ship a Mac download, or list macOS prerequisites until a Darwin host can launch the window. Compile-only evidence or a later CI runner still does not claim the platform.
 
 Consequence: README and product copy keep Windows as the verified target and may name the Ubuntu 24.04 GNOME/Wayland run. Cmd bindings stay documented as portable, not tested on Mac. No GitHub Actions or notarization work is part of this decision.
+
+## ADR-018 — Verifiable unsigned GitHub releases only
+
+Date: 2026-09-14. State: accepted. Basis: the user wants a simple, no-cost release path and explicitly selected Stage 1 while declining certificate-program work.
+
+Official binary releases are built only by a manually dispatched GitHub Actions workflow from committed `main` source with synchronized SemVer manifests. The primary formats are one Windows x64 NSIS installer and one Linux x86_64 AppImage. Each release includes SHA-256 checksums and an SPDX 2.3 JSON SBOM. GitHub/Sigstore provenance and SBOM attestations bind the downloadable packages to the public repository, commit, and build workflow. The workflow uses least-privilege job permissions, full-SHA action pins, draft-first assembly, and GitHub immutable releases.
+
+The Windows package is deliberately not Authenticode-signed and documentation must disclose the likely SmartScreen warning. Cryptographic provenance establishes origin and integrity, not safety. Authenticode certificates, self-signed certificates, SignPath or other enrollment, paid services, package repositories, auto-update signing, macOS, ARM, MSI, `.deb`, and extra Linux formats are outside this decision. They are not implied follow-up work.
+
+Consequence: T38 implements the release workflow and a short, safely rerunnable version-preparation helper. The workflow defaults to a dry run that assembles but does not publish artifacts. Publishing a release remains a deliberate maintainer action and is prohibited while the project release gate is on hold.

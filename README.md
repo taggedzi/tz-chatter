@@ -16,6 +16,8 @@ A desktop application for chatting with AI characters powered by models running 
 - [Decision log](docs/DECISIONS.md): accepted decisions and their rationale.
 - [Handoff log](docs/HANDOFF.md): chronological record of completed work and continuation notes.
 - [Completion audit](docs/AUDIT.md): release gaps discovered by the independent completion review and their remediation evidence.
+- [Release checklist](RELEASING.md): the short maintainer process for versioned Windows and Linux packages.
+- [Download verification](VERIFYING.md): provenance, immutable-release, checksum, and SBOM verification commands.
 
 Start with the live status to see what is actually implemented. Design descriptions are not implementation claims.
 
@@ -87,6 +89,14 @@ GitHub Actions runs the frontend unit tests, ESLint, TypeScript checks, frontend
 
 See [the CI workflow](.github/workflows/ci.yml) and [the CodeQL workflow](.github/workflows/codeql.yml). The badges at the top of this README report the latest default-branch result for each workflow.
 
+## Releases and trust
+
+The manual [Release workflow](.github/workflows/release.yml) is the only supported way to publish binary packages. It validates a synchronized version and the complete source gates, then builds a Windows x64 NSIS installer and Linux x86_64 AppImage on clean GitHub-hosted runners. Each release includes SHA-256 checksums, an SPDX 2.3 JSON SBOM, and GitHub/Sigstore build-provenance and SBOM attestations. Safe **dry-run** is the default; publishing assembles a draft first and requires GitHub immutable releases to be enabled.
+
+Maintainers use the one-page [release checklist](RELEASING.md). Users can follow [VERIFYING.md](VERIFYING.md) to verify a download against `taggedzi/tz-chatter`, its immutable GitHub release, and its checksums.
+
+These packages are intentionally not Authenticode-signed. Windows may display a SmartScreen warning; a self-signed or paid certificate and enrollment in a signing service are outside the selected release scope. Provenance establishes where and how an artifact was built, not that the application is free of defects. Do not publish while `docs/STATUS.md` says the release gate is on hold.
+
 The current build includes provider contracts and local connections, Markdown-backed vault persistence, lexical and hybrid retrieval, memory review/extraction, bounded initiative delivery, native tray/notification hooks, and validated portable character packs. Check `docs/STATUS.md` before relying on any feature claim; T18 release validation remains in progress.
 
 Portable character packs are created from Settings → Vault. Export writes a new directory containing canonical Markdown and durable operational state; import validates the manifest, rejects traversal and unrelated-vault overwrite, rebuilds the search index, and keeps a backup when explicitly replacing the same character.
@@ -121,7 +131,7 @@ Linux was tested on Ubuntu 24.04.5 LTS GNOME/Wayland (T33). That run produced `t
 - Opening a vault fails: select the vault directory itself, not its parent; it must contain a valid `character.md`. Use Characters → Add, or portable-pack import, to restore a validated vault into a new directory.
 - Provider failures: verify the endpoint and model name in Settings → Provider, and confirm the local server is running. tz-chatter does not download models or silently fall back to a cloud provider.
 - Notifications are opt-in in Settings and can also be restricted by Windows notification permissions. Initiative is disabled by default.
-- The local MSI and NSIS artifacts are unsigned and are not externally published. Windows may show the normal SmartScreen warning for an unsigned local build.
+- Windows release packages are intentionally unsigned and may show the normal SmartScreen warning. Download only from the official GitHub Releases page and follow `VERIFYING.md` before running them.
 
 ## Source control
 

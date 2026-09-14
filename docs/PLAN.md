@@ -362,6 +362,16 @@ Resolve CodeQL alerts 1 and 2 in the synthetic browser-review harnesses. Do not 
 
 Acceptance: both alert locations no longer construct code from `JSON.stringify` output; the affected review harnesses retain their behavior; frontend unit/lint/typecheck/build and workflow validation pass; a pushed CodeQL run closes both alerts or any remaining runner-only finding is recorded precisely.
 
+## Milestone 20 — Verifiable unsigned releases
+
+### T38 — Automate versioned Windows and Linux releases
+
+Depends on: T36, T37.
+
+Add a deliberately small Stage 1 release process with no certificate enrollment or paid service. A local PowerShell helper synchronizes the version across npm, Cargo, and Tauri manifests without tagging or publishing. A manually dispatched GitHub workflow must accept the already-committed version, require `main`, rerun the project release gates, generate an SPDX 2.3 JSON SBOM, build one primary Windows x64 NSIS installer and one Linux x86_64 AppImage on clean hosted runners, generate SHA-256 checksums, and create GitHub/Sigstore build-provenance and SBOM attestations. Assemble all assets in a draft before publishing, require immutable releases, and keep the unsigned Windows/SmartScreen limitation prominent. Pin every external action used by release and existing security workflows to a full commit SHA.
+
+Acceptance: invalid, unsafe, or unsynchronized versions fail before builds; version mutation has focused unit coverage and is safely rerunnable after a partial version-only update; complete Windows/Linux artifact names are deterministic; safe dry-run is the default; publish cannot run without both packages, the SBOM, checksums, and immutable-release configuration; workflow permissions are job-scoped and actions are immutable; concise `RELEASING.md` and `VERIFYING.md` instructions cover the normal path and recovery. Local workflow/static validation and existing frontend checks pass. Do not publish a real release or change GitHub repository settings as part of implementation verification.
+
 Possible later features live in `docs/PROJECT.md`. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
 
 Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30; contradiction/supersession review is T31; keyboard-first chat is T32; Linux verification is T33; composer emoji picker is T34). Named generation presets and opt-in pack export of sampling remain unscheduled. macOS verification remains unscheduled until a Darwin host can launch the window (ADR-017).

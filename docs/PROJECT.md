@@ -19,6 +19,8 @@ The application should make characters consistent, able to recall relevant exper
 
 Windows is the first development and verification target. Maintain portable boundaries for macOS and Linux. Linux was tested on Ubuntu 24.04.5 LTS GNOME/Wayland (T33, VirtualBox guest); do not generalize that to “Linux is supported.” macOS is intended to compile and may use Cmd in the keymap; do not claim it without a Darwin host launching the window (ADR-017).
 
+Versioned Windows x64 NSIS and Linux x86_64 AppImage releases use a manual, GitHub-hosted, verifiable unsigned pipeline. Each release carries SHA-256 checksums, an SPDX SBOM, GitHub/Sigstore provenance and SBOM attestations, and immutable GitHub release protection. Authenticode, certificate programs, paid services, package repositories, auto-update, and additional release architectures or formats are outside the selected scope (ADR-018).
+
 ## User workflows
 
 1. Configure and test a connection to a local provider.

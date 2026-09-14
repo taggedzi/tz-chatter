@@ -865,3 +865,17 @@ Verification and actual results: both Edge/CDP harnesses PASS; the GUI remediati
 Incomplete work / blockers: none for T37.
 
 Next concrete action: resume the ordered release gate in `docs/RELEASE_REVIEW.md`.
+
+## 2026-09-14 — T38: verifiable unsigned release automation
+
+Scope and outcome: implemented the user-selected Stage 1 release process only. A manual GitHub workflow now validates committed SemVer state and the full source gates, creates an SPDX 2.3 JSON SBOM, builds a Windows x64 NSIS installer and Linux x86_64 AppImage, produces SHA-256 checksums, and records GitHub/Sigstore build-provenance and SBOM attestations. `dry-run` is the default mode and assembles a seven-day workflow artifact without creating a tag or release. Explicit `prerelease` or `stable` modes require GitHub immutable releases, assemble a draft with all assets, and only then publish. No Authenticode, SignPath, paid service, package repository, updater, MSI, `.deb`, ARM, or macOS work was added.
+
+The local `scripts/prepare-release.ps1 VERSION` command checks `main`, refuses unrelated changes and existing tags, synchronizes npm/Cargo/Tauri versions through `scripts/release-version.mjs`, and never tags or publishes. It can be rerun after a partial version-only update. `RELEASING.md` is the short maintainer checklist; `VERIFYING.md` gives provenance, immutable-release, SHA-256, and SBOM-attestation commands. Existing CI and CodeQL action references were pinned to full commit SHAs along with every new release action. ADR-018 records the enduring Stage 1-only boundary.
+
+Files changed: `.github/workflows/release.yml`, `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`, `scripts/prepare-release.ps1`, `scripts/release-version.mjs`, `tests/releaseVersion.test.mjs`, `RELEASING.md`, `VERIFYING.md`, `README.md`, `docs/PROJECT.md`, `docs/PLAN.md`, `docs/DECISIONS.md`, `docs/STATUS.md`, and this handoff.
+
+Verification and actual results: `node scripts/release-version.mjs check 0.1.0` PASS; focused release-version tests PASS including unsafe input and line-ending preservation; a disposable Git repository proved initial preparation and interruption-safe rerun; `npm run test:unit` PASS (47), lint/typecheck/build PASS; Rust fmt PASS; `cargo audit --file src-tauri/Cargo.lock` PASS with 0 vulnerabilities and the existing 7 allowed upstream warnings; actionlint 1.7.12 PASS for CI, CodeQL, and Release; all workflow actions are full-SHA pinned; `git diff --check` PASS. GitHub CLI release flags and immutable-release API availability were checked. The real workflow was not run because these files are not committed/pushed, and no release was authorized.
+
+Incomplete work / limitations: repository immutable releases are still disabled and no hosted dry-run evidence exists. Neither is an implementation defect: actual repository-setting changes and publication were deliberately excluded from this turn. Windows packages remain unsigned and may trigger SmartScreen. The broader T16/T18 release gate remains open.
+
+Next concrete action: commit and push T38, enable immutable releases once in repository Settings, then run Actions → Release with the committed version and default `dry-run`. Inspect the Windows/Linux candidate and attestations. Do not choose `prerelease` or `stable` until the release gate permits publication.
