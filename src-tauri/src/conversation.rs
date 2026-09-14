@@ -1,6 +1,6 @@
 use crate::{
     connections::{ProviderClient, StreamSink},
-    embeddings::{chunks_from_memories, EmbeddingIndex, CHUNKING_VERSION, EMBEDDING_INDEX_VERSION},
+    embeddings::{chunks_from_memories, EmbeddingIndex},
     extraction::ExtractionQueue,
     initiative::{
         classify_initiative_response, initiative_is_stale, render_initiative_event,
@@ -106,6 +106,8 @@ pub struct RequestSnapshot {
     pub use_hybrid_retrieval: bool,
     #[serde(default)]
     pub application_prompt: String,
+    #[serde(default)]
+    pub expected_transcript_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -114,6 +116,7 @@ pub struct ConversationOutcome {
     pub assistant_turn: TranscriptTurn,
     pub retrieved_memories: Vec<crate::retrieval::RetrievedMemory>,
     pub context_inspection: ContextInspection,
+    pub transcript_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -133,6 +136,7 @@ pub struct ContextInspection {
 pub struct ConversationResume {
     pub character: CharacterDefinition,
     pub transcript: Option<TranscriptDocument>,
+    pub transcript_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -289,9 +293,13 @@ impl ConversationService {
                 ));
             }
         }
+        let transcript_fingerprint = transcript
+            .as_ref()
+            .and_then(|value| transcript_fingerprint(vault, &value.session_id));
         Ok(ConversationResume {
             character,
             transcript,
+            transcript_fingerprint,
         })
     }
 
@@ -386,6 +394,7 @@ impl ConversationService {
         Ok(ConversationResume {
             character,
             transcript: Some(transcript),
+            transcript_fingerprint: None,
         })
     }
 
@@ -400,6 +409,7 @@ impl ConversationService {
         Ok(ConversationResume {
             character,
             transcript: Some(transcript),
+            transcript_fingerprint: None,
         })
     }
 
@@ -439,6 +449,7 @@ impl ConversationService {
     ) -> Result<ConversationOutcome, ConversationError> {
         validate_snapshot(&snapshot)?;
         let mut transcript = load_or_create_transcript(vault, &snapshot)?;
+        require_expected_transcript(vault, &snapshot)?;
         if let Some(existing_index) = transcript
             .turns
             .iter()
@@ -461,6 +472,7 @@ impl ConversationService {
                     assistant_turn: reply,
                     retrieved_memories: Vec::new(),
                     context_inspection: ContextInspection::default(),
+                    transcript_fingerprint: transcript_fingerprint(vault, &snapshot.session_id),
                 });
             }
             return Err(ConversationError::DuplicateUserTurn(snapshot.user_turn_id));
@@ -475,15 +487,24 @@ impl ConversationService {
         });
         save_transcript(vault, &mut transcript)?;
         remember_session(vault, &snapshot.session_id)?;
-        self.run_reply(
-            vault,
-            snapshot,
-            transcript,
-            cancellation,
-            sink,
-            ReplyMode::Fresh,
-        )
-        .await
+        let generation_fingerprint = current_transcript_fingerprint(vault, &snapshot.session_id)?;
+        match self
+            .run_reply(
+                vault,
+                RequestSnapshot {
+                    expected_transcript_fingerprint: generation_fingerprint,
+                    ..snapshot.clone()
+                },
+                transcript.clone(),
+                cancellation,
+                sink,
+                ReplyMode::Fresh,
+            )
+            .await
+        {
+            Ok(outcome) => Ok(outcome),
+            Err(error) => persist_failed_reply(vault, &snapshot, transcript, error),
+        }
     }
 
     pub async fn retry(
@@ -505,6 +526,7 @@ impl ConversationService {
     ) -> Result<ConversationOutcome, ConversationError> {
         validate_snapshot(&snapshot)?;
         let mut transcript = load_or_create_transcript(vault, &snapshot)?;
+        require_expected_transcript(vault, &snapshot)?;
         let user_index = last_exchange_user_index(&transcript, &snapshot)?;
         if transcript.turns[user_index].content != snapshot.user_content {
             return Err(ConversationError::Invalid(
@@ -514,9 +536,13 @@ impl ConversationService {
         prepare_retry(&mut transcript, user_index)?;
         save_transcript(vault, &mut transcript)?;
         remember_session(vault, &snapshot.session_id)?;
+        let generation_fingerprint = current_transcript_fingerprint(vault, &snapshot.session_id)?;
         self.run_reply(
             vault,
-            snapshot,
+            RequestSnapshot {
+                expected_transcript_fingerprint: generation_fingerprint,
+                ..snapshot
+            },
             transcript,
             cancellation,
             sink,
@@ -544,6 +570,7 @@ impl ConversationService {
     ) -> Result<ConversationOutcome, ConversationError> {
         validate_snapshot(&snapshot)?;
         let mut transcript = load_or_create_transcript(vault, &snapshot)?;
+        require_expected_transcript(vault, &snapshot)?;
         let user_index = last_exchange_user_index(&transcript, &snapshot)?;
         if transcript.turns[user_index].content != snapshot.user_content {
             return Err(ConversationError::Invalid(
@@ -562,9 +589,13 @@ impl ConversationService {
         transcript.turns[assistant_index].status = TurnStatus::Superseded;
         save_transcript(vault, &mut transcript)?;
         remember_session(vault, &snapshot.session_id)?;
+        let generation_fingerprint = current_transcript_fingerprint(vault, &snapshot.session_id)?;
         self.run_reply(
             vault,
-            snapshot,
+            RequestSnapshot {
+                expected_transcript_fingerprint: generation_fingerprint,
+                ..snapshot
+            },
             transcript,
             cancellation,
             sink,
@@ -592,14 +623,19 @@ impl ConversationService {
     ) -> Result<ConversationOutcome, ConversationError> {
         validate_snapshot(&snapshot)?;
         let mut transcript = load_or_create_transcript(vault, &snapshot)?;
+        require_expected_transcript(vault, &snapshot)?;
         let user_index = last_exchange_user_index(&transcript, &snapshot)?;
         transcript.turns[user_index].content = snapshot.user_content.clone();
         supersede_after(&mut transcript.turns, user_index);
         save_transcript(vault, &mut transcript)?;
         remember_session(vault, &snapshot.session_id)?;
+        let generation_fingerprint = current_transcript_fingerprint(vault, &snapshot.session_id)?;
         self.run_reply(
             vault,
-            snapshot,
+            RequestSnapshot {
+                expected_transcript_fingerprint: generation_fingerprint,
+                ..snapshot
+            },
             transcript,
             cancellation,
             sink,
@@ -627,6 +663,7 @@ impl ConversationService {
     ) -> Result<ConversationOutcome, ConversationError> {
         validate_snapshot(&snapshot)?;
         let transcript = load_or_create_transcript(vault, &snapshot)?;
+        require_expected_transcript(vault, &snapshot)?;
         let user_index = last_exchange_user_index(&transcript, &snapshot)?;
         if transcript.turns[user_index].content != snapshot.user_content {
             return Err(ConversationError::Invalid(
@@ -644,12 +681,23 @@ impl ConversationService {
             ));
         }
         remember_session(vault, &snapshot.session_id)?;
+        let generation_fingerprint = current_transcript_fingerprint(vault, &snapshot.session_id)?;
         let spec = ReplyMode::ContinueExisting {
             assistant_id: assistant.id.clone(),
             prefix: assistant.content.clone(),
         };
-        self.run_reply(vault, snapshot, transcript, cancellation, sink, spec)
-            .await
+        self.run_reply(
+            vault,
+            RequestSnapshot {
+                expected_transcript_fingerprint: generation_fingerprint,
+                ..snapshot
+            },
+            transcript,
+            cancellation,
+            sink,
+            spec,
+        )
+        .await
     }
 
     pub async fn send_initiative(
@@ -670,11 +718,13 @@ impl ConversationService {
                 InitiativeDeliveryStatus::Cancelled,
             ));
         }
-        let topic_context = if request.topic_context.trim().is_empty() {
+        let topic_context = if !request.topic_context.trim().is_empty() {
+            request.topic_context.clone()
+        } else if local_memory_endpoint(&request.provider.endpoint) {
             select_open_topics(vault, &request.character.id, 4)
                 .map_err(|error| ConversationError::Storage(error.to_string()))?
         } else {
-            request.topic_context.clone()
+            String::new()
         };
         let memory_context = if local_memory_endpoint(&request.provider.endpoint) {
             let mut store = MemoryStore::open(vault, &request.character.id)
@@ -726,6 +776,7 @@ impl ConversationService {
                     cancellation_id: format!("initiative-{}", request.request_id),
                     temperature: generation.temperature,
                     max_tokens: generation.max_tokens,
+                    json_mode: false,
                 },
                 cancellation,
             )
@@ -905,6 +956,7 @@ impl ConversationService {
             cancellation_id: spec.assistant_id.clone(),
             temperature: generation.temperature,
             max_tokens: generation.max_tokens,
+            json_mode: false,
         };
         let events = match self
             .transport
@@ -968,9 +1020,22 @@ impl ConversationService {
         for event in events {
             match event {
                 ChatStreamEvent::Delta { text } => generated.push_str(&text),
-                ChatStreamEvent::Completed { .. } => status = TurnStatus::Complete,
+                ChatStreamEvent::Completed { finish_reason } => {
+                    status = if finish_reason_is_partial(finish_reason.as_deref()) {
+                        TurnStatus::Interrupted
+                    } else if status != TurnStatus::Interrupted {
+                        TurnStatus::Complete
+                    } else {
+                        TurnStatus::Interrupted
+                    };
+                }
                 ChatStreamEvent::Cancelled => status = TurnStatus::Interrupted,
-                ChatStreamEvent::Failed { .. } => status = TurnStatus::Failed,
+                ChatStreamEvent::Failed { message } => {
+                    status = TurnStatus::Failed;
+                    if generated.is_empty() {
+                        generated = message;
+                    }
+                }
                 ChatStreamEvent::Started { .. } => {}
             }
         }
@@ -995,10 +1060,16 @@ impl ConversationService {
         } else {
             transcript.turns.push(assistant_turn.clone());
         }
+        merge_external_transcript_metadata(
+            vault,
+            &mut transcript,
+            snapshot.expected_transcript_fingerprint.as_deref(),
+        )?;
         save_transcript(vault, &mut transcript)?;
         if assistant_turn.status == TurnStatus::Complete {
             enqueue_extraction(vault, &transcript, &assistant_turn.id);
         }
+        let final_fingerprint = current_transcript_fingerprint(vault, &transcript.session_id)?;
         Ok(ConversationOutcome {
             transcript,
             assistant_turn,
@@ -1019,6 +1090,7 @@ impl ConversationService {
                 omitted_memories: retrieval_report.omitted_count,
             },
             retrieved_memories: memory_context,
+            transcript_fingerprint: final_fingerprint,
         })
     }
 }
@@ -1183,10 +1255,7 @@ async fn build_hybrid_retrieval(
         format!("Could not inspect the embedding index ({error}); lexical fallback used.")
     })?;
     let Some(space) = stored.filter(|space| {
-        space.provider_id == snapshot.provider.id
-            && space.model == model
-            && space.chunking_version == CHUNKING_VERSION
-            && space.index_version == EMBEDDING_INDEX_VERSION
+        space.matches_provider(&snapshot.provider.id, model, &snapshot.provider.endpoint)
     }) else {
         return Err(EMBEDDING_INDEX_REBUILDING.to_owned());
     };
@@ -1297,7 +1366,7 @@ fn initiative_outcome(
     }
 }
 
-fn local_memory_endpoint(endpoint: &str) -> bool {
+pub fn local_memory_endpoint(endpoint: &str) -> bool {
     url::Url::parse(endpoint)
         .ok()
         .and_then(|url| url.host_str().map(str::to_owned))
@@ -1366,6 +1435,94 @@ fn save_transcript(
     transcript.updated_at = now_timestamp();
     vault.save_transcript(transcript)?;
     Ok(())
+}
+
+fn merge_external_transcript_metadata(
+    vault: &Vault,
+    transcript: &mut TranscriptDocument,
+    expected_fingerprint: Option<&str>,
+) -> Result<(), ConversationError> {
+    let Some(expected_fingerprint) = expected_fingerprint else {
+        return Ok(());
+    };
+    let latest = vault.load_transcript(&transcript.session_id)?;
+    let current_fingerprint = transcript_fingerprint(vault, &transcript.session_id)
+        .ok_or_else(|| ConversationError::Storage("transcript fingerprint unavailable".into()))?;
+    if current_fingerprint == expected_fingerprint {
+        return Ok(());
+    }
+    if latest.turns != transcript.turns {
+        return Err(ConversationError::Storage(
+            "transcript changed externally during generation; reload before retrying".into(),
+        ));
+    }
+    transcript.title = latest.title;
+    transcript.archived = latest.archived;
+    transcript.local = latest.local;
+    Ok(())
+}
+
+fn transcript_fingerprint(vault: &Vault, session_id: &str) -> Option<String> {
+    vault
+        .transcript_path(session_id)
+        .ok()
+        .and_then(|path| Vault::file_fingerprint(&path).ok())
+}
+
+fn current_transcript_fingerprint(
+    vault: &Vault,
+    session_id: &str,
+) -> Result<Option<String>, ConversationError> {
+    Ok(transcript_fingerprint(vault, session_id))
+}
+
+fn require_expected_transcript(
+    vault: &Vault,
+    snapshot: &RequestSnapshot,
+) -> Result<(), ConversationError> {
+    if let Some(expected) = snapshot.expected_transcript_fingerprint.as_deref() {
+        let path = vault.transcript_path(&snapshot.session_id)?;
+        Vault::require_unchanged(&path, Some(expected))?;
+    }
+    Ok(())
+}
+
+fn persist_failed_reply(
+    vault: &Vault,
+    snapshot: &RequestSnapshot,
+    mut transcript: TranscriptDocument,
+    error: ConversationError,
+) -> Result<ConversationOutcome, ConversationError> {
+    let message = error.to_string();
+    if let Ok(latest) = vault.load_transcript(&snapshot.session_id) {
+        transcript = latest;
+    }
+    let assistant_turn = TranscriptTurn {
+        id: assistant_id_for_new_reply(&snapshot.user_turn_id, &transcript.turns),
+        timestamp: now_timestamp(),
+        role: TurnRole::Assistant,
+        status: TurnStatus::Failed,
+        content: message.clone(),
+    };
+    transcript.turns.push(assistant_turn.clone());
+    save_transcript(vault, &mut transcript)?;
+    Ok(ConversationOutcome {
+        transcript,
+        assistant_turn,
+        retrieved_memories: Vec::new(),
+        context_inspection: ContextInspection {
+            fallback_reason: Some(message),
+            ..ContextInspection::default()
+        },
+        transcript_fingerprint: current_transcript_fingerprint(vault, &snapshot.session_id)?,
+    })
+}
+
+fn finish_reason_is_partial(reason: Option<&str>) -> bool {
+    matches!(
+        reason.map(|value| value.to_ascii_lowercase()),
+        Some(value) if matches!(value.as_str(), "length" | "max_tokens" | "content_filter")
+    )
 }
 
 fn owned_session_transcript(
@@ -1554,6 +1711,7 @@ mod tests {
             user_content: content.into(),
             use_hybrid_retrieval: false,
             application_prompt: String::new(),
+            expected_transcript_fingerprint: None,
         }
     }
 
@@ -1803,10 +1961,12 @@ mod tests {
                 .transcript
                 .turns
                 .iter()
-                .filter(|turn| turn.role == TurnRole::Assistant)
+                .filter(|turn| turn.role == TurnRole::Assistant
+                    && turn.status != TurnStatus::Superseded)
                 .count(),
             1
         );
+        assert!(failed.assistant_turn.content.contains("offline"));
         fs::remove_dir_all(root).unwrap();
 
         let cancel_root = std::env::temp_dir().join(format!(
@@ -2116,6 +2276,32 @@ mod tests {
             ChatStreamEvent::Delta { text } if text == "Partial "
         )));
         assert_eq!(outcome.assistant_turn.content, "Partial reply");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn token_limited_reply_is_persisted_as_interrupted() {
+        let root = root("token-limited-reply");
+        let vault = Vault::create(&root).unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![Ok(vec![
+            ChatStreamEvent::Delta {
+                text: "Partial output".into(),
+            },
+            ChatStreamEvent::Completed {
+                finish_reason: Some("length".into()),
+            },
+        ])]));
+        let service = ConversationService::new(fake);
+        let outcome = service
+            .send(
+                &vault,
+                snapshot("session", "lyra", "user", "Hello"),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.assistant_turn.status, TurnStatus::Interrupted);
+        assert_eq!(outcome.assistant_turn.content, "Partial output");
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -2460,15 +2646,17 @@ mod tests {
         vault.save_transcript(&transcript).unwrap();
         let fake = Arc::new(FakeTransport::new(vec![Ok(complete_reply("Hello back"))]));
         let service = ConversationService::new(fake);
-        let error = service
+        let outcome = service
             .send(
                 &vault,
                 snapshot("session-1", "lyra", "user-1", "Hello"),
                 CancellationToken::new(),
             )
             .await
-            .unwrap_err();
-        assert!(error.to_string().contains("add it to locals"));
+            .unwrap();
+        assert_eq!(outcome.assistant_turn.status, TurnStatus::Failed);
+        assert!(outcome.assistant_turn.content.contains("add it to locals"));
+        assert_eq!(outcome.transcript.turns.len(), 2);
         fs::remove_dir_all(root).ok();
     }
 
@@ -2540,6 +2728,114 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn initiative_omits_vault_memory_for_non_loopback_endpoints() {
+        let root = root("initiative-disclosure");
+        let vault = Vault::create(&root).unwrap();
+        vault
+            .save_memory(&crate::storage::MemoryRecord::new(
+                "private-topic",
+                crate::storage::MemoryType::OpenThreads,
+                "PRIVATE SYNTHETIC MEMORY: ask about the blue garden.",
+            ))
+            .unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![Ok(vec![
+            ChatStreamEvent::Delta {
+                text: "SILENCE".into(),
+            },
+            ChatStreamEvent::Completed {
+                finish_reason: None,
+            },
+        ])]));
+        let service = ConversationService::new(fake.clone());
+        let mut request = initiative_request("initiative-review", "initiative-request");
+        request.topic_context = String::new();
+        request.provider.endpoint = "https://example.invalid".into();
+        service
+            .send_initiative(&vault, request, 1, None, CancellationToken::new())
+            .await
+            .unwrap();
+        let captured = fake.requests.lock().unwrap();
+        assert!(captured
+            .iter()
+            .flat_map(|request| request.messages.iter())
+            .all(|message| !message.content.contains("PRIVATE SYNTHETIC MEMORY")));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn completion_preserves_external_title_change_during_generation() {
+        let root = root("title-during-generation");
+        let vault = Vault::create(&root).unwrap();
+        struct EditDuringReply {
+            vault: Vault,
+        }
+        #[async_trait::async_trait]
+        impl ChatTransport for EditDuringReply {
+            async fn stream_chat(
+                &self,
+                _: &ProviderConfig,
+                _: &ChatRequest,
+                _: CancellationToken,
+            ) -> Result<Vec<ChatStreamEvent>, ProviderError> {
+                let mut latest = self.vault.load_transcript("session-send").unwrap();
+                latest.title = "External title during generation".into();
+                self.vault.save_transcript(&latest).unwrap();
+                Ok(vec![
+                    ChatStreamEvent::Delta {
+                        text: "Reply".into(),
+                    },
+                    ChatStreamEvent::Completed {
+                        finish_reason: None,
+                    },
+                ])
+            }
+        }
+        let service = ConversationService::new(Arc::new(EditDuringReply {
+            vault: vault.clone(),
+        }));
+        service
+            .send(
+                &vault,
+                snapshot("session-send", "lyra", "user-new", "Hello"),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            vault.load_transcript("session-send").unwrap().title,
+            "External title during generation"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn invalid_memory_does_not_leave_a_lone_user_turn() {
+        let root = root("invalid-memory-send");
+        let vault = Vault::create(&root).unwrap();
+        let path = vault
+            .memory_path(&crate::storage::MemoryType::Semantic, "broken")
+            .unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "invalid markdown").unwrap();
+        let fake = Arc::new(FakeTransport::new(vec![Ok(complete_reply("Hello there"))]));
+        let outcome = ConversationService::new(fake)
+            .send(
+                &vault,
+                snapshot("session-send", "lyra", "user-new", "Hello"),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert!(outcome.transcript.turns.len() >= 2);
+        assert_eq!(outcome.transcript.turns[0].role, TurnRole::User);
+        assert_eq!(
+            outcome.transcript.turns.last().unwrap().role,
+            TurnRole::Assistant
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn stale_and_cancelled_initiative_work_is_not_persisted() {
         let root = root("initiative-cancel");
         let vault = Vault::create(&root).unwrap();
@@ -2601,7 +2897,7 @@ mod tests {
         let index = EmbeddingIndex::open(
             &vault,
             "lyra",
-            EmbeddingSpace::new("fake", "nomic-embed", 2),
+            EmbeddingSpace::new("fake", "nomic-embed", 2, "http://127.0.0.1:11434"),
         )
         .unwrap();
         let vectors = chunks.iter().map(|_| vec![1.0, 0.0]).collect::<Vec<_>>();

@@ -80,6 +80,8 @@ export function resolveChatShortcut(
     return "focus-composer";
   }
 
+  if (ui.settingsOpen) return null;
+
   const isMac = options.isMac === true;
   if (!hasPrimaryModifier(event, isMac) || event.shiftKey) return null;
 

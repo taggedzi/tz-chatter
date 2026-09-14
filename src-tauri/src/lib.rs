@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -29,6 +29,13 @@ pub mod reconciliation;
 pub mod retrieval;
 pub mod scene;
 pub mod storage;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MemoryBrowserItem {
+    #[serde(flatten)]
+    record: storage::MemoryRecord,
+    fingerprint: String,
+}
 
 #[derive(Default)]
 struct RuntimeState {
@@ -96,6 +103,12 @@ impl RuntimeState {
             .schedulers
             .lock()
             .expect("scheduler state mutex poisoned");
+        for (existing, (_, token)) in schedulers.iter() {
+            if existing != key {
+                token.cancel();
+            }
+        }
+        schedulers.retain(|existing, _| existing == key);
         if let Some((_, previous)) = schedulers.get(key) {
             previous.cancel();
         }
@@ -491,7 +504,13 @@ async fn run_initiative_scheduler(args: InitiativeSchedulerArgs) {
             application_prompt: application_prompt_text(&app),
         };
         let latest_user_activity_at = snapshot.state.last_user_activity_at;
-        let model_guard = runtime.model_gate.lock().await;
+        let model_guard = tokio::select! {
+            _ = cancellation.cancelled() => {
+                runtime.finish(&work_key, generation);
+                continue;
+            }
+            guard = runtime.model_gate.lock() => guard,
+        };
         let outcome = conversation::ConversationService::with_provider_client()
             .send_initiative(
                 &vault,
@@ -704,7 +723,14 @@ fn character_save(
     app: AppHandle,
     vault_root: String,
     character: storage::CharacterDefinition,
+    expected_fingerprint: Option<String>,
 ) -> Result<storage::CharacterDefinition, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    storage::Vault::require_unchanged(
+        &vault.character_path().map_err(String::from)?,
+        expected_fingerprint.as_deref(),
+    )
+    .map_err(String::from)?;
     let path = characters::library_path(app_config_dir(&app)?);
     characters::save_character(&path, vault_root, character).map_err(String::from)
 }
@@ -769,8 +795,13 @@ fn persona_load(vault_root: String) -> Result<scene::PersonaNotes, String> {
 fn persona_save(
     vault_root: String,
     notes: scene::PersonaNotes,
+    expected_fingerprint: Option<String>,
 ) -> Result<scene::PersonaNotes, String> {
     let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    if let Ok(path) = scene::persona_path(&vault) {
+        storage::Vault::require_unchanged(&path, expected_fingerprint.as_deref())
+            .map_err(String::from)?;
+    }
     scene::save_persona(&vault, &notes).map_err(String::from)?;
     scene::load_persona(&vault).map_err(String::from)
 }
@@ -785,8 +816,12 @@ fn scene_settings_load(vault_root: String) -> Result<scene::SceneSettings, Strin
 fn scene_settings_save(
     vault_root: String,
     settings: scene::SceneSettings,
+    expected_fingerprint: Option<String>,
 ) -> Result<scene::SceneSettings, String> {
     let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    let path = scene::scene_path(&vault).map_err(String::from)?;
+    storage::Vault::require_unchanged(&path, expected_fingerprint.as_deref())
+        .map_err(String::from)?;
     scene::save_scene_settings(&vault, &settings).map_err(String::from)?;
     scene::load_scene_settings(&vault).map_err(String::from)
 }
@@ -807,9 +842,26 @@ fn local_load(vault_root: String, id: String) -> Result<scene::LocalRecord, Stri
 fn local_save(
     vault_root: String,
     record: scene::LocalRecord,
+    expected_fingerprint: Option<String>,
 ) -> Result<scene::LocalRecord, String> {
     let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    if let Ok(path) = scene::local_path(&vault, &record.id) {
+        if path.exists() {
+            storage::Vault::require_unchanged(&path, expected_fingerprint.as_deref())
+                .map_err(String::from)?;
+        }
+    }
     scene::save_local(&vault, &record).map_err(String::from)?;
+    scene::load_local(&vault, &record.id).map_err(String::from)
+}
+
+#[tauri::command]
+fn local_create(
+    vault_root: String,
+    record: scene::LocalRecord,
+) -> Result<scene::LocalRecord, String> {
+    let vault = storage::Vault::open(&vault_root).map_err(String::from)?;
+    scene::create_local(&vault, &record).map_err(String::from)?;
     scene::load_local(&vault, &record.id).map_err(String::from)
 }
 
@@ -1031,7 +1083,13 @@ async fn conversation_chat_turn(
         let _ = on_event.send(event);
     });
     let service = conversation::ConversationService::with_provider_client();
-    let model_guard = state.model_gate.lock().await;
+    let model_guard = tokio::select! {
+        _ = cancellation.cancelled() => {
+            state.finish(&key, generation);
+            return Err("the model request was canceled".into());
+        }
+        guard = state.model_gate.lock() => guard,
+    };
     let result = match kind {
         ChatTurnKind::Send => {
             service
@@ -1091,7 +1149,13 @@ fn schedule_extraction(
         let Some(cancellation) = runtime.begin_background(&key) else {
             return;
         };
-        let model_guard = runtime.model_gate.lock().await;
+        let model_guard = tokio::select! {
+            _ = cancellation.cancelled() => {
+                runtime.finish_background(&key);
+                return;
+            }
+            guard = runtime.model_gate.lock() => guard,
+        };
         let transport: Arc<dyn conversation::ChatTransport> =
             Arc::new(connections::ProviderClient::default());
         let result = process_extraction_queue(
@@ -1142,7 +1206,13 @@ fn schedule_embedding(
         let Some(cancellation) = runtime.begin_background(&key) else {
             return;
         };
-        let model_guard = runtime.model_gate.lock().await;
+        let model_guard = tokio::select! {
+            _ = cancellation.cancelled() => {
+                runtime.finish_background(&key);
+                return;
+            }
+            guard = runtime.model_gate.lock() => guard,
+        };
         let transport: Arc<dyn conversation::ChatTransport> =
             Arc::new(connections::ProviderClient::default());
         let result =
@@ -1166,6 +1236,9 @@ async fn process_extraction_queue(
     tokio::task::yield_now().await;
     let (vault, _) = open_character_vault(vault_root, &character.id)?;
     let mut queue = extraction::ExtractionQueue::open(&vault, &character.id)
+        .map_err(|error| error.to_string())?;
+    queue
+        .recover_interrupted()
         .map_err(|error| error.to_string())?;
     let mut committed_memory = false;
     loop {
@@ -1286,6 +1359,9 @@ async fn process_embedding_rebuild(
     if cancellation.is_cancelled() {
         return Ok(());
     }
+    if !conversation::local_memory_endpoint(&provider.endpoint) {
+        return Ok(());
+    }
     let Some(model) = provider
         .embedding_model
         .as_deref()
@@ -1302,12 +1378,8 @@ async fn process_embedding_rebuild(
     let chunks = embeddings::chunks_from_memories(&memories);
     let stored = embeddings::EmbeddingIndex::stored_space(&vault, &character.id)
         .map_err(|error| error.to_string())?;
-    let matching_space = stored.filter(|space| {
-        space.provider_id == provider.id
-            && space.model == model
-            && space.chunking_version == embeddings::CHUNKING_VERSION
-            && space.index_version == embeddings::EMBEDDING_INDEX_VERSION
-    });
+    let matching_space =
+        stored.filter(|space| space.matches_provider(&provider.id, &model, &provider.endpoint));
     if cancellation.is_cancelled() {
         return Ok(());
     }
@@ -1380,7 +1452,8 @@ async fn process_embedding_rebuild(
     if dimensions == 0 {
         return Err("embedding provider returned empty vectors".into());
     }
-    let space = embeddings::EmbeddingSpace::new(&provider.id, model, dimensions);
+    let space =
+        embeddings::EmbeddingSpace::new(&provider.id, model, dimensions, provider.endpoint.clone());
     let index = embeddings::EmbeddingIndex::open(&vault, &character.id, space)
         .map_err(|error| error.to_string())?;
     index.begin_rebuild().map_err(|error| error.to_string())?;
@@ -1513,10 +1586,23 @@ fn vault_import_pack(
 fn memory_browse(
     vault_root: String,
     character_id: String,
-) -> Result<Vec<storage::MemoryRecord>, String> {
+) -> Result<Vec<MemoryBrowserItem>, String> {
     let (vault, _) = open_character_vault(vault_root, &character_id)?;
     let mut store = memory::MemoryStore::open(&vault, &character_id).map_err(String::from)?;
-    store.list().map_err(String::from)
+    Ok(store
+        .list()
+        .map_err(String::from)?
+        .into_iter()
+        .map(|record| {
+            let fingerprint = store
+                .file_fingerprint(&record.memory_type, &record.id)
+                .unwrap_or_default();
+            MemoryBrowserItem {
+                record,
+                fingerprint,
+            }
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -1563,6 +1649,7 @@ fn memory_upsert(
     memory_record: storage::MemoryRecord,
     original_memory_type: Option<storage::MemoryType>,
     original_id: Option<String>,
+    expected_fingerprint: Option<String>,
 ) -> Result<(), String> {
     let (vault, _) = open_character_vault(vault_root, &character_id)?;
     let mut store = memory::MemoryStore::open(&vault, &character_id).map_err(String::from)?;
@@ -1575,7 +1662,9 @@ fn memory_upsert(
                 return Err(format!("original memory does not exist: {old_id}"));
             }
             if old_type == memory_record.memory_type && old_id == memory_record.id {
-                return store.update(&memory_record).map_err(String::from);
+                return store
+                    .update_with_expected(&memory_record, expected_fingerprint.as_deref())
+                    .map_err(String::from);
             }
             return store
                 .rename(&old_type, &old_id, &memory_record)
@@ -1635,7 +1724,7 @@ fn memory_review_queue(
     let (vault, _) = open_character_vault(vault_root, &character_id)?;
     let queue = extraction::ExtractionQueue::open(&vault, &character_id)
         .map_err(|error| error.to_string())?;
-    queue.pending_proposals().map_err(|error| error.to_string())
+    queue.review_proposals().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1807,6 +1896,7 @@ pub fn run() {
             locals_list,
             local_load,
             local_save,
+            local_create,
             local_delete,
             conversation_send,
             conversation_resume,
@@ -1987,6 +2077,7 @@ mod tests {
             original.clone(),
             None,
             None,
+            None,
         )
         .unwrap();
         let mut moved = original;
@@ -1998,6 +2089,7 @@ mod tests {
             moved.clone(),
             Some(MemoryType::Semantic),
             Some("friend".into()),
+            None,
         )
         .unwrap();
 
@@ -2550,6 +2642,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn embedding_rebuild_skips_non_loopback_endpoints() {
+        let root = std::env::temp_dir().join(format!(
+            "tz-chatter-command-embed-remote-{}",
+            crate::storage::new_stable_id()
+        ));
+        let vault = Vault::create(&root).unwrap();
+        let character = CharacterDefinition::new("lyra", "Lyra", "Stay grounded.");
+        vault.save_character(&character).unwrap();
+        let mut store = MemoryStore::open(&vault, "lyra").unwrap();
+        store
+            .create(&MemoryRecord::new(
+                "tea",
+                MemoryType::Semantic,
+                "PRIVATE SYNTHETIC MEMORY: tea.",
+            ))
+            .unwrap();
+        drop(store);
+        let transport: Arc<dyn ChatTransport> = Arc::new(FakeEmbedTransport {
+            hang: false,
+            started: tokio::sync::Notify::new(),
+            vector: vec![1.0, 0.0],
+        });
+        let mut provider = embedding_provider();
+        provider.endpoint = "https://example.invalid".into();
+        process_embedding_rebuild(
+            root.to_string_lossy().into_owned(),
+            provider,
+            character,
+            CancellationToken::new(),
+            transport,
+        )
+        .await
+        .unwrap();
+        assert!(
+            crate::embeddings::EmbeddingIndex::stored_space(&vault, "lyra")
+                .unwrap()
+                .is_none()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn embedding_rebuild_cancel_before_finish_leaves_index_not_ready() {
         let root = std::env::temp_dir().join(format!(
             "tz-chatter-command-embed-cancel-{}",
@@ -2569,7 +2703,12 @@ mod tests {
         let chunks = crate::embeddings::chunks_from_memories(&store.list().unwrap());
         drop(store);
 
-        let space = crate::embeddings::EmbeddingSpace::new("fake", "fake-embed", 2);
+        let space = crate::embeddings::EmbeddingSpace::new(
+            "fake",
+            "fake-embed",
+            2,
+            "http://127.0.0.1:11434",
+        );
         let index = crate::embeddings::EmbeddingIndex::open(&vault, "lyra", space.clone()).unwrap();
         index.begin_rebuild().unwrap();
         index.finish_rebuild().unwrap();

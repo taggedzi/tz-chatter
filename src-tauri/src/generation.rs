@@ -67,12 +67,14 @@ impl From<storage::StorageError> for GenerationError {
     }
 }
 
-pub fn generation_path(vault: &Vault) -> PathBuf {
-    vault.root().join(GENERATION_RELATIVE)
+pub fn generation_path(vault: &Vault) -> Result<PathBuf, GenerationError> {
+    vault
+        .resolve_relative(GENERATION_RELATIVE)
+        .map_err(|error| GenerationError::Persistence(error.to_string()))
 }
 
 pub fn load(vault: &Vault) -> Result<CharacterGeneration, GenerationError> {
-    let path = generation_path(vault);
+    let path = generation_path(vault)?;
     if !path.exists() {
         return Ok(CharacterGeneration::default());
     }
@@ -87,7 +89,7 @@ pub fn load(vault: &Vault) -> Result<CharacterGeneration, GenerationError> {
 pub fn save(vault: &Vault, generation: &CharacterGeneration) -> Result<(), GenerationError> {
     let normalized = normalize(generation.clone());
     validate(&normalized)?;
-    let path = generation_path(vault);
+    let path = generation_path(vault)?;
     let bytes = serde_json::to_vec_pretty(&normalized)
         .map_err(|error| GenerationError::Persistence(error.to_string()))?;
     storage::atomic_write(&path, bytes)?;
@@ -227,6 +229,7 @@ mod tests {
         assert_eq!(loaded.temperature, Some(0.8));
         assert_eq!(loaded.max_tokens, Some(256));
         assert_eq!(fs::read(vault.root().join("character.md")).unwrap(), before);
+        assert!(generation_path(&vault).unwrap().starts_with(vault.root()));
         fs::remove_dir_all(root).unwrap();
     }
 

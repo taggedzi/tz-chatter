@@ -1,0 +1,21 @@
+{
+  "draftAfterCompletion": "",
+  "characterSwitch": {
+    "active": "Beta",
+    "body": "Beta\n\nllama3.2:latest · 2 messages\n\nSCENE\nCharacter default (none)\nNone\nNew local…\nYOU · COMPLETE\n\nSecond message to Alpha\n\nEdit\nBETA · COMPLETE\n\nLate reply from Alpha\n\nResumed 1 saved turn.\n\nRegenerate\nEnter to send · Shift+Enter newline · Ctrl+K switch character\n😊\nSend",
+    "cancelCalls": 0
+  },
+  "settingsFocus": {
+    "focused": "BODY",
+    "insideDialog": false
+  },
+  "settingsTab": {
+    "insideDialog": false,
+    "focused": null
+  },
+  "characterLibrary": {
+    "height": 30,
+    "scrollHeight": 200
+  },
+  "imeEnterSubmitted": true
+}

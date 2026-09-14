@@ -1,0 +1,8 @@
+2026-09-13, synthetic transcript, native Ollama at 127.0.0.1:11434.
+Model: llama3.2:latest. Temperature: 0. Max tokens: 1024.
+Actual request built by extraction::build_extraction_request.
+User source: I like quiet cafes.
+Assistant source: I will remember that.
+Returned proposal fields included source_turn_ids, quote, origin=user/assistant, speculation=false.
+Application parser result: REJECTED — unknown variant `user`, expected one of `user_stated`, `character_fact`, `conversation_event`, `inferred` at line 7 column 22.
+No valid proposal was accepted by this probe. This is one observed model run, not a statistical quality evaluation.

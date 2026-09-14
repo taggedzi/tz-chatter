@@ -566,6 +566,32 @@ mod tests {
     }
 
     #[test]
+    fn fabricated_quote_is_not_auto_written_as_user_fact() {
+        let mut fabricated = candidate("The user lives on Mars.");
+        fabricated.evidence[0].quote = "I live on Mars.".into();
+        fabricated.origin = ProposalOrigin::UserStated;
+        let (root, _vault, queue, mut memories, proposal_id, transcript) =
+            prepare_pending("fabricated-quote", fabricated);
+        let result =
+            classify_and_maybe_auto_commit(&queue, &mut memories, &proposal_id, &transcript)
+                .unwrap();
+        assert!(result.is_none());
+        assert_eq!(
+            queue
+                .get_proposal(&proposal_id)
+                .unwrap()
+                .unwrap()
+                .candidate
+                .origin,
+            ProposalOrigin::Inferred
+        );
+        assert!(memories.list().unwrap().is_empty());
+        drop(memories);
+        drop(queue);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn duplicate_does_not_write_second_file() {
         let (root, _vault, mut queue, mut memories, proposal_id, _) =
             prepare_pending("auto-duplicate", candidate("User likes tea."));

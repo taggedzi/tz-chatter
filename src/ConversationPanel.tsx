@@ -25,6 +25,12 @@ import {
 import { isMacPlatform, shortcutModifierLabel } from "./chatShortcuts";
 import { insertAtCursor } from "./emojiCatalog";
 import { EmojiPicker } from "./EmojiPicker";
+import {
+  composerShouldSubmit,
+  shouldApplyChatUpdate,
+  shouldClearDraft,
+  type ChatRequestIdentity,
+} from "./requestGuard";
 
 const unloadedCharacter: CharacterDefinition = {
   schema_version: 1,
@@ -51,6 +57,10 @@ function roleLabel(turn: TranscriptTurn, characterName: string) {
   if (turn.role === "initiative") return `${characterName} · spontaneous`;
   if (turn.role === "user") return "You";
   return "System";
+}
+
+function draftKey(vaultRoot: string, characterId: string, sessionId: string) {
+  return JSON.stringify([vaultRoot, characterId, sessionId]);
 }
 
 function draftSession(sessionId: string): SessionSummary {
@@ -81,6 +91,7 @@ export function ConversationPanel() {
   const [error, setError] = useState<string | null>(null);
   const [resumeStatus, setResumeStatus] = useState<string | null>(null);
   const [loadedVaultRoot, setLoadedVaultRoot] = useState<string | null>(null);
+  const [transcriptFingerprint, setTranscriptFingerprint] = useState<string | null>(null);
   const [useHybridRetrieval, setUseHybridRetrieval] = useState(
     () => localStorage.getItem("tz-chatter.use-hybrid-retrieval") !== "false",
   );
@@ -98,10 +109,25 @@ export function ConversationPanel() {
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const emojiPickerAnchorRef = useRef<HTMLDivElement | null>(null);
+  const requestRef = useRef<ChatRequestIdentity | null>(null);
+  const selectionRef = useRef({ vaultRoot: "", characterId: "", sessionId: "" });
+  const draftRef = useRef(draft);
+  const draftsRef = useRef(new Map<string, string>());
   const listFilter = useRef({ query: "", includeArchived: false });
   const modifier = shortcutModifierLabel(
     typeof navigator !== "undefined" && isMacPlatform(navigator.platform),
   );
+
+  useEffect(() => {
+    draftRef.current = draft;
+    const selection = selectionRef.current;
+    if (selection.vaultRoot && selection.characterId && selection.sessionId) {
+      draftsRef.current.set(
+        draftKey(selection.vaultRoot, selection.characterId, selection.sessionId),
+        draft,
+      );
+    }
+  }, [draft]);
 
   const publishSessions = useCallback(async (root: string, activeId: string) => {
     try {
@@ -141,15 +167,36 @@ export function ConversationPanel() {
 
   const applyResume = useCallback(async (
     root: string,
-    result: { character: CharacterDefinition; transcript: TranscriptDocument | null },
+    result: {
+      character: CharacterDefinition;
+      transcript: TranscriptDocument | null;
+      transcript_fingerprint: string | null;
+    },
     status: string,
   ) => {
     const nextSessionId = result.transcript?.session_id ?? crypto.randomUUID();
+    const previous = selectionRef.current;
+    if (previous.vaultRoot && previous.characterId && previous.sessionId) {
+      draftsRef.current.set(
+        draftKey(previous.vaultRoot, previous.characterId, previous.sessionId),
+        draftRef.current,
+      );
+    }
+    requestRef.current = null;
+    selectionRef.current = {
+      vaultRoot: root,
+      characterId: result.character.id,
+      sessionId: nextSessionId,
+    };
     setCharacter(result.character);
     setLoadedVaultRoot(root);
     setVaultRoot(root);
     setSessionId(nextSessionId);
     setTurns(result.transcript?.turns ?? []);
+    setTranscriptFingerprint(result.transcript_fingerprint ?? null);
+    setDraft(
+      draftsRef.current.get(draftKey(root, result.character.id, nextSessionId)) ?? "",
+    );
     setRetrievedMemories([]);
     setContextInspection(null);
     setEditingUser(false);
@@ -163,7 +210,38 @@ export function ConversationPanel() {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     }
     await publishSessions(root, nextSessionId);
+    return nextSessionId;
   }, [loadSceneState, publishSessions]);
+
+  const leaveActiveSession = useCallback(async () => {
+    const previousCharacterId = activeCharacterId();
+    const previousSessionId = activeSessionId();
+    requestRef.current = null;
+    if (previousCharacterId && previousSessionId) {
+      await conversationClient.cancel(previousCharacterId, previousSessionId).catch(() => false);
+      await initiativeClient.stopScheduler(previousCharacterId, previousSessionId).catch(() => false);
+    }
+  }, []);
+
+  const startInitiativeIfEnabled = useCallback(async (root: string, characterId: string, nextSessionId: string) => {
+    try {
+      const initiative = await initiativeClient.snapshot(
+        root,
+        characterId,
+        Math.floor(Date.now() / 1000),
+      );
+      if (initiative.settings.enabled) {
+        await initiativeClient.recordResume(
+          root,
+          characterId,
+          Math.floor(Date.now() / 1000),
+        );
+        await initiativeClient.startScheduler(root, characterId, nextSessionId);
+      }
+    } catch {
+      // Conversation loading remains usable when initiative/provider setup is unavailable.
+    }
+  }, []);
 
   const resumeVault = useCallback(async (root: string) => {
     const trimmedRoot = root.trim();
@@ -174,44 +252,23 @@ export function ConversationPanel() {
     setBusy(true);
     setError(null);
     try {
-      const previousCharacterId = activeCharacterId();
-      const previousSessionId = activeSessionId();
-      if (previousCharacterId && previousSessionId) {
-        await initiativeClient.stopScheduler(previousCharacterId, previousSessionId).catch(() => false);
-      }
+      await leaveActiveSession();
       const result = await conversationClient.resume(trimmedRoot);
-      const nextSessionId = result.transcript?.session_id ?? crypto.randomUUID();
-      await applyResume(
+      const nextSessionId = await applyResume(
         trimmedRoot,
         result,
         result.transcript
           ? `Resumed ${result.transcript.turns.length} saved turn${result.transcript.turns.length === 1 ? "" : "s"}.`
           : `Loaded ${result.character.name}; a new conversation is ready.`,
       );
-      try {
-        const initiative = await initiativeClient.snapshot(
-          trimmedRoot,
-          result.character.id,
-          Math.floor(Date.now() / 1000),
-        );
-        if (initiative.settings.enabled) {
-          await initiativeClient.recordResume(
-            trimmedRoot,
-            result.character.id,
-            Math.floor(Date.now() / 1000),
-          );
-          await initiativeClient.startScheduler(trimmedRoot, result.character.id, nextSessionId);
-        }
-      } catch {
-        // Conversation loading remains usable when initiative/provider setup is unavailable.
-      }
+      await startInitiativeIfEnabled(trimmedRoot, result.character.id, nextSessionId);
     } catch (requestError) {
       setResumeStatus(null);
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
       setBusy(false);
     }
-  }, [applyResume]);
+  }, [applyResume, leaveActiveSession, startInitiativeIfEnabled]);
 
   const openSession = useCallback(async (nextSessionId: string) => {
     const root = (loadedVaultRoot ?? vaultRoot).trim();
@@ -219,18 +276,20 @@ export function ConversationPanel() {
     setBusy(true);
     setError(null);
     try {
+      await leaveActiveSession();
       const result = await conversationClient.openSession(root, nextSessionId);
-      await applyResume(
+      const session = await applyResume(
         root,
         result,
         `Opened ${result.transcript?.turns.length ?? 0} saved turn${(result.transcript?.turns.length ?? 0) === 1 ? "" : "s"}.`,
       );
+      await startInitiativeIfEnabled(root, result.character.id, session);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
       setBusy(false);
     }
-  }, [applyResume, busy, loadedVaultRoot, vaultRoot]);
+  }, [applyResume, busy, leaveActiveSession, loadedVaultRoot, startInitiativeIfEnabled, vaultRoot]);
 
   const startSession = useCallback(async () => {
     const root = (loadedVaultRoot ?? vaultRoot).trim();
@@ -238,14 +297,16 @@ export function ConversationPanel() {
     setBusy(true);
     setError(null);
     try {
+      await leaveActiveSession();
       const result = await conversationClient.startSession(root);
-      await applyResume(root, result, `New conversation with ${result.character.name}.`);
+      const session = await applyResume(root, result, `New conversation with ${result.character.name}.`);
+      await startInitiativeIfEnabled(root, result.character.id, session);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
       setBusy(false);
     }
-  }, [applyResume, busy, loadedVaultRoot, vaultRoot]);
+  }, [applyResume, busy, leaveActiveSession, loadedVaultRoot, startInitiativeIfEnabled, vaultRoot]);
 
   useEffect(() => {
     const rememberedRoot = localStorage.getItem(activeSessionStorageKeys.vaultRoot);
@@ -283,7 +344,17 @@ export function ConversationPanel() {
       void startSession();
     };
     const onProviderChanged = () => {
-      void loadSavedProvider();
+      void (async () => {
+        await loadSavedProvider();
+        const root = (loadedVaultRoot ?? vaultRoot).trim();
+        const characterId = activeCharacterId() ?? character.id;
+        const currentSessionId = activeSessionId() ?? sessionId;
+        if (!root || !characterId || !currentSessionId) return;
+        await initiativeClient
+          .stopScheduler(characterId, currentSessionId)
+          .catch(() => false);
+        await startInitiativeIfEnabled(root, characterId, currentSessionId);
+      })();
     };
     const onGenerationChanged = () => {
       const root = (loadedVaultRoot ?? vaultRoot).trim();
@@ -342,19 +413,19 @@ export function ConversationPanel() {
       window.removeEventListener(shellEvents.renameSession, onRenameSession);
       window.removeEventListener(shellEvents.archiveSession, onArchiveSession);
     };
-  }, [busy, loadSavedProvider, loadedVaultRoot, openSession, publishSessions, resumeVault, sessionId, startSession, vaultRoot]);
+  }, [busy, character.id, loadSavedProvider, loadedVaultRoot, openSession, publishSessions, resumeVault, sessionId, startInitiativeIfEnabled, startSession, vaultRoot]);
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent(shellEvents.conversationUi, {
       detail: {
         generating: busy,
-        sourcesOpen: showContext && retrievedMemories.length > 0,
-        sourcesAvailable: retrievedMemories.length > 0,
+        sourcesOpen: showContext && contextInspection !== null,
+        sourcesAvailable: contextInspection !== null,
         emojiPickerOpen,
         newLocalOpen,
       },
     }));
-  }, [busy, emojiPickerOpen, newLocalOpen, retrievedMemories.length, showContext]);
+  }, [busy, contextInspection, emojiPickerOpen, newLocalOpen, showContext]);
 
   useEffect(() => {
     if (!emojiPickerOpen) return;
@@ -377,7 +448,7 @@ export function ConversationPanel() {
       });
     };
     const onToggleSources = () => {
-      if (retrievedMemories.length > 0) setShowContext((current) => !current);
+      if (contextInspection) setShowContext((current) => !current);
     };
     const onCloseSources = () => setShowContext(false);
     const onCloseNewLocal = () => setNewLocalOpen(false);
@@ -399,7 +470,7 @@ export function ConversationPanel() {
       window.removeEventListener(shellEvents.closeNewLocal, onCloseNewLocal);
       window.removeEventListener(shellEvents.closeEmojiPicker, onCloseEmojiPicker);
     };
-  }, [busy, character.id, retrievedMemories.length, sessionId]);
+  }, [busy, character.id, contextInspection, sessionId]);
 
   useEffect(() => {
     let disposed = false;
@@ -437,6 +508,7 @@ export function ConversationPanel() {
       user_turn_id: lastUser.id,
       user_content: content,
       use_hybrid_retrieval: useHybridRetrieval,
+      expected_transcript_fingerprint: transcriptFingerprint,
     };
   }
 
@@ -446,6 +518,7 @@ export function ConversationPanel() {
       transcript: TranscriptDocument;
       retrieved_memories: RetrievedMemory[];
       context_inspection: ContextInspection;
+      transcript_fingerprint: string | null;
     }>,
     options?: { replaceLive?: boolean; replyId?: string; prefix?: string; clearDraft?: boolean },
   ) {
@@ -455,6 +528,13 @@ export function ConversationPanel() {
     setResumeStatus(null);
     setEditingUser(false);
     rememberActiveSession(vaultRoot.trim(), character.id, sessionId, character.name);
+    const identity: ChatRequestIdentity = {
+      vaultRoot: vaultRoot.trim(),
+      characterId: character.id,
+      sessionId,
+      requestId: snapshot.user_turn_id,
+    };
+    requestRef.current = identity;
     if (options?.replaceLive) {
       setTurns((current) => {
         const userIndex = current.findIndex((turn) => turn.id === snapshot.user_turn_id);
@@ -476,16 +556,26 @@ export function ConversationPanel() {
       });
     }
     try {
-      const outcome = await action(streamHandler(snapshot, options));
+      const outcome = await action(streamHandler(snapshot, options, identity));
+      if (!shouldApplyChatUpdate(requestRef.current, identity)) return;
+      if (
+        selectionRef.current.vaultRoot !== identity.vaultRoot
+        || selectionRef.current.characterId !== identity.characterId
+        || selectionRef.current.sessionId !== identity.sessionId
+      ) {
+        return;
+      }
       setTurns(outcome.transcript.turns);
       setRetrievedMemories(outcome.retrieved_memories);
       setContextInspection(outcome.context_inspection);
-      if (options?.clearDraft) setDraft("");
-      await publishSessions(vaultRoot.trim(), sessionId);
+      setTranscriptFingerprint(outcome.transcript_fingerprint ?? null);
+      if (options?.clearDraft && shouldClearDraft(draftRef.current, snapshot.user_content)) setDraft("");
+      await publishSessions(identity.vaultRoot, identity.sessionId);
     } catch (requestError) {
+      if (!shouldApplyChatUpdate(requestRef.current, identity)) return;
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
-      setBusy(false);
+      if (shouldApplyChatUpdate(requestRef.current, identity)) setBusy(false);
     }
   }
 
@@ -514,6 +604,7 @@ export function ConversationPanel() {
       user_turn_id: crypto.randomUUID(),
       user_content: content,
       use_hybrid_retrieval: useHybridRetrieval,
+      expected_transcript_fingerprint: transcriptFingerprint,
     };
     await runSnapshot(
       snapshot,
@@ -570,16 +661,28 @@ export function ConversationPanel() {
 
   function streamHandler(
     snapshot: RequestSnapshot,
-    options?: { replyId?: string; prefix?: string },
+    options: { replyId?: string; prefix?: string } | undefined,
+    identity: ChatRequestIdentity,
   ) {
     let streamedContent = options?.prefix ?? "";
     let replyId = options?.replyId ?? `reply-${snapshot.user_turn_id}`;
     return (streamEvent: ChatStreamEvent) => {
+      if (!shouldApplyChatUpdate(requestRef.current, identity)) return;
+      if (
+        selectionRef.current.vaultRoot !== identity.vaultRoot
+        || selectionRef.current.characterId !== identity.characterId
+        || selectionRef.current.sessionId !== identity.sessionId
+      ) {
+        return;
+      }
       if (streamEvent.event === "started" && streamEvent.data.cancellation_id) {
         replyId = streamEvent.data.cancellation_id;
       }
       if (streamEvent.event === "delta") streamedContent += streamEvent.data.text;
-      if (streamEvent.event !== "started" && streamEvent.event !== "delta") return;
+      if (streamEvent.event === "failed" && streamEvent.data.message && !streamedContent) {
+        streamedContent = streamEvent.data.message;
+      }
+      if (streamEvent.event !== "started" && streamEvent.event !== "delta" && streamEvent.event !== "failed") return;
       setTurns((current) => {
         const withoutReply = current.filter((turn) => turn.id !== replyId);
         const withUser = withoutReply.some((turn) => turn.id === snapshot.user_turn_id)
@@ -654,7 +757,7 @@ export function ConversationPanel() {
     setBusy(true);
     setError(null);
     try {
-      await sceneClient.saveLocal(vaultRoot.trim(), {
+      await sceneClient.createLocal(vaultRoot.trim(), {
         schema_version: 1,
         id,
         title: newLocalTitle.trim(),
@@ -725,7 +828,7 @@ export function ConversationPanel() {
               </select>
             </label>
           )}
-          {retrievedMemories.length > 0 && (
+          {contextInspection && (
             <button
               aria-keyshortcuts={`${modifier === "⌘" ? "Meta" : "Control"}+I`}
               aria-pressed={showContext}
@@ -801,11 +904,15 @@ export function ConversationPanel() {
           <div ref={transcriptEnd} />
         </div>
 
-        {showContext && retrievedMemories.length > 0 && (
+        {showContext && contextInspection && (
           <aside className="context-inspector" aria-label="Retrieved memory context">
             <div className="context-inspector-header">
               <span className="section-kicker">CONTEXT USED</span>
-              <span>{retrievedMemories.length} source{retrievedMemories.length === 1 ? "" : "s"} · ~{retrievedMemories.reduce((total, memory) => total + memory.estimated_tokens, 0)} tokens</span>
+              <span>
+                {retrievedMemories.length} source{retrievedMemories.length === 1 ? "" : "s"}
+                {contextInspection.fallback_reason ? ` · ${contextInspection.fallback_reason}` : ""}
+                {contextInspection.retrieval_mode ? ` · ${contextInspection.retrieval_mode}` : ""}
+              </span>
             </div>
             {retrievedMemories.map((memory) => (
               <details className="context-source" key={memory.memory_id}>
@@ -885,10 +992,9 @@ export function ConversationPanel() {
           disabled={!vaultReady || editingUser}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              event.currentTarget.form?.requestSubmit();
-            }
+            if (!composerShouldSubmit(event)) return;
+            event.preventDefault();
+            event.currentTarget.form?.requestSubmit();
           }}
           placeholder={vaultReady ? `Message ${character.name}` : "Open a character vault to start chatting"}
           ref={composerRef}

@@ -8,6 +8,7 @@ use reqwest::{header, Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 pub type StreamSink = Arc<dyn Fn(ChatStreamEvent) + Send + Sync>;
@@ -20,7 +21,12 @@ pub struct ProviderClient {
 impl Default for ProviderClient {
     fn default() -> Self {
         Self {
-            http: Client::new(),
+            http: Client::builder()
+                .connect_timeout(Duration::from_secs(15))
+                .read_timeout(Duration::from_secs(60))
+                .pool_idle_timeout(Duration::from_secs(30))
+                .build()
+                .expect("reqwest client"),
         }
     }
 }
@@ -99,24 +105,28 @@ impl ProviderClient {
             "chat_streaming",
         )?;
 
-        let response = match config.kind {
+        let builder = match config.kind {
             ProviderKind::Ollama => {
                 let url = endpoint(config, "chat", "chat/completions")?;
                 let payload = build_ollama_chat_payload(request);
                 self.authorized(self.http.post(url).json(&payload), config)
-                    .send()
-                    .await
             }
             ProviderKind::LmStudio | ProviderKind::OpenAiCompatible => {
                 let url = endpoint(config, "chat", "chat/completions")?;
                 let payload = build_openai_chat_payload(request);
                 self.authorized(self.http.post(url).json(&payload), config)
-                    .send()
-                    .await
             }
-        }
-        .map_err(|error| ProviderError::Unavailable(error.to_string()))?;
-        let response = ensure_response_success(response).await?;
+        };
+        let response = match send_cancellable(builder, &cancellation).await? {
+            Some(response) => response,
+            None => {
+                return Ok(vec![ChatStreamEvent::Cancelled]);
+            }
+        };
+        let response = match ensure_response_success_cancellable(response, &cancellation).await? {
+            Some(response) => response,
+            None => return Ok(vec![ChatStreamEvent::Cancelled]),
+        };
 
         let mut events = Vec::new();
         emit_stream_event(
@@ -143,8 +153,20 @@ impl ProviderClient {
                 next = stream.next() => {
                     match next {
                         Some(Ok(chunk)) => {
-                            for event in decoder.push(&chunk)? {
-                                emit_stream_event(&mut events, event, sink.as_ref());
+                            match decoder.push(&chunk) {
+                                Ok(decoded) => {
+                                    for event in decoded {
+                                        emit_stream_event(&mut events, event, sink.as_ref());
+                                    }
+                                }
+                                Err(error) => {
+                                    emit_stream_event(
+                                        &mut events,
+                                        ChatStreamEvent::Failed { message: error.to_string() },
+                                        sink.as_ref(),
+                                    );
+                                    return Ok(events);
+                                }
                             }
                         }
                         Some(Err(error)) => {
@@ -160,8 +182,22 @@ impl ProviderClient {
                 }
             }
         }
-        for event in decoder.finish()? {
-            emit_stream_event(&mut events, event, sink.as_ref());
+        match decoder.finish() {
+            Ok(decoded) => {
+                for event in decoded {
+                    emit_stream_event(&mut events, event, sink.as_ref());
+                }
+            }
+            Err(error) => {
+                emit_stream_event(
+                    &mut events,
+                    ChatStreamEvent::Failed {
+                        message: error.to_string(),
+                    },
+                    sink.as_ref(),
+                );
+                return Ok(events);
+            }
         }
         if !events.iter().any(|event| {
             matches!(
@@ -269,20 +305,44 @@ fn endpoint(
     })
 }
 
+async fn send_cancellable(
+    builder: RequestBuilder,
+    cancellation: &CancellationToken,
+) -> Result<Option<reqwest::Response>, ProviderError> {
+    tokio::select! {
+        _ = cancellation.cancelled() => Ok(None),
+        result = builder.send() => {
+            result
+                .map(Some)
+                .map_err(|error| ProviderError::Unavailable(error.to_string()))
+        }
+    }
+}
+
 async fn ensure_response_success(
     response: reqwest::Response,
 ) -> Result<reqwest::Response, ProviderError> {
+    match ensure_response_success_cancellable(response, &CancellationToken::new()).await? {
+        Some(response) => Ok(response),
+        None => Err(ProviderError::Unavailable(
+            "provider request was cancelled".into(),
+        )),
+    }
+}
+
+async fn ensure_response_success_cancellable(
+    response: reqwest::Response,
+    cancellation: &CancellationToken,
+) -> Result<Option<reqwest::Response>, ProviderError> {
     let status = response.status();
     if status.is_success() {
-        return Ok(response);
+        return Ok(Some(response));
     }
-    let detail = response
-        .text()
-        .await
-        .unwrap_or_default()
-        .chars()
-        .take(1000)
-        .collect::<String>();
+    let detail = tokio::select! {
+        _ = cancellation.cancelled() => return Ok(None),
+        text = response.text() => text.unwrap_or_default(),
+    };
+    let detail = detail.chars().take(1000).collect::<String>();
     let suffix = if detail.trim().is_empty() {
         String::new()
     } else {
@@ -298,6 +358,8 @@ struct OllamaChatPayload<'a> {
     model: &'a str,
     messages: &'a [ChatMessage],
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     options: Option<OllamaChatOptions>,
 }
@@ -315,6 +377,7 @@ fn build_ollama_chat_payload(request: &ChatRequest) -> OllamaChatPayload<'_> {
         model: &request.model,
         messages: &request.messages,
         stream: true,
+        format: request.json_mode.then_some("json"),
         options: ollama_sampling(request),
     }
 }
@@ -336,9 +399,16 @@ struct OpenAiChatPayload<'a> {
     messages: &'a [ChatMessage],
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<OpenAiResponseFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiResponseFormat {
+    r#type: &'static str,
 }
 
 fn build_openai_chat_payload(request: &ChatRequest) -> OpenAiChatPayload<'_> {
@@ -346,6 +416,9 @@ fn build_openai_chat_payload(request: &ChatRequest) -> OpenAiChatPayload<'_> {
         model: &request.model,
         messages: &request.messages,
         stream: true,
+        response_format: request.json_mode.then_some(OpenAiResponseFormat {
+            r#type: "json_object",
+        }),
         temperature: request.temperature,
         max_tokens: request.max_tokens,
     }
@@ -696,6 +769,7 @@ mod tests {
             cancellation_id: "cancel-001".into(),
             temperature: None,
             max_tokens: None,
+            json_mode: false,
         }
     }
 
@@ -735,6 +809,12 @@ mod tests {
                 .get("options")
                 .is_none()
         );
+        let mut structured = request("ollama");
+        structured.json_mode = true;
+        let ollama = serde_json::to_value(build_ollama_chat_payload(&structured)).unwrap();
+        assert_eq!(ollama["format"], "json");
+        let openai = serde_json::to_value(build_openai_chat_payload(&structured)).unwrap();
+        assert_eq!(openai["response_format"]["type"], "json_object");
     }
 
     #[test]
@@ -874,6 +954,42 @@ mod tests {
 
         assert_eq!(retained, vec![event.clone()]);
         assert_eq!(*received.lock().unwrap(), vec![event]);
+    }
+
+    #[tokio::test]
+    async fn cancellation_before_http_headers_finishes_as_cancelled() {
+        use std::io::Read;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut bytes = [0; 4096];
+            let _ = socket.read(&mut bytes);
+            let _ = accepted_tx.send(());
+            let _ = release_rx.recv_timeout(Duration::from_secs(5));
+        });
+        let mut provider = ollama_config();
+        provider.endpoint = format!("http://{addr}");
+        let request = request("ollama");
+        let token = CancellationToken::new();
+        let client = ProviderClient::default();
+        let mut pending = Box::pin(client.stream_chat(&provider, &request, token.clone()));
+        tokio::select! {
+            _ = accepted_rx => {}
+            _ = &mut pending => panic!("request completed before cancellation"),
+        }
+        token.cancel();
+        let events = tokio::time::timeout(Duration::from_secs(2), pending)
+            .await
+            .expect("cancelled request must finish")
+            .unwrap();
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, ChatStreamEvent::Cancelled)));
+        let _ = release_tx.send(());
+        server.join().unwrap();
     }
 
     #[tokio::test]

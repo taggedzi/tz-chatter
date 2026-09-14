@@ -38,8 +38,12 @@ export const characterClient = {
   load(vaultRoot: string) {
     return invoke<CharacterDefinition>("character_load", { vaultRoot });
   },
-  save(vaultRoot: string, character: CharacterDefinition) {
-    return invoke<CharacterDefinition>("character_save", { vaultRoot, character });
+  save(vaultRoot: string, character: CharacterDefinition, expectedFingerprint?: string) {
+    return invoke<CharacterDefinition>("character_save", {
+      vaultRoot,
+      character,
+      expectedFingerprint: expectedFingerprint ?? null,
+    });
   },
   loadPortrait(vaultRoot: string) {
     return invoke<string | null>("character_portrait_load", { vaultRoot });

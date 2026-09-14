@@ -166,6 +166,8 @@ pub struct ChatRequest {
     pub temperature: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
+    #[serde(default)]
+    pub json_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

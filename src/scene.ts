@@ -47,14 +47,22 @@ export const sceneClient = {
   loadPersona(vaultRoot: string) {
     return invoke<PersonaNotes>("persona_load", { vaultRoot });
   },
-  savePersona(vaultRoot: string, notes: PersonaNotes) {
-    return invoke<PersonaNotes>("persona_save", { vaultRoot, notes });
+  savePersona(vaultRoot: string, notes: PersonaNotes, expectedFingerprint?: string) {
+    return invoke<PersonaNotes>("persona_save", {
+      vaultRoot,
+      notes,
+      expectedFingerprint: expectedFingerprint ?? null,
+    });
   },
   loadSettings(vaultRoot: string) {
     return invoke<SceneSettings>("scene_settings_load", { vaultRoot });
   },
-  saveSettings(vaultRoot: string, settings: SceneSettings) {
-    return invoke<SceneSettings>("scene_settings_save", { vaultRoot, settings });
+  saveSettings(vaultRoot: string, settings: SceneSettings, expectedFingerprint?: string) {
+    return invoke<SceneSettings>("scene_settings_save", {
+      vaultRoot,
+      settings,
+      expectedFingerprint: expectedFingerprint ?? null,
+    });
   },
   listLocals(vaultRoot: string) {
     return invoke<LocalSummary[]>("locals_list", { vaultRoot });
@@ -62,8 +70,15 @@ export const sceneClient = {
   loadLocal(vaultRoot: string, id: string) {
     return invoke<LocalRecord>("local_load", { vaultRoot, id });
   },
-  saveLocal(vaultRoot: string, record: LocalRecord) {
-    return invoke<LocalRecord>("local_save", { vaultRoot, record });
+  saveLocal(vaultRoot: string, record: LocalRecord, expectedFingerprint?: string) {
+    return invoke<LocalRecord>("local_save", {
+      vaultRoot,
+      record,
+      expectedFingerprint: expectedFingerprint ?? null,
+    });
+  },
+  createLocal(vaultRoot: string, record: LocalRecord) {
+    return invoke<LocalRecord>("local_create", { vaultRoot, record });
   },
   deleteLocal(vaultRoot: string, id: string) {
     return invoke<void>("local_delete", { vaultRoot, id });

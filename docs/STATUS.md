@@ -4,15 +4,15 @@ Last updated: 2026-09-13
 
 ## Current position
 
-- Project phase: Milestone 17 T34 done (composer emoji picker); Milestone 16 T33 done (Linux verification on Ubuntu 24.04.5 GNOME/Wayland VirtualBox guest); Milestone 15 T32 done; Milestone 14 T31 done; Milestone 13 T30 done; Milestone 12 T29 done; Milestone 11 T28 done; Milestone 10 T27 done; Milestone 9 T26 done; Milestone 7 environment-limited leftovers (T16/T18); Milestone 8 T24 and T25 done.
-- Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, T19 completion-audit remediations A01-A15, auto-write of validated memories, hybrid retrieval by default with lexical fallback, portable user persona plus reusable scene locals, portable character portraits, session titles/search/in-place archive, last-exchange edit/regenerate/continue, per-character model and sampling, contradiction/supersession review, keyboard-first chat, and an in-app composer emoji picker.
+- Project phase: Milestone 17 T34 done (composer emoji picker); Milestone 16 T33 done (Linux verification on Ubuntu 24.04.5 GNOME/Wayland VirtualBox guest); Milestone 15 T32 done; Milestone 14 T31 done; Milestone 13 T30 done; Milestone 12 T29 done; Milestone 11 T28 done; Milestone 10 T27 done; Milestone 9 T26 done; Milestone 7 environment-limited leftovers (T16/T18); Milestone 8 T24 and T25 done; R02 reliability remediation done.
+- Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, T19 completion-audit remediations A01-A15, auto-write of validated memories, hybrid retrieval by default with lexical fallback, portable user persona plus reusable scene locals, portable character portraits, session titles/search/in-place archive, last-exchange edit/regenerate/continue, per-character model and sampling, contradiction/supersession review, keyboard-first chat, an in-app composer emoji picker, and the R02 reliability hardening pass.
 - T01 delivered: React/TypeScript shell, Rust command boundary, frontend/Rust lockfiles, validation scripts, and a Windows launch check.
 - Repository: initialized locally on `main`; no remote configured. T19/A13 commit `6a08a51` contains the reviewed application sources.
-- Active task: none. T34 composer emoji picker is done.
-- Next task: none scheduled. T16/T18 remain in_progress only for environment-limited visual tray/keyboard and live llama.cpp/LM Studio checks.
-- Blockers: no implementation blockers on this Linux guest for T33. Native Computer Use visual inspection remains unavailable; process, Wayland, AT-SPI, and StatusNotifier evidence covered launch and tray registration. macOS is intended but unverified and is not scheduled. Live Ollama was not installed here; the T33 chat turn used a local Ollama-shaped HTTP stub.
+- Active task: no active implementation task. R02 completed 2026-09-13 after the Grok-started remediation was audited, completed, and verified in this session. T16/T18 remain in_progress for native interaction/provider evidence.
+- Next action: perform the remaining release-gate evidence: fresh native Windows interaction and install/upgrade/uninstall, live automatic-memory -> restart -> recall, dependency/license audit, large-vault/soak check, and provider/platform coverage as available.
+- Release readiness: hold public release pending the remaining gate. R02 fixes are covered by 172 passing Rust tests, 30 frontend unit tests, fmt/strict Clippy/lint/typecheck/build; native computer-use initialization failed during R01, so browser review used synthetic IPC and is not desktop/tray/accessibility verification. Current Windows Ollama native and compatible smoke tests pass; LM Studio :1234 is unavailable. Prior T33 Linux chat used a stub. macOS remains unverified.
 
-The user approved the architectural direction and requested a plan/status system that lets different agents continue without prior conversation context. T08 now retrieves bounded lexical memories into loopback-provider prompts; memory inspection, extraction, review, semantic ranking, initiative delivery, validated portable packs, and Windows packaging are implemented incrementally. Remaining release evidence is limited to visual Windows interaction coverage and live access to an OpenAI-compatible endpoint.
+The user approved the architectural direction and requested a plan/status system that lets different agents continue without prior conversation context. T08 now retrieves bounded lexical memories into loopback-provider prompts; memory inspection, extraction, review, semantic ranking, initiative delivery, validated portable packs, and Windows packaging are implemented incrementally. R01 found current implementation defects in addition to the remaining native Windows interaction and provider coverage gaps. R02 addressed the implementation defects; the remaining release evidence is listed above and in `docs/RELEASE_REVIEW.md`.
 
 ## Task board
 
@@ -20,6 +20,8 @@ The plan contains dependencies and acceptance criteria. This table is the author
 
 | ID | Task | State | Evidence / remaining work |
 | --- | --- | --- | --- |
+| R01 | First-release review | done | `docs/RELEASE_REVIEW.md`: 15 prioritized findings plus additional source risks. Baseline 156 Rust/25 frontend tests, fmt/Clippy/frontend checks, and 2 live Ollama smoke tests pass. 10 diagnostic defects reproduced; live extraction schema rejected; browser UI issues reproduced. Current MSI/NSIS built. Application code unchanged; hardening is R02. |
+| R02 | Remediate R01 defects | done | Reliability pass completed 2026-09-13. F01-F15 and specified additional storage/privacy risks are addressed in source and tests; 172 Rust tests pass (2 ignored), 30 frontend unit tests pass, fmt/strict Clippy/lint/typecheck/build pass. Live memory extraction success, native install/tray/accessibility verification, dependency/license audit, and large-vault/soak evidence remain release-gate work, not R02 implementation blockers. |
 | D00 | Project planning and continuity | done | Specification, plan, status, decisions, handoff, and AGENTS entry point created; documentation checks recorded below |
 | D01 | Git source control | done | Initial commit `c0743bf`; ignore/whitespace checks passed; working tree verified clean after baseline commit |
 | T01 | Desktop scaffold | done | Tauri 2 + React/TypeScript + Rust shell created; frontend/Rust checks and release build pass; Windows dev window launched and reported responsive |
@@ -59,18 +61,14 @@ The plan contains dependencies and acceptance criteria. This table is the author
 
 ## Active work and resumption
 
-Task: none (T34 composer emoji picker completed)
-Owner/session and date: Grok implementer — 2026-09-13
-Scope / files being edited: none remaining for T34.
-Completed in this session: in-app composer emoji picker with search and categories; Escape stack; static Unicode catalog; unit tests.
-Remaining acceptance criteria: none for T34. Native window click-through remains environment-limited. T16/T18 visual/live-provider leftovers remain environment-limited.
-Verification commands and outcomes: `npm run test:unit` 25 passed; `npm run lint`; `npm run typecheck`; `npm run build`.
-Blocker and unblock action (if any): none.
-Exact next step: none scheduled. T16/T18 remain environment-limited.
-
-Sample vault: `examples/characters/lyra` includes Lyra's definition, `persona.md`, `scene.md`, `locals/cafe.md`, six Markdown memories, and `chats/session-welcome.md`.
-
-No background development jobs or running application servers remain.
+Task: R02 complete; release-gate evidence remains
+Owner/session and date: Codex continuation - 2026-09-13
+Scope / files edited: reliability changes across Rust storage/provider/conversation/extraction/initiative/embedding/scene/portability/core commands and React chat/memory/settings/layout/request helpers, plus release continuity docs.
+Completed in this session: audited the Grok-started implementation against all 15 findings and additional risks; completed transcript fingerprint propagation/merge/conflict handling, bounded provider reads, initiative retargeting, per-session drafts, zero-source context visibility, and token-limited interrupted replies; added the token-limit regression test; fixed the final lint warning.
+Remaining acceptance criteria: none for R02's application implementation scope. The release gate still requires native Windows/package/accessibility/tray checks, live automatic-memory -> restart -> recall evidence, and broader provider/platform/scale audits.
+Verification commands and outcomes: `cargo test --locked --manifest-path src-tauri/Cargo.toml` PASS - 172 passed, 2 ignored; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` PASS; `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings` PASS; `npm run test:unit` PASS - 30; `npm run lint` PASS; `npm run typecheck` PASS; `npm run build` PASS; `git diff --check` PASS.
+Blocker and unblock action (if any): native computer-use is unavailable in this environment; use a native Windows session for the remaining release evidence.
+Exact next step: keep R02 done and start the native release-gate checklist from `docs/RELEASE_REVIEW.md`.
 
 ## Verification ledger
 
@@ -173,3 +171,4 @@ Update the task board and append a handoff entry in the same change. Keep this f
 | 2026-09-13 | ADR-017 / T33 scheduling | PLAN vs STATUS ID membership; docs cross-links | PASS: T33 present in PLAN Milestone 16 and STATUS as `todo`; combined macOS/Linux growth item split; no Linux/macOS runtime |
 | 2026-09-13 | T33 Linux desktop verification | frontend lint/typecheck/build; npm run test:shortcuts; cargo fmt --check; cargo test; clippy -D warnings; npm run tauri dev; Windows-copied Lyra send; restart resume; tray StatusNotifier; npx tauri build --bundles deb,appimage; packaged binary launch | PASS: Ubuntu 24.04.5 LTS GNOME/Wayland VirtualBox guest. Node 24.21.0 + rustc 1.98.1 on native ext4 (`/home/tag/src/tz-chatter`, `CARGO_TARGET_DIR=/home/tag/.cache/tz-chatter/target`) because `vboxsf` denies symlinks. 17 shortcut tests; 156 Rust tests passed / 2 ignored; Clippy passed after `as_chunks` lint fix. Dev window: tz-chatter + WebKit processes, Wayland cursor fd. Copied Lyra vault wrote T33 user+assistant turns into `chats/session-welcome.md`; after kill/relaunch, resume still reported 9 turns and `hasT33: true`. Tray: `tray_icon_tray_app_*` on `org.kde.StatusNotifierWatcher` with `ubuntu-appindicators@ubuntu.com`. Packages: deb 5,294,836 bytes and AppImage 81,373,688 bytes; release binary launched and re-registered tray. Live Ollama not installed (protocol stub on :11434). Initiative notification not visually clicked. |
 | 2026-09-13 | T34 composer emoji picker | npm run test:unit; npm run lint; npm run typecheck; npm run build | PASS: 25 frontend unit tests (insert-at-caret, category/search, Escape `close-emoji-picker` before new-local); lint/typecheck/build passed; native window not re-run |
+| 2026-09-13 | R02 reliability remediation | cargo test --locked; cargo fmt --check; cargo clippy -D warnings; npm run test:unit; npm run lint; npm run typecheck; npm run build; git diff --check | PASS: 172 Rust tests passed / 2 ignored; 30 frontend unit tests passed; Rust fmt and strict Clippy, frontend lint/typecheck/build, and whitespace checks passed. Added transcript conflict tokens/merge rules, bounded reads, scoped drafts, zero-source context visibility, and token-limited interrupted-reply handling. Native/live-provider/scale release evidence remains open. |

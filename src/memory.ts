@@ -18,6 +18,7 @@ export type MemoryRecord = {
   pinned: boolean;
   locked: boolean;
   body: string;
+  fingerprint?: string;
 };
 
 export type MemoryCommitResult =
@@ -107,13 +108,31 @@ export const memoryClient = {
     characterId: string,
     memory: MemoryRecord,
     original?: Pick<MemoryRecord, "memory_type" | "id">,
+    expectedFingerprint?: string,
   ) {
+    const memoryRecord = {
+      schema_version: memory.schema_version,
+      id: memory.id,
+      memory_type: memory.memory_type,
+      created_at: memory.created_at,
+      updated_at: memory.updated_at,
+      source_session_id: memory.source_session_id,
+      source_turn_ids: memory.source_turn_ids,
+      topics: memory.topics,
+      salience: memory.salience,
+      confidence: memory.confidence,
+      review_status: memory.review_status,
+      pinned: memory.pinned,
+      locked: memory.locked,
+      body: memory.body,
+    };
     return invoke<void>("memory_upsert", {
       vaultRoot,
       characterId,
-      memoryRecord: memory,
+      memoryRecord,
       originalMemoryType: original?.memory_type ?? null,
       originalId: original?.id ?? null,
+      expectedFingerprint: expectedFingerprint ?? memory.fingerprint ?? null,
     });
   },
   remove(vaultRoot: string, characterId: string, memoryType: MemoryType, id: string) {

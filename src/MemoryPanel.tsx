@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { memoryClient, type MemoryConflictPair, type MemoryConflictSide, type MemoryProposal, type MemoryRecord, type MemoryReviewStatus, type MemoryType } from "./memory";
 import { activeCharacterId, activeSessionChangedEvent, activeSessionStorageKeys } from "./activeSession";
 
@@ -34,36 +34,46 @@ export function MemoryPanel({ active }: { active: boolean }) {
   const [autoCommit, setAutoCommit] = useState(() => window.localStorage.getItem("tz-chatter.auto-commit-proposals") === "true");
   const [selected, setSelected] = useState<MemoryRecord | null>(null);
   const [selectedOriginal, setSelectedOriginal] = useState<Pick<MemoryRecord, "memory_type" | "id"> | null>(null);
+  const [selectedFingerprint, setSelectedFingerprint] = useState<string | null>(null);
+  const refreshGeneration = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
     if (!vaultRoot.trim()) return;
+    const generation = ++refreshGeneration.current;
+    const scopedCharacter = characterId.trim();
     setBusy(true);
     setError(null);
     try {
-      if (!characterId.trim()) throw new Error("Load a character conversation before opening memories.");
-      const canonicalMemories = await memoryClient.browse(vaultRoot.trim(), characterId.trim());
-      const queuedProposals = await memoryClient.reviewQueue(vaultRoot.trim(), characterId.trim());
-      const openConflicts = await memoryClient.conflictPairs(vaultRoot.trim(), characterId.trim());
+      if (!scopedCharacter) throw new Error("Load a character conversation before opening memories.");
+      const canonicalMemories = await memoryClient.browse(vaultRoot.trim(), scopedCharacter);
+      const queuedProposals = await memoryClient.reviewQueue(vaultRoot.trim(), scopedCharacter);
+      const openConflicts = await memoryClient.conflictPairs(vaultRoot.trim(), scopedCharacter);
+      if (generation !== refreshGeneration.current || scopedCharacter !== characterId.trim()) return;
       setAllMemories(canonicalMemories);
       setConflicts(openConflicts);
       setProposals(queuedProposals);
       setSelected((current) => {
         if (!current) return current;
-        return canonicalMemories.find((memory) => memory.id === current.id) ?? current;
+        if (!canonicalMemories.some((memory) => memory.id === current.id) && selectedOriginal) {
+          return null;
+        }
+        return current;
       });
       setProposalDrafts(Object.fromEntries(queuedProposals.map((proposal) => [proposal.id, proposal.candidate.body])));
       if (query.trim()) {
-        const results = await memoryClient.search(vaultRoot.trim(), characterId.trim(), query.trim(), 30);
+        const results = await memoryClient.search(vaultRoot.trim(), scopedCharacter, query.trim(), 30);
+        if (generation !== refreshGeneration.current || scopedCharacter !== characterId.trim()) return;
         setMemories(results);
       } else {
         setMemories(canonicalMemories);
       }
     } catch (requestError) {
+      if (generation !== refreshGeneration.current) return;
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
-      setBusy(false);
+      if (generation === refreshGeneration.current) setBusy(false);
     }
   }
 
@@ -81,10 +91,14 @@ export function MemoryPanel({ active }: { active: boolean }) {
         characterId.trim(),
         updated,
         selectedOriginal ?? undefined,
+        selectedFingerprint ?? selected.fingerprint,
       );
-      setSelected(updated);
-      setSelectedOriginal({ memory_type: updated.memory_type, id: updated.id });
       await refresh();
+      const listed = await memoryClient.browse(vaultRoot.trim(), characterId.trim());
+      const next = listed.find((memory) => memory.id === updated.id);
+      setSelected(next ?? updated);
+      setSelectedOriginal({ memory_type: updated.memory_type, id: updated.id });
+      setSelectedFingerprint(next?.fingerprint ?? null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
@@ -185,6 +199,7 @@ export function MemoryPanel({ active }: { active: boolean }) {
     if (!record) return;
     setSelected(record);
     setSelectedOriginal({ memory_type: record.memory_type, id: record.id });
+    setSelectedFingerprint(record.fingerprint ?? null);
   }
 
   async function excludeConflictSide(pair: MemoryConflictPair, targetId: string) {
@@ -206,6 +221,14 @@ export function MemoryPanel({ active }: { active: boolean }) {
     const sync = () => {
       setVaultRoot(localStorage.getItem(activeSessionStorageKeys.vaultRoot) ?? "");
       setCharacterId(activeCharacterId() ?? "");
+      setSelected(null);
+      setSelectedOriginal(null);
+      setSelectedFingerprint(null);
+      setProposalDrafts({});
+      setProposals([]);
+      setConflicts([]);
+      setMemories([]);
+      setAllMemories([]);
     };
     window.addEventListener(activeSessionChangedEvent, sync);
     return () => window.removeEventListener(activeSessionChangedEvent, sync);
@@ -288,9 +311,9 @@ export function MemoryPanel({ active }: { active: boolean }) {
 
       <div className="memory-layout">
         <div className="memory-list">
-          <div className="memory-list-header"><span>{memories.length} memories</span><button className="text-button" onClick={() => { setSelected(newMemory()); setSelectedOriginal(null); }} type="button">+ New</button></div>
+          <div className="memory-list-header"><span>{memories.length} memories</span><button className="text-button" onClick={() => { setSelected(newMemory()); setSelectedOriginal(null); setSelectedFingerprint(null); }} type="button">+ New</button></div>
           {memories.map((memory) => (
-            <button className={selected?.id === memory.id ? "memory-row selected" : "memory-row"} key={`${memory.memory_type}:${memory.id}`} onClick={() => { setSelected(memory); setSelectedOriginal({ memory_type: memory.memory_type, id: memory.id }); }} type="button">
+            <button className={selected?.id === memory.id ? "memory-row selected" : "memory-row"} key={`${memory.memory_type}:${memory.id}`} onClick={() => { setSelected(memory); setSelectedOriginal({ memory_type: memory.memory_type, id: memory.id }); setSelectedFingerprint(memory.fingerprint ?? null); }} type="button">
               <strong>{memory.id}</strong>
               <span>{memory.memory_type} · {memory.pinned ? "pinned" : memory.review_status}</span>
             </button>

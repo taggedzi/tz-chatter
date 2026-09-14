@@ -15,6 +15,8 @@ pub const CHUNKING_VERSION: u32 = 1;
 pub struct EmbeddingSpace {
     pub provider_id: String,
     pub model: String,
+    #[serde(default)]
+    pub endpoint: String,
     pub dimensions: usize,
     pub chunking_version: u32,
     pub index_version: u32,
@@ -25,14 +27,24 @@ impl EmbeddingSpace {
         provider_id: impl Into<String>,
         model: impl Into<String>,
         dimensions: usize,
+        endpoint: impl Into<String>,
     ) -> Self {
         Self {
             provider_id: provider_id.into(),
             model: model.into(),
+            endpoint: endpoint.into(),
             dimensions,
             chunking_version: CHUNKING_VERSION,
             index_version: EMBEDDING_INDEX_VERSION,
         }
+    }
+
+    pub fn matches_provider(&self, provider_id: &str, model: &str, endpoint: &str) -> bool {
+        self.provider_id == provider_id
+            && self.model == model
+            && self.endpoint == endpoint
+            && self.chunking_version == CHUNKING_VERSION
+            && self.index_version == EMBEDDING_INDEX_VERSION
     }
 }
 
@@ -120,6 +132,7 @@ impl EmbeddingIndex {
                  character_id TEXT PRIMARY KEY,
                  provider_id TEXT NOT NULL,
                  model TEXT NOT NULL,
+                 endpoint TEXT NOT NULL DEFAULT '',
                  dimensions INTEGER NOT NULL,
                  chunking_version INTEGER NOT NULL,
                  index_version INTEGER NOT NULL,
@@ -135,6 +148,10 @@ impl EmbeddingIndex {
                  PRIMARY KEY (character_id, memory_id, fingerprint)
              );",
         )?;
+        let _ = connection.execute(
+            "ALTER TABLE embedding_metadata ADD COLUMN endpoint TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         let mut index = Self {
             connection,
             character_id,
@@ -154,15 +171,19 @@ impl EmbeddingIndex {
             return Ok(None);
         }
         let connection = Connection::open(path)?;
+        let _ = connection.execute(
+            "ALTER TABLE embedding_metadata ADD COLUMN endpoint TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         let mut statement = match connection.prepare(
-            "SELECT provider_id, model, dimensions, chunking_version, index_version
+            "SELECT provider_id, model, endpoint, dimensions, chunking_version, index_version
              FROM embedding_metadata WHERE character_id = ?1",
         ) {
             Ok(statement) => statement,
             Err(error) if error.to_string().contains("no such table") => return Ok(None),
             Err(error) => return Err(error.into()),
         };
-        let existing: Option<(String, String, i64, i64, i64)> = statement
+        let existing: Option<(String, String, String, i64, i64, i64)> = statement
             .query_row(params![character_id], |row| {
                 Ok((
                     row.get(0)?,
@@ -170,16 +191,20 @@ impl EmbeddingIndex {
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
+                    row.get(5)?,
                 ))
             })
             .optional()?;
         Ok(existing.map(
-            |(provider_id, model, dimensions, chunking_version, index_version)| EmbeddingSpace {
-                provider_id,
-                model,
-                dimensions: dimensions as usize,
-                chunking_version: chunking_version as u32,
-                index_version: index_version as u32,
+            |(provider_id, model, endpoint, dimensions, chunking_version, index_version)| {
+                EmbeddingSpace {
+                    provider_id,
+                    model,
+                    endpoint,
+                    dimensions: dimensions as usize,
+                    chunking_version: chunking_version as u32,
+                    index_version: index_version as u32,
+                }
             },
         ))
     }
@@ -355,10 +380,10 @@ impl EmbeddingIndex {
     }
 
     fn initialize_space(&mut self) -> Result<(), EmbeddingIndexError> {
-        let existing: Option<(String, String, i64, i64, i64, String)> = self
+        let existing: Option<(String, String, String, i64, i64, i64, String)> = self
             .connection
             .query_row(
-                "SELECT provider_id, model, dimensions, chunking_version, index_version, status
+                "SELECT provider_id, model, endpoint, dimensions, chunking_version, index_version, status
              FROM embedding_metadata WHERE character_id = ?1",
                 params![self.character_id],
                 |row| {
@@ -369,6 +394,7 @@ impl EmbeddingIndex {
                         row.get(3)?,
                         row.get(4)?,
                         row.get(5)?,
+                        row.get(6)?,
                     ))
                 },
             )
@@ -376,9 +402,10 @@ impl EmbeddingIndex {
         let compatible = existing.as_ref().is_some_and(|row| {
             row.0 == self.space.provider_id
                 && row.1 == self.space.model
-                && row.2 == self.space.dimensions as i64
-                && row.3 == self.space.chunking_version as i64
-                && row.4 == self.space.index_version as i64
+                && row.2 == self.space.endpoint
+                && row.3 == self.space.dimensions as i64
+                && row.4 == self.space.chunking_version as i64
+                && row.5 == self.space.index_version as i64
         });
         if !compatible {
             self.connection.execute(
@@ -387,11 +414,19 @@ impl EmbeddingIndex {
             )?;
             self.connection.execute(
                 "INSERT OR REPLACE INTO embedding_metadata
-                 (character_id, provider_id, model, dimensions, chunking_version, index_version, status)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'ready')",
-                params![self.character_id, self.space.provider_id, self.space.model, self.space.dimensions as i64, self.space.chunking_version as i64, self.space.index_version as i64],
+                 (character_id, provider_id, model, endpoint, dimensions, chunking_version, index_version, status)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'ready')",
+                params![
+                    self.character_id,
+                    self.space.provider_id,
+                    self.space.model,
+                    self.space.endpoint,
+                    self.space.dimensions as i64,
+                    self.space.chunking_version as i64,
+                    self.space.index_version as i64
+                ],
             )?;
-        } else if existing.as_ref().is_some_and(|row| row.5 == "building") {
+        } else if existing.as_ref().is_some_and(|row| row.6 == "building") {
             // A process that died during rebuild leaves a durable marker. Clear
             // partial vectors so the next rebuild cannot mix old and new chunks.
             self.connection.execute(
@@ -407,10 +442,10 @@ impl EmbeddingIndex {
     }
 
     fn ensure_space(&self) -> Result<(), EmbeddingIndexError> {
-        let existing: Option<(String, String, i64, i64, i64)> = self
+        let existing: Option<(String, String, String, i64, i64, i64)> = self
             .connection
             .query_row(
-                "SELECT provider_id, model, dimensions, chunking_version, index_version
+                "SELECT provider_id, model, endpoint, dimensions, chunking_version, index_version
              FROM embedding_metadata WHERE character_id = ?1",
                 params![self.character_id],
                 |row| {
@@ -420,6 +455,7 @@ impl EmbeddingIndex {
                         row.get(2)?,
                         row.get(3)?,
                         row.get(4)?,
+                        row.get(5)?,
                     ))
                 },
             )
@@ -431,9 +467,10 @@ impl EmbeddingIndex {
         };
         if row.0 != self.space.provider_id
             || row.1 != self.space.model
-            || row.2 != self.space.dimensions as i64
-            || row.3 != self.space.chunking_version as i64
-            || row.4 != self.space.index_version as i64
+            || row.2 != self.space.endpoint
+            || row.3 != self.space.dimensions as i64
+            || row.4 != self.space.chunking_version as i64
+            || row.5 != self.space.index_version as i64
         {
             return Err(EmbeddingIndexError::IncompatibleSpace(
                 "active embedding space changed".into(),
@@ -526,7 +563,7 @@ mod tests {
     }
 
     fn space(model: &str, dimensions: usize) -> EmbeddingSpace {
-        EmbeddingSpace::new("ollama", model, dimensions)
+        EmbeddingSpace::new("ollama", model, dimensions, "http://127.0.0.1:11434")
     }
 
     fn chunk(id: &str, content: &str) -> EmbeddingChunk {
@@ -552,6 +589,25 @@ mod tests {
         drop(index);
         let index = EmbeddingIndex::open(&vault, "lyra", space("embed-b", 3)).unwrap();
         assert!(index.search(&[1.0, 0.0, 0.0], 10).unwrap().is_empty());
+        drop(index);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn endpoint_changes_invalidate_equal_dimension_vectors() {
+        let root = root("endpoint-invalidate");
+        let vault = Vault::create(&root).unwrap();
+        let first = EmbeddingSpace::new("ollama", "embed-a", 2, "http://127.0.0.1:11434");
+        let mut index = EmbeddingIndex::open(&vault, "lyra", first).unwrap();
+        index
+            .rebuild(&[chunk("one", "tea")], |_| Ok(vec![vec![1.0, 0.0]]))
+            .unwrap();
+        assert_eq!(index.search(&[1.0, 0.0], 10).unwrap().len(), 1);
+        drop(index);
+        let switched = EmbeddingSpace::new("ollama", "embed-a", 2, "http://127.0.0.1:11435");
+        assert!(!switched.matches_provider("ollama", "embed-a", "http://127.0.0.1:11434"));
+        let index = EmbeddingIndex::open(&vault, "lyra", switched).unwrap();
+        assert!(index.search(&[1.0, 0.0], 10).unwrap().is_empty());
         drop(index);
         fs::remove_dir_all(root).unwrap();
     }

@@ -349,3 +349,19 @@ Depends on: D00.
 Initialize the local repository on `main`, configure ignores and text normalization, commit the planning baseline, and update the handoff. No remote or publishing is required.
 
 Acceptance: verify the committed files, ignored runtime/build paths, trackable source/lockfiles/samples, and a clean working tree. This completes the Git initialization portion of T01 only; the desktop scaffold remains separate.
+
+## R01 — Review first-release readiness
+
+Depends on: T34.
+
+User-requested review of functionality, UI/UX, failure handling, and release readiness. Inspect source and existing evidence, run available checks and focused reproductions using synthetic data, and record prioritized findings with executable next steps. Review does not authorize publishing or imply that identified issues are fixed.
+
+Acceptance: deliver an evidence-backed assessment covering conversation lifecycle, memory integrity, providers, initiative, portability, user experience, and packaging; distinguish reproduced defects, static findings, and unverified runtime checks.
+
+## R02 — Remediate R01 release-review defects
+
+Depends on: R01.
+
+Implement the reliability pass in `docs/RELEASE_REVIEW.md` gate order: panic-safe extraction parsing and evidence-backed auto-write; queue recovery and accepted-uncommitted review listing; request identity, cancellation, initiative retarget, drafts, and IME; conflict tokens, one disclosure policy, isolated invalid Markdown, confined durable paths, snapshot exports, embedding endpoint identity, and create-if-absent locals; visible failures, character-scoped Memories, partial streams, 900×620 library, Settings focus trap, and non-template crate metadata.
+
+Acceptance: desired-behavior tests replace the review’s expected-bug diagnostics; `cargo test --locked`, frontend unit/lint/typecheck/build, and Clippy/fmt pass; live automatic-memory→restart→recall remains evidence-only if no local model is reachable. Native tray, installer, and screen-reader certification stay out of scope (T16/T18 leftovers).

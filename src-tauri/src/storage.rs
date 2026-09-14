@@ -256,6 +256,40 @@ impl Vault {
         &self.root
     }
 
+    pub fn file_fingerprint(path: &Path) -> Result<String, StorageError> {
+        let bytes = fs::read(path)?;
+        let mut hash = 0xcbf29ce484222325u64;
+        for byte in bytes {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        Ok(format!("{hash:016x}"))
+    }
+
+    pub fn require_unchanged(
+        path: &Path,
+        expected_fingerprint: Option<&str>,
+    ) -> Result<(), StorageError> {
+        let Some(expected) = expected_fingerprint
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return Ok(());
+        };
+        if !path.exists() {
+            return Err(StorageError::Persistence(
+                "file does not exist; reload before writing".into(),
+            ));
+        }
+        let current = Self::file_fingerprint(path)?;
+        if current != expected {
+            return Err(StorageError::Persistence(
+                "file changed externally; reload before writing".into(),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn resolve_relative(&self, relative: impl AsRef<Path>) -> Result<PathBuf, StorageError> {
         let relative = relative.as_ref();
         if relative.as_os_str().is_empty() {
@@ -328,13 +362,9 @@ impl Vault {
 
     pub fn load_character(&self) -> Result<CharacterDefinition, StorageError> {
         let path = self.character_path()?;
-        let (character, body): (CharacterDefinition, String) =
+        let (mut character, body): (CharacterDefinition, String) =
             parse_markdown(&read_recovering(&path)?)?;
-        if body.trim_end_matches('\n') != character.system_prompt.trim_end_matches('\n') {
-            return Err(StorageError::InvalidSchema(
-                "character body must match system_prompt metadata".into(),
-            ));
-        }
+        character.system_prompt = body.trim_end_matches('\n').to_string();
         validate_character(&character)?;
         Ok(character)
     }
@@ -351,12 +381,8 @@ impl Vault {
         id: &str,
     ) -> Result<MemoryRecord, StorageError> {
         let path = self.memory_path(memory_type, id)?;
-        let (memory, body): (MemoryRecord, String) = parse_markdown(&read_recovering(&path)?)?;
-        if body.trim_end_matches('\n') != memory.body.trim_end_matches('\n') {
-            return Err(StorageError::InvalidSchema(
-                "memory body must match its metadata body".into(),
-            ));
-        }
+        let (mut memory, body): (MemoryRecord, String) = parse_markdown(&read_recovering(&path)?)?;
+        memory.body = body.trim_end_matches('\n').to_string();
         validate_memory(&memory)?;
         Ok(memory)
     }
@@ -880,6 +906,37 @@ mod tests {
         assert!(matches!(error, StorageError::Persistence(_)));
         assert_eq!(vault.load_character().unwrap(), character);
         assert!(!path.with_extension("md.bak").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn require_unchanged_rejects_stale_fingerprint() {
+        let root = test_root("fingerprint");
+        let vault = Vault::create(&root).unwrap();
+        let character = CharacterDefinition::new("lyra", "Lyra", "Original prompt.");
+        vault.save_character(&character).unwrap();
+        let path = vault.character_path().unwrap();
+        let loaded = Vault::file_fingerprint(&path).unwrap();
+        let mut changed = character.clone();
+        changed.system_prompt = "Edited externally.".into();
+        vault.save_character(&changed).unwrap();
+        let error = Vault::require_unchanged(&path, Some(&loaded)).unwrap_err();
+        assert!(error.to_string().contains("changed externally"));
+        Vault::require_unchanged(&path, None).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn resolve_relative_rejects_parent_dir_escape() {
+        let root = test_root("escape");
+        let vault = Vault::create(&root).unwrap();
+        assert!(vault
+            .resolve_relative(".tz-chatter/../outside.json")
+            .is_err());
+        let generation = vault
+            .resolve_relative(".tz-chatter/generation.json")
+            .unwrap();
+        assert!(generation.starts_with(vault.root()));
         fs::remove_dir_all(root).unwrap();
     }
 

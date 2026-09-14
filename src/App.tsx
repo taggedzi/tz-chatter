@@ -238,7 +238,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar" aria-label="Workspace">
+      <aside className="sidebar" aria-label="Workspace" aria-hidden={settingsOpen} inert={settingsOpen || undefined}>
         <div className="brand">
           <div className="brand-mark" aria-hidden="true">tz</div>
           <div>
@@ -457,7 +457,7 @@ function App() {
         </div>
       </aside>
 
-      <main className="main-content">
+      <main className="main-content" aria-hidden={settingsOpen} inert={settingsOpen || undefined}>
         <div className={activeView === "chat" ? "main-view" : "main-view hidden"} hidden={activeView !== "chat"}>
           <ConversationPanel />
         </div>

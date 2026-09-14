@@ -178,6 +178,17 @@ pub fn load_local(vault: &Vault, id: &str) -> Result<LocalRecord, StorageError> 
     })
 }
 
+pub fn create_local(vault: &Vault, record: &LocalRecord) -> Result<(), StorageError> {
+    let path = local_path(vault, &record.id)?;
+    if path.exists() {
+        return Err(StorageError::InvalidSchema(format!(
+            "a local named {} already exists",
+            record.id
+        )));
+    }
+    save_local(vault, record)
+}
+
 pub fn save_local(vault: &Vault, record: &LocalRecord) -> Result<(), StorageError> {
     validate_schema(record.schema_version, "local")?;
     validate_id(&record.id)?;
@@ -314,11 +325,11 @@ fn normalized_optional_id(value: Option<&str>) -> Result<Option<&str>, StorageEr
     }
 }
 
-fn persona_path(vault: &Vault) -> Result<PathBuf, StorageError> {
+pub(crate) fn persona_path(vault: &Vault) -> Result<PathBuf, StorageError> {
     vault.resolve_relative("persona.md")
 }
 
-fn scene_path(vault: &Vault) -> Result<PathBuf, StorageError> {
+pub(crate) fn scene_path(vault: &Vault) -> Result<PathBuf, StorageError> {
     vault.resolve_relative("scene.md")
 }
 
@@ -326,7 +337,7 @@ fn locals_dir(vault: &Vault) -> Result<PathBuf, StorageError> {
     vault.resolve_relative("locals")
 }
 
-fn local_path(vault: &Vault, id: &str) -> Result<PathBuf, StorageError> {
+pub(crate) fn local_path(vault: &Vault, id: &str) -> Result<PathBuf, StorageError> {
     validate_id(id)?;
     vault.resolve_relative(format!("locals/{id}.md"))
 }
@@ -490,6 +501,18 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("rain on the windows"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn create_local_does_not_overwrite_an_existing_id() {
+        let (root, vault) = vault_with_character("create-local");
+        save_local(&vault, &cafe()).unwrap();
+        let mut duplicate = cafe();
+        duplicate.body = "replacement body".into();
+        let error = create_local(&vault, &duplicate).unwrap_err();
+        assert!(error.to_string().contains("already exists"));
+        assert_eq!(load_local(&vault, "cafe").unwrap().body, cafe().body);
         fs::remove_dir_all(root).unwrap();
     }
 

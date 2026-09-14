@@ -139,10 +139,10 @@ pub struct ExtractionQueue {
 
 impl ExtractionQueue {
     pub fn open(vault: &Vault, character_id: &str) -> Result<Self, ExtractionError> {
-        let state_dir = vault.root().join(".tz-chatter");
-        std::fs::create_dir_all(&state_dir)
+        let path = vault
+            .resolve_relative(std::path::Path::new(".tz-chatter").join("state.sqlite3"))
             .map_err(|error| ExtractionError::Storage(error.to_string()))?;
-        let connection = Connection::open(state_dir.join("state.sqlite3"))?;
+        let connection = Connection::open(path)?;
         connection.execute_batch(
             "PRAGMA foreign_keys = ON;
              CREATE TABLE IF NOT EXISTS extraction_jobs (
@@ -186,19 +186,27 @@ impl ExtractionQueue {
                  PRIMARY KEY (character_id, source_session_id, source_turn_id, memory_type)
              );",
         )?;
-        connection.execute(
+        Ok(Self {
+            connection,
+            character_id: character_id.to_owned(),
+        })
+    }
+
+    pub fn recover_interrupted(&self) -> Result<usize, ExtractionError> {
+        let changed = self.connection.execute(
             "UPDATE extraction_jobs
              SET status = 'pending',
                  attempts = CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END,
                  last_error = ?1,
                  updated_at = ?2
              WHERE character_id = ?3 AND status = 'running'",
-            params!["recovered after application restart", now(), character_id],
+            params![
+                "recovered after application restart",
+                now(),
+                self.character_id
+            ],
         )?;
-        Ok(Self {
-            connection,
-            character_id: character_id.to_owned(),
-        })
+        Ok(changed)
     }
 
     pub fn enqueue_transcript(
@@ -424,11 +432,26 @@ impl ExtractionQueue {
     }
 
     pub fn pending_proposals(&self) -> Result<Vec<MemoryProposal>, ExtractionError> {
-        let mut statement = self.connection.prepare(
+        self.proposals_with_statuses(&["needs_review"])
+    }
+
+    pub fn review_proposals(&self) -> Result<Vec<MemoryProposal>, ExtractionError> {
+        self.proposals_with_statuses(&["needs_review", "accepted"])
+    }
+
+    fn proposals_with_statuses(
+        &self,
+        statuses: &[&str],
+    ) -> Result<Vec<MemoryProposal>, ExtractionError> {
+        let placeholders = statuses.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let sql = format!(
             "SELECT id, job_id, character_id, source_session_id, candidate_json, status
-             FROM memory_proposals WHERE character_id = ?1 AND status = 'needs_review' ORDER BY created_at ASC",
-        )?;
-        let rows = statement.query_map(params![self.character_id], |row| {
+             FROM memory_proposals WHERE character_id = ?1 AND status IN ({placeholders}) ORDER BY created_at ASC"
+        );
+        let mut statement = self.connection.prepare(&sql)?;
+        let mut params: Vec<rusqlite::types::Value> = vec![self.character_id.clone().into()];
+        params.extend(statuses.iter().map(|status| (*status).to_owned().into()));
+        let rows = statement.query_map(rusqlite::params_from_iter(params), |row| {
             let candidate: ExtractionCandidate = serde_json::from_str(&row.get::<_, String>(4)?)
                 .map_err(|_| rusqlite::Error::InvalidQuery)?;
             Ok(MemoryProposal {
@@ -663,27 +686,60 @@ impl ExtractionQueue {
     }
 }
 
+fn evidence_matches_completed_turn(
+    evidence: &ProposalEvidence,
+    transcript: &TranscriptDocument,
+    allowed_roles: &[TurnRole],
+) -> bool {
+    let quote = evidence.quote.trim();
+    if quote.is_empty() {
+        return false;
+    }
+    transcript.turns.iter().any(|turn| {
+        turn.id == evidence.turn_id
+            && turn.status == TurnStatus::Complete
+            && allowed_roles.contains(&turn.role)
+            && turn.content.contains(quote)
+    })
+}
+
 pub fn effective_origin(
     candidate: &ExtractionCandidate,
     transcript: &TranscriptDocument,
 ) -> ProposalOrigin {
+    let has_matching = |roles: &[TurnRole]| {
+        candidate
+            .evidence
+            .iter()
+            .any(|evidence| evidence_matches_completed_turn(evidence, transcript, roles))
+    };
     match candidate.origin {
         ProposalOrigin::Inferred => ProposalOrigin::Inferred,
         ProposalOrigin::UserStated => {
-            let quotes_user = candidate.evidence.iter().any(|evidence| {
-                transcript
-                    .turns
-                    .iter()
-                    .any(|turn| turn.id == evidence.turn_id && turn.role == TurnRole::User)
-            });
-            if quotes_user {
+            if has_matching(&[TurnRole::User]) {
                 ProposalOrigin::UserStated
             } else {
                 ProposalOrigin::Inferred
             }
         }
-        ProposalOrigin::ConversationEvent | ProposalOrigin::CharacterFact => {
-            candidate.origin.clone()
+        ProposalOrigin::CharacterFact => {
+            if has_matching(&[TurnRole::Assistant, TurnRole::Initiative]) {
+                ProposalOrigin::CharacterFact
+            } else {
+                ProposalOrigin::Inferred
+            }
+        }
+        ProposalOrigin::ConversationEvent => {
+            if has_matching(&[
+                TurnRole::User,
+                TurnRole::Assistant,
+                TurnRole::Initiative,
+                TurnRole::System,
+            ]) {
+                ProposalOrigin::ConversationEvent
+            } else {
+                ProposalOrigin::Inferred
+            }
         }
     }
 }
@@ -731,8 +787,10 @@ pub fn build_extraction_request(
         .collect::<Vec<_>>()
         .join("\n");
     let system = format!(
-        "You extract conservative candidate memories for the character {}. Return only a JSON object with schema_version {} and a proposals array. Each proposal must use only the allowed source turn IDs, quote supporting evidence, choose an origin, and never treat assistant speculation as a user-stated fact. If nothing durable is supported, return an empty proposals array. Do not include Markdown fences or commentary.",
-        character.id, EXTRACTION_SCHEMA_VERSION
+        "You extract conservative candidate memories for the character {}. Return only a JSON object with schema_version {} and a proposals array. Do not include Markdown fences or commentary. If nothing durable is supported, return {{\"schema_version\":{},\"proposals\":[]}}. \
+Each proposal MUST use this shape: memory_type (one of people, episodic, semantic, relationships, open_threads), body (1-4000 characters), source_turn_ids (nonempty array of allowed source turn IDs only), evidence (array of objects with turn_id and quote), confidence (number 0.0-1.0), origin (exactly one of user_stated, character_fact, conversation_event, inferred), related_memory_ids (array of existing memory IDs, may be empty), relation (contradicts, supersedes, related, or null). \
+Each evidence.quote must be a nonempty verbatim excerpt copied from the named source turn. user_stated requires a matching completed user turn excerpt; character_fact requires a matching completed assistant or initiative excerpt; conversation_event requires a matching completed source excerpt. Never treat assistant speculation as a user-stated fact. Never invent quotes.",
+        character.id, EXTRACTION_SCHEMA_VERSION, EXTRACTION_SCHEMA_VERSION
     );
     let user = format!(
         "Allowed source turn IDs: {}\nCharacter summary: {}\nConversation evidence:\n{}",
@@ -756,10 +814,11 @@ pub fn build_extraction_request(
         cancellation_id: format!("extract-{}", job.id),
         temperature: None,
         max_tokens: None,
+        json_mode: true,
     }
 }
 
-fn parse_response(
+pub(crate) fn parse_response(
     raw_output: &str,
     allowed_turn_ids: &[String],
 ) -> Result<ExtractionResponse, ExtractionError> {
@@ -781,6 +840,11 @@ fn parse_response(
         let end = without_fence.rfind('}').ok_or_else(|| {
             ExtractionError::Parse("output did not contain a complete JSON object".into())
         })?;
+        if start > end {
+            return Err(ExtractionError::Parse(
+                "output did not contain a complete JSON object".into(),
+            ));
+        }
         without_fence[start..=end].to_owned()
     };
     let response: ExtractionResponse =
@@ -919,6 +983,12 @@ mod tests {
         let request = build_extraction_request(&character, &transcript, &job);
         assert_eq!(request.cancellation_id, "extract-job-1");
         assert!(request.messages[0].content.contains("schema_version 1"));
+        assert!(request.messages[0].content.contains("user_stated"));
+        assert!(request.messages[0].content.contains("character_fact"));
+        assert!(request.messages[0].content.contains("conversation_event"));
+        assert!(request.messages[0].content.contains("inferred"));
+        assert!(request.messages[0].content.contains("turn_id"));
+        assert!(request.messages[0].content.contains("quote"));
         assert!(request.messages[1].content.contains("[user:user-1]"));
         assert!(request.messages[1]
             .content
@@ -1084,11 +1154,86 @@ mod tests {
             queue.claim_next().unwrap();
         }
         let mut queue = ExtractionQueue::open(&vault, "lyra").unwrap();
+        queue.recover_interrupted().unwrap();
         let reclaimed = queue.claim_next().unwrap().unwrap();
         assert_eq!(reclaimed.id, job_id);
         assert_eq!(reclaimed.attempts, 1);
         drop(queue);
         fs_remove(&root);
+    }
+
+    #[test]
+    fn opening_a_second_queue_does_not_reset_a_running_job() {
+        let root = root("open-while-running");
+        let vault = Vault::create(&root).unwrap();
+        let mut worker = ExtractionQueue::open(&vault, "lyra").unwrap();
+        worker
+            .enqueue_transcript(&transcript(), "assistant-1", 10)
+            .unwrap();
+        let claimed = worker.claim_next().unwrap().unwrap();
+        assert_eq!(claimed.attempts, 1);
+        let _ui = ExtractionQueue::open(&vault, "lyra").unwrap();
+        let still = worker.get_job(&claimed.id).unwrap().unwrap();
+        assert_eq!(still.status, ExtractionJobStatus::Running);
+        assert_eq!(still.attempts, 1);
+        let proposals = worker
+            .accept_model_output(&claimed.id, &output("user-1", "user_stated"))
+            .unwrap();
+        assert_eq!(proposals.len(), 1);
+        drop(_ui);
+        drop(worker);
+        fs_remove(&root);
+    }
+
+    #[test]
+    fn accepted_uncommitted_proposals_remain_in_review_listing() {
+        let root = root("accepted-uncommitted");
+        let vault = Vault::create(&root).unwrap();
+        let mut queue = ExtractionQueue::open(&vault, "lyra").unwrap();
+        let job = queue
+            .enqueue_transcript(&transcript(), "assistant-1", 10)
+            .unwrap();
+        queue.claim_next().unwrap();
+        let proposal = queue
+            .accept_model_output(&job.id, &output("user-1", "user_stated"))
+            .unwrap()
+            .remove(0);
+        queue
+            .mark_proposal(&proposal.id, ProposalStatus::Accepted)
+            .unwrap();
+        assert!(queue.pending_proposals().unwrap().is_empty());
+        let review = queue.review_proposals().unwrap();
+        assert_eq!(review.len(), 1);
+        assert_eq!(review[0].id, proposal.id);
+        assert_eq!(review[0].status, ProposalStatus::Accepted);
+        drop(queue);
+        let reopened = ExtractionQueue::open(&vault, "lyra").unwrap();
+        assert_eq!(reopened.review_proposals().unwrap().len(), 1);
+        drop(reopened);
+        fs_remove(&root);
+    }
+
+    #[test]
+    fn malformed_model_output_returns_parse_error_without_panic() {
+        let allowed = vec!["user-1".into()];
+        for payload in [
+            "} malformed {",
+            "{ incomplete",
+            "surrounding 日本語 text without an object",
+            "```\nnot json\n```",
+        ] {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                parse_response(payload, &allowed)
+            }));
+            let inner = result.expect("parser must not panic on untrusted model text");
+            assert!(inner.is_err(), "expected parse error for {payload:?}");
+        }
+        let surrounded = format!(
+            "Here is JSON 日本語:\n{}\nthanks",
+            output("user-1", "user_stated")
+        );
+        let parsed = parse_response(&surrounded, &allowed).unwrap();
+        assert_eq!(parsed.proposals.len(), 1);
     }
 
     #[test]
@@ -1150,7 +1295,38 @@ mod tests {
         candidate.evidence[0].turn_id = "user-1".into();
         assert_eq!(
             effective_origin(&candidate, &transcript),
+            ProposalOrigin::Inferred
+        );
+        candidate.evidence[0].quote = "I like quiet cafes.".into();
+        assert_eq!(
+            effective_origin(&candidate, &transcript),
             ProposalOrigin::UserStated
+        );
+        candidate.body = "The user lives on Mars.".into();
+        candidate.evidence[0].quote = "I live on Mars.".into();
+        assert_eq!(
+            effective_origin(&candidate, &transcript),
+            ProposalOrigin::Inferred
+        );
+        let mut event = candidate.clone();
+        event.origin = ProposalOrigin::ConversationEvent;
+        event.evidence[0].quote = "I live on Mars.".into();
+        assert_eq!(
+            effective_origin(&event, &transcript),
+            ProposalOrigin::Inferred
+        );
+        let mut fact = candidate.clone();
+        fact.origin = ProposalOrigin::CharacterFact;
+        fact.evidence[0].turn_id = "asst-1".into();
+        fact.evidence[0].quote = "I live on Mars.".into();
+        assert_eq!(
+            effective_origin(&fact, &transcript),
+            ProposalOrigin::Inferred
+        );
+        fact.evidence[0].quote = "I will remember that.".into();
+        assert_eq!(
+            effective_origin(&fact, &transcript),
+            ProposalOrigin::CharacterFact
         );
     }
 

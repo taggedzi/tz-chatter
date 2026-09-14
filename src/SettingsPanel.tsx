@@ -1,9 +1,10 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { activeSessionStorageKeys, requestLoadVault } from "./activeSession";
 import { InitiativePanel } from "./InitiativePanel";
 import { PortabilityPanel } from "./PortabilityPanel";
 import { PromptPanel } from "./PromptPanel";
 import { ProviderPanel } from "./ProviderPanel";
+import { focusableElements, wrapTab } from "./settingsFocus";
 
 export type SettingsSection = "provider" | "prompt" | "initiative" | "vault";
 
@@ -23,8 +24,32 @@ export function SettingsPanel({
   onSection: (section: SettingsSection) => void;
   onClose: () => void;
 }) {
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    previousFocus.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const node = overlayRef.current;
+    const first = node ? focusableElements(node)[0] : null;
+    first?.focus();
+    return () => {
+      previousFocus.current?.focus();
+    };
+  }, []);
+
   return (
-    <div className="settings-overlay" role="dialog" aria-modal="true" aria-label="Settings">
+    <div
+      className="settings-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Settings"
+      ref={overlayRef}
+      onKeyDown={(event) => {
+        if (overlayRef.current) wrapTab(overlayRef.current, event);
+      }}
+    >
       <aside className="settings-nav">
         <p className="eyebrow">Settings</p>
         <nav className="settings-nav-list">

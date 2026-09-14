@@ -21,6 +21,7 @@ export type RequestSnapshot = {
   user_content: string;
   use_hybrid_retrieval: boolean;
   application_prompt?: string;
+  expected_transcript_fingerprint?: string | null;
 };
 
 export type TurnRole = "system" | "user" | "assistant" | "initiative";
@@ -51,6 +52,7 @@ export type ConversationOutcome = {
   assistant_turn: TranscriptTurn;
   retrieved_memories: RetrievedMemory[];
   context_inspection: ContextInspection;
+  transcript_fingerprint: string | null;
 };
 
 export type ContextInspection = {
@@ -75,6 +77,7 @@ export type ChatStreamEvent =
 export type ConversationResume = {
   character: CharacterDefinition;
   transcript: TranscriptDocument | null;
+  transcript_fingerprint: string | null;
 };
 
 export type SessionSummary = {

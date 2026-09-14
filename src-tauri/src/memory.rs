@@ -95,8 +95,16 @@ impl MemoryStore {
     }
 
     pub fn update(&mut self, memory: &MemoryRecord) -> Result<(), MemoryError> {
+        self.update_with_expected(memory, None)
+    }
+
+    pub fn update_with_expected(
+        &mut self,
+        memory: &MemoryRecord,
+        expected_fingerprint: Option<&str>,
+    ) -> Result<(), MemoryError> {
         let path = self.vault.memory_path(&memory.memory_type, &memory.id)?;
-        self.ensure_unchanged(&memory.memory_type, &memory.id, &path)?;
+        self.ensure_unchanged(&memory.memory_type, &memory.id, &path, expected_fingerprint)?;
         self.vault.save_memory(memory)?;
         self.sync()
     }
@@ -115,7 +123,7 @@ impl MemoryStore {
                 memory.id
             )));
         }
-        self.ensure_unchanged(old_type, old_id, &old_path)?;
+        self.ensure_unchanged(old_type, old_id, &old_path, None)?;
         if old_path != new_path {
             fs::rename(&old_path, &new_path)?;
         }
@@ -150,7 +158,13 @@ impl MemoryStore {
             if indexed_fingerprint.as_deref() == Some(fingerprint.as_str()) {
                 continue;
             }
-            let memory = self.vault.load_memory(&file.memory_type, &file.id)?;
+            let memory = match self.vault.load_memory(&file.memory_type, &file.id) {
+                Ok(memory) => memory,
+                Err(error) => {
+                    eprintln!("skipping invalid memory {}: {error}", file.relative_path);
+                    continue;
+                }
+            };
             self.replace_indexed_memory(&key, &file, &memory, &fingerprint)?;
         }
 
@@ -177,7 +191,13 @@ impl MemoryStore {
         self.sync()?;
         let mut memories = Vec::new();
         for file in discover_memory_files(self.vault.root())? {
-            let memory = self.vault.load_memory(&file.memory_type, &file.id)?;
+            let memory = match self.vault.load_memory(&file.memory_type, &file.id) {
+                Ok(memory) => memory,
+                Err(error) => {
+                    eprintln!("skipping invalid memory {}: {error}", file.relative_path);
+                    continue;
+                }
+            };
             memories.push(memory);
         }
         memories.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
@@ -353,26 +373,43 @@ impl MemoryStore {
         memory_type: &MemoryType,
         id: &str,
         path: &Path,
+        expected_fingerprint: Option<&str>,
     ) -> Result<(), MemoryError> {
         if !path.exists() {
             return Err(MemoryError::Storage(format!("memory does not exist: {id}")));
         }
         let key = memory_key(memory_type, id);
         let current = fingerprint(&fs::read(path)?);
-        let indexed: Option<String> = self
-            .connection
-            .query_row(
-                "SELECT fingerprint FROM memory_files WHERE memory_key = ?1",
-                params![key],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if indexed.as_deref() != Some(current.as_str()) {
+        let expected = if let Some(expected) = expected_fingerprint {
+            expected.to_owned()
+        } else {
+            self.connection
+                .query_row(
+                    "SELECT fingerprint FROM memory_files WHERE memory_key = ?1",
+                    params![key],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .ok_or_else(|| MemoryError::Storage(format!("memory is not indexed: {id}")))?
+        };
+        if expected != current {
             return Err(MemoryError::Storage(format!(
                 "memory changed externally; reload before writing: {id}"
             )));
         }
         Ok(())
+    }
+
+    pub fn file_fingerprint(
+        &self,
+        memory_type: &MemoryType,
+        id: &str,
+    ) -> Result<String, MemoryError> {
+        let path = self.vault.memory_path(memory_type, id)?;
+        if !path.exists() {
+            return Err(MemoryError::Storage(format!("memory does not exist: {id}")));
+        }
+        Ok(fingerprint(&fs::read(path)?))
     }
 }
 
@@ -704,6 +741,68 @@ mod tests {
         assert_eq!(records, vec![expected]);
 
         drop(index);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn markdown_body_is_authoritative_and_invalid_files_are_skipped() {
+        let root = root("body-authority");
+        let vault = Vault::create(&root).unwrap();
+        let mut index = MemoryStore::open(&vault, "lyra").unwrap();
+        index.create(&memory("fact", "Old body.")).unwrap();
+        let path = vault.memory_path(&MemoryType::Semantic, "fact").unwrap();
+        let bytes = fs::read_to_string(&path).unwrap();
+        let at = bytes.rfind("Old body.").unwrap();
+        let edited = format!(
+            "{}New body.{}",
+            &bytes[..at],
+            &bytes[at + "Old body.".len()..]
+        );
+        fs::write(&path, edited).unwrap();
+        assert_eq!(
+            vault
+                .load_memory(&MemoryType::Semantic, "fact")
+                .unwrap()
+                .body,
+            "New body."
+        );
+        let broken = vault.memory_path(&MemoryType::Semantic, "broken").unwrap();
+        fs::create_dir_all(broken.parent().unwrap()).unwrap();
+        fs::write(&broken, "invalid markdown").unwrap();
+        let listed = index.list().unwrap();
+        assert!(listed.iter().any(|memory| memory.id == "fact"));
+        assert!(!listed.iter().any(|memory| memory.id == "broken"));
+        drop(index);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stale_editor_fingerprint_conflicts_after_index_refresh() {
+        let root = root("stale-editor");
+        let vault = Vault::create(&root).unwrap();
+        let mut store = MemoryStore::open(&vault, "lyra").unwrap();
+        let mut record = memory("fact", "Initial body.");
+        store.create(&record).unwrap();
+        let loaded = store
+            .file_fingerprint(&record.memory_type, &record.id)
+            .unwrap();
+        record.body = "New external fact.".into();
+        vault.save_memory(&record).unwrap();
+        store.sync().unwrap();
+        let mut stale = memory("fact", "Stale editor body.");
+        stale.updated_at = "2".into();
+        assert!(matches!(
+            store.update_with_expected(&stale, Some(&loaded)),
+            Err(MemoryError::Storage(message)) if message.contains("changed externally")
+        ));
+        assert_eq!(
+            vault
+                .load_memory(&record.memory_type, &record.id)
+                .unwrap()
+                .body,
+            "New external fact."
+        );
+        drop(store);
         fs::remove_dir_all(root).unwrap();
     }
 }

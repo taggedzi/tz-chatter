@@ -118,7 +118,11 @@ pub fn export_pack(
             if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent)?;
             }
-            fs::copy(source, target)?;
+            if relative == "state/state.sqlite3" {
+                snapshot_sqlite(&source, &target)?;
+            } else {
+                fs::copy(source, target)?;
+            }
         }
         let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
         fs::write(temporary.join("manifest.json"), manifest_bytes)?;
@@ -529,6 +533,12 @@ fn target_relative(relative: &str) -> PathBuf {
         "state/state.sqlite3" => PathBuf::from(".tz-chatter/state.sqlite3"),
         _ => PathBuf::from(relative),
     }
+}
+
+fn snapshot_sqlite(source: &Path, target: &Path) -> Result<(), PortabilityError> {
+    let source_connection = Connection::open(source)?;
+    source_connection.execute("VACUUM INTO ?1", [target.to_string_lossy().into_owned()])?;
+    Ok(())
 }
 
 fn vault_source_path(vault: &Vault, relative: &str) -> Result<PathBuf, PortabilityError> {
