@@ -334,6 +334,16 @@ Acceptance: search matches name and keywords across categories; empty search sho
 
 ## Unscheduled feature backlog
 
+## Milestone 18 — Project icon
+
+### T35 — Character-chat application icon
+
+Depends on: T01.
+
+Replace the stock Tauri icon set with a project-specific character-chat mark. Keep the generated source icon in src-tauri/app-icon-source.png, generate configured platform assets under src-tauri/icons/, use the same selected PNG in the frontend sidebar brand, and keep unselected concepts under src-tauri/icon-alternatives/ without wiring them into the bundle.
+
+Acceptance: the active icon is distinct from the Tauri logo; the sidebar top-left brand renders the selected icon; Windows/macOS/Linux icon assets are generated from the same source for the native app/taskbar; two character-oriented alternatives are preserved for later selection; no existing alternative is deleted.
+
 Possible later features live in `docs/PROJECT.md`. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
 
 Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30; contradiction/supersession review is T31; keyboard-first chat is T32; Linux verification is T33; composer emoji picker is T34). Named generation presets and opt-in pack export of sampling remain unscheduled. macOS verification remains unscheduled until a Darwin host can launch the window (ADR-017).
@@ -365,3 +375,19 @@ Depends on: R01.
 Implement the reliability pass in `docs/RELEASE_REVIEW.md` gate order: panic-safe extraction parsing and evidence-backed auto-write; queue recovery and accepted-uncommitted review listing; request identity, cancellation, initiative retarget, drafts, and IME; conflict tokens, one disclosure policy, isolated invalid Markdown, confined durable paths, snapshot exports, embedding endpoint identity, and create-if-absent locals; visible failures, character-scoped Memories, partial streams, 900×620 library, Settings focus trap, and non-template crate metadata.
 
 Acceptance: desired-behavior tests replace the review’s expected-bug diagnostics; `cargo test --locked`, frontend unit/lint/typecheck/build, and Clippy/fmt pass; live automatic-memory→restart→recall remains evidence-only if no local model is reachable. Native tray, installer, and screen-reader certification stay out of scope (T16/T18 leftovers).
+
+## R03 — GUI coherence remediation
+
+Depends on: R02.
+
+Address every finding in `docs/GUI_REVIEW.md`: replace path-only desktop workflows with native folder pickers plus editable fallbacks; split character editing into independently validated and saved sections; prioritize memory browsing and compact empty review/conflict sections; attach response actions and status to the response/composer context; guard initiative controls and confirm local deletion; and correct composite-widget accessibility semantics.
+
+Acceptance: G01-G09 are marked done with source and rendered evidence; no character action presents a false all-or-nothing save; folder workflows expose a native picker; the primary memory browser is visible at 900x620 when review/conflict queues are empty; last-response actions are visually attached to the target response; unavailable initiative controls are disabled; local deletion is confirmed; emoji/switcher composite roles have valid ownership and active-option semantics; New scene reaches persistence; chat popovers are mutually exclusive without render-phase updates; frontend tests/lint/typecheck/build and Rust tests/fmt/strict Clippy pass. Native-only verification gaps remain explicit.
+
+## R04 — Align portability folder fields
+
+Depends on: R03.
+
+Correct the Settings → Vault portability grid so folder controls with different amounts of help text share the same label and input rows instead of stretching their internal tracks to different vertical positions.
+
+Acceptance: all four portability folder labels and input/button rows align at the wide desktop layout shown in the reported screenshot; help text remains immediately below its own control; compact layout remains usable; focused frontend tests/lint/typecheck/build pass, with rendered bounding-box evidence for the alignment.

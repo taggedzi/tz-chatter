@@ -787,3 +787,51 @@ Verification: `cargo test --locked --manifest-path src-tauri/Cargo.toml` PASS - 
 Important limits: the live extraction probe recorded in R01 rejected the model output, so no successful extraction -> restart -> recall journey is claimed. Native Windows install/tray/accessibility interaction, dependency/license audit, large-vault/soak testing, macOS, and additional live provider coverage remain release-gate work. R02 is implementation-complete, but public release remains on hold.
 
 Next concrete action: use the ordered release gate in `docs/RELEASE_REVIEW.md` from a native Windows session, beginning with live automatic-memory -> restart -> recall and fresh package/install verification.
+
+## 2026-09-13 — R03: GUI coherence remediation
+
+Scope and outcome: documented the current GUI review as G01-G09 in `docs/GUI_REVIEW.md` and resolved every item. Character editing is now divided into Identity, Model, You, and Scenes tabs with independent save boundaries; generation values validate before writes. All character/vault/pack path workflows have Tauri native folder pickers plus editable fallbacks, with new export/restore destinations derived from a selected parent. Memories shows browse/edit first and compact zero-count Review/Conflicts afterward. Regenerate/Continue/Retry lives in the target assistant bubble; resume/error feedback is composer-adjacent. Initiative controls expose character/session prerequisites. Scene deletion uses a native warning confirmation. Emoji/switcher semantics are valid, active switcher options are exposed, and transient popovers do not stack.
+
+Two additional defects found during implementation were fixed: New scene incorrectly required an id before its title-to-id step, making save unreachable; and an initial switcher-dismissal callback dispatched a React update during render. The rendered harness now proves New scene reaches `local_save` and records zero console/runtime errors.
+
+Files changed: `docs/GUI_REVIEW.md`, `docs/PLAN.md`, `docs/STATUS.md`, `README.md`, this handoff, R03 render harness/results/screenshots under `docs/review/`, `package.json`/lock, `src-tauri/Cargo.toml`/lock, dialog capability/init, `src/FolderField.tsx`, `src/folderPath.ts`, `src/characterEditor.ts`, `src/initiativeAvailability.ts`, Character/Memory/Conversation/Settings/Initiative/Emoji/Switcher/App UI and CSS, and focused frontend tests.
+
+Decisions added/superseded: none. R03 implements the reviewed UI without changing storage authority, provider boundaries, or product scope.
+
+Verification and actual results: `npm run test:unit` PASS (42); lint/typecheck/build PASS; `cargo test --locked --manifest-path src-tauri/Cargo.toml` PASS (172 passed, 2 ignored); Rust fmt check PASS; strict Clippy PASS; `tauri build --no-bundle` PASS at `src-tauri/target/release/tz-chatter.exe`. `node docs/review/gui_remediation_review.mjs` PASS at 1280x800/900x620: response actions inside the assistant message, no invalid emoji listbox, switcher active descendant present, no stacked emoji, Character New/Add folder controls present, four editor tabs, New scene save invoked, Memory browse before queues, no list/editor/queue overlap, five Settings/Vault browse controls, and zero runtime errors.
+
+Incomplete work / blockers: none for R03. Native computer-use still fails at host sandbox initialization, so native dialog click behavior, screen-reader/DPI checks, tray/notification interaction, install lifecycle, and the broader live-provider/release gate remain T16/T18 work.
+
+Next concrete action: resume the ordered release gate in `docs/RELEASE_REVIEW.md`.
+
+## 2026-09-14 — R04: portability folder-field alignment
+
+## 2026-09-14 — T35: character-chat application icon
+
+Scope and outcome: replaced the stock Tauri icon set with a generated project-specific character-chat mark. The source is src-tauri/app-icon-source.png; npx tauri icon regenerated the configured PNG, ICO, ICNS, Android, and iOS assets under src-tauri/icons/.
+
+Two additional concepts were generated after feedback that the first mark still felt too Tauri-like. They are preserved but inactive at src-tauri/icon-alternatives/character-face.png and src-tauri/icon-alternatives/two-character-chat.png. No alternative was deleted or wired into the bundle.
+
+Verification: npx tauri icon src-tauri/app-icon-source.png completed and the generated assets are present. Full application checks were not rerun because this task only changes image assets.
+
+Follow-up selection: the user chose two-character-chat.png. It now exactly matches app-icon-source.png (SHA-256 00949BEE39427E82EEEE6371EA4E4E8B9079A5019E3234973319596825FAFA46), and npx tauri icon was rerun successfully to update every platform asset.
+
+The selected PNG is also copied to src/assets/tz-chatter-icon.png and rendered by the sidebar brand in src/App.tsx with matching image sizing in src/App.css. The native taskbar icon continues to come from the regenerated Tauri bundle assets configured in src-tauri/tauri.conf.json.
+
+Verification: npm run lint, npm run typecheck, npm run build, and git diff --check pass. Full native taskbar visual click-through remains part of the environment-limited T16/T18 release gate.
+
+Native refresh follow-up: the prior debug executable was stale (its timestamp predated icon generation), which explained the screenshot still showing the Tauri mark. `npx tauri build --debug --no-bundle` rebuilt `src-tauri/target/debug/tz-chatter.exe` successfully, and that rebuilt executable was launched. Tauri’s configured `bundle.icon` entries already point at the regenerated `icon.ico`/PNG assets; no runtime `setIcon` workaround is needed.
+
+Next concrete action: resume the ordered release gate in `docs/RELEASE_REVIEW.md`.
+
+Scope and outcome: fixed the staggered Settings → Vault portability controls shown in the user-provided 1512×913 screenshot. The outer responsive grid gives all four folder fields the height of the longest help text; without an explicit content alignment, each nested grid stretched its label/control/help tracks differently. Adding `align-content: start` to `.folder-field` keeps every field's internal rows packed at the top, so labels and input/button rows align while help text remains directly below its own control.
+
+Files changed: `src/App.css`, `docs/PLAN.md`, `docs/STATUS.md`, this handoff, and the existing GUI render harness/results/screenshots under `docs/review/`. The harness now measures the reported wide viewport before retaining its compact 900×620 capture; its preview URL uses `localhost`, matching Vite's default bind on this host.
+
+Decisions added/superseded: none. R04 is a presentation correction and does not change product behavior, storage, provider, or portability boundaries.
+
+Verification and actual results: `npm run test:unit` PASS (42); `npm run lint` PASS; `npm run typecheck` PASS; `npm run build` PASS. `node docs/review/gui_remediation_review.mjs` PASS with synthetic Tauri IPC: at 1512×913 all four portability labels report top `367.390625`, all four control rows report top `384.390625`, label/control spreads are both 0px; the 900×620 capture completed; runtime error count is zero. The temporary Vite preview process tree was stopped after verification.
+
+Incomplete work / blockers: none for R04. Existing native Windows dialog/accessibility/tray and broader release-gate gaps remain T16/T18 work.
+
+Next concrete action: resume the ordered release gate in `docs/RELEASE_REVIEW.md`.

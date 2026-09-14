@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { initiativeClient, type InitiativeSettings, type InitiativeSnapshot } from "./initiative";
 import { activeCharacterId, activeSessionChangedEvent, activeSessionId, activeSessionStorageKeys } from "./activeSession";
+import { initiativeAvailability } from "./initiativeAvailability";
 
 const defaultSettings: InitiativeSettings = {
   schema_version: 1,
@@ -101,6 +102,12 @@ export function InitiativePanel() {
     }
   }
 
+  const {
+    characterUnavailable,
+    enableUnavailable,
+    saveUnavailable,
+  } = initiativeAvailability(vaultRoot, characterId, sessionId, settings.enabled);
+
   return (
     <section className="settings-section">
       <div className="section-heading">
@@ -114,11 +121,13 @@ export function InitiativePanel() {
         Applies to the loaded character. Eligibility is checked before inference. Quiet hours, inactivity,
         cooldowns, caps, unanswered messages, and ignored-message backoff remain enforced after restart.
       </p>
-      {!characterId.trim() && <p className="inline-status">Open a vault from the sidebar before enabling initiative.</p>}
+      {characterUnavailable && <p className="inline-status" role="status">Open a character before configuring initiative.</p>}
+      {!characterUnavailable && !sessionId && <p className="inline-status" role="status">Start or open a conversation before enabling spontaneous messages.</p>}
       <div className="settings-grid">
         <label className="checkbox-row">
           <input
             checked={settings.enabled}
+            disabled={enableUnavailable}
             onChange={(event) => setSettings({ ...settings, enabled: event.target.checked })}
             type="checkbox"
           />
@@ -127,6 +136,7 @@ export function InitiativePanel() {
         <label className="checkbox-row">
           <input
             checked={settings.notifications_enabled}
+            disabled={characterUnavailable}
             onChange={(event) => setSettings({ ...settings, notifications_enabled: event.target.checked })}
             type="checkbox"
           />
@@ -135,6 +145,7 @@ export function InitiativePanel() {
         <label>
           Inactive for (minutes)
           <input
+            disabled={characterUnavailable}
             min={0}
             type="number"
             value={Math.round(settings.min_inactive_seconds / 60)}
@@ -144,6 +155,7 @@ export function InitiativePanel() {
         <label>
           Cooldown (minutes)
           <input
+            disabled={characterUnavailable}
             min={0}
             type="number"
             value={Math.round(settings.cooldown_seconds / 60)}
@@ -153,6 +165,7 @@ export function InitiativePanel() {
         <label>
           Maximum per day
           <input
+            disabled={characterUnavailable}
             min={1}
             type="number"
             value={settings.max_per_day}
@@ -162,6 +175,7 @@ export function InitiativePanel() {
         <label>
           Stop after ignored
           <input
+            disabled={characterUnavailable}
             min={1}
             type="number"
             value={settings.max_ignored}
@@ -171,6 +185,7 @@ export function InitiativePanel() {
         <label>
           Quiet hours start
           <input
+            disabled={characterUnavailable}
             type="time"
             value={formatMinute(settings.quiet_start_minute)}
             onChange={(event) => setSettings({ ...settings, quiet_start_minute: parseMinute(event.target.value) })}
@@ -179,6 +194,7 @@ export function InitiativePanel() {
         <label>
           Quiet hours end
           <input
+            disabled={characterUnavailable}
             type="time"
             value={formatMinute(settings.quiet_end_minute)}
             onChange={(event) => setSettings({ ...settings, quiet_end_minute: parseMinute(event.target.value) })}
@@ -186,11 +202,11 @@ export function InitiativePanel() {
         </label>
       </div>
       <div className="action-row">
-        <button className="primary-button" onClick={save} type="button">Save settings</button>
-        <button className="outline-button" onClick={checkEligibility} type="button">Check eligibility</button>
+        <button className="primary-button" disabled={saveUnavailable} onClick={save} type="button">Save settings</button>
+        <button className="outline-button" disabled={characterUnavailable} onClick={checkEligibility} type="button">Check eligibility</button>
       </div>
       <p className="field-help">Saving with initiative enabled starts the local 30-second scheduler for the active conversation. It resumes after restart; disable it and save to stop this session.</p>
-      {status && <p className="inline-status">{status}</p>}
+      {status && <p className="inline-status" role="status">{status}</p>}
       {snapshot && (
         <div className="initiative-result">
           <strong>{snapshot.decision.eligible ? "Eligible when the scheduler runs." : "Not eligible right now."}</strong>

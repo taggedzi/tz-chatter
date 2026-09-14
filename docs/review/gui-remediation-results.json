@@ -1,0 +1,61 @@
+{
+  "responseActionsInsideMessage": true,
+  "invalidEmojiListboxes": 0,
+  "switcherActiveDescendant": "character-choice-0",
+  "stackedEmojiPicker": false,
+  "characterCreateFolderPicker": true,
+  "characterAddFolderPicker": true,
+  "characterTabCount": 4,
+  "newSceneSaveInvoked": true,
+  "memoryBeforeQueues": true,
+  "memoryRects": {
+    "layout": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0
+    },
+    "list": {
+      "top": 92,
+      "bottom": 207,
+      "height": 115
+    },
+    "editor": {
+      "top": 223,
+      "bottom": 533,
+      "height": 310
+    },
+    "empty": {
+      "top": 238,
+      "bottom": 518,
+      "height": 280
+    },
+    "queue": {
+      "top": 549,
+      "bottom": 610,
+      "height": 61
+    },
+    "layoutDisplay": "contents",
+    "layoutOverflow": "visible",
+    "layoutScrollHeight": 0,
+    "overlapListEditor": false,
+    "overlapEditorQueue": false
+  },
+  "portabilityFolderRows": {
+    "labels": [
+      367.390625,
+      367.390625,
+      367.390625,
+      367.390625
+    ],
+    "controls": [
+      384.390625,
+      384.390625,
+      384.390625,
+      384.390625
+    ],
+    "labelSpread": 0,
+    "controlSpread": 0
+  },
+  "folderBrowseButtons": 5,
+  "runtimeErrorCount": 0
+}

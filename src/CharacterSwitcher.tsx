@@ -109,9 +109,14 @@ export function CharacterSwitcher({
         <label>
           <span className="visually-hidden">Filter characters</span>
           <input
+            aria-activedescendant={choices[highlightIndex] ? `character-choice-${highlightIndex}` : undefined}
+            aria-autocomplete="list"
+            aria-controls="character-switcher-list"
+            aria-expanded="true"
             autoFocus
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Type a name"
+            role="combobox"
             value={query}
           />
         </label>
@@ -123,13 +128,13 @@ export function CharacterSwitcher({
               : "No characters match that search."}
           </p>
         ) : (
-          <ul className="character-switcher-list" role="listbox" aria-label="Characters">
+          <ul className="character-switcher-list" id="character-switcher-list" role="listbox" aria-label="Characters">
             {choices.map((entry, index) => {
               const selected = sameVault(entry.vault_root, activeVaultRoot);
               const active = index === highlightIndex;
               const name = entry.name || entry.character_id || "Unnamed";
               return (
-                <li key={entry.vault_root}>
+                <li key={entry.vault_root} role="none">
                   <button
                     aria-selected={active}
                     className={[

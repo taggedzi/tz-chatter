@@ -253,12 +253,39 @@ export function MemoryPanel({ active }: { active: boolean }) {
       </div>
       {!characterId.trim() && <p className="inline-status">Open a character vault from the sidebar to browse memories.</p>}
 
-      <section className="proposal-queue" aria-label="Memory proposal review">
+      <div className="memory-layout">
+        <div className="memory-list">
+          <div className="memory-list-header"><span>{memories.length} memories</span><button className="text-button" disabled={!vaultRoot.trim() || !characterId.trim()} onClick={() => { setSelected(newMemory()); setSelectedOriginal(null); setSelectedFingerprint(null); }} type="button">+ New</button></div>
+          {memories.map((memory) => (
+            <button className={selected?.id === memory.id ? "memory-row selected" : "memory-row"} key={`${memory.memory_type}:${memory.id}`} onClick={() => { setSelected(memory); setSelectedOriginal({ memory_type: memory.memory_type, id: memory.id }); setSelectedFingerprint(memory.fingerprint ?? null); }} type="button">
+              <strong>{memory.id}</strong>
+              <span>{memory.memory_type} · {memory.pinned ? "pinned" : memory.review_status}</span>
+            </button>
+          ))}
+          {memories.length === 0 && <p className="muted memory-empty">No memories loaded yet.</p>}
+        </div>
+
+        <div className="memory-editor">
+          {selected ? (
+            <>
+              <div className="memory-editor-header"><div><span className="section-kicker">EDIT MEMORY</span><h2>{selected.id}</h2></div><button className="text-button danger-button" onClick={() => void remove()} type="button">Delete</button></div>
+              <label>Type<select value={selected.memory_type} onChange={(event) => setSelected({ ...selected, memory_type: event.target.value as MemoryType })}><option value="people">People</option><option value="episodic">Episodic</option><option value="semantic">Semantic</option><option value="relationships">Relationships</option><option value="open_threads">Open threads</option></select></label>
+              <label>Status<select value={selected.review_status} onChange={(event) => setSelected({ ...selected, review_status: event.target.value as MemoryReviewStatus })}><option value="accepted">Accepted</option><option value="needs_review">Needs review</option><option value="excluded">Excluded</option></select></label>
+              <label className="memory-check"><input checked={selected.pinned} onChange={(event) => setSelected({ ...selected, pinned: event.target.checked })} type="checkbox" /> Pin and prioritize this memory</label>
+              <label className="memory-check"><input checked={selected.locked} onChange={(event) => setSelected({ ...selected, locked: event.target.checked })} type="checkbox" /> Lock against automatic changes</label>
+              <label>Content<textarea rows={12} value={selected.body} onChange={(event) => setSelected({ ...selected, body: event.target.value })} /></label>
+              <button className="primary-button" disabled={busy || !selected.body.trim() || !vaultRoot.trim()} onClick={() => void save()} type="button">Save Markdown memory</button>
+            </>
+          ) : <div className="empty-transcript"><span className="section-kicker">MEMORY VAULT</span><h2>Select a memory to inspect it.</h2><p>Changes are written to Markdown first; the search index is rebuilt from those files.</p></div>}
+        </div>
+      </div>
+
+      <section className={proposals.length === 0 ? "proposal-queue empty-queue" : "proposal-queue"} aria-label="Memory proposal review">
         <div className="memory-list-header">
-          <div><span className="section-kicker">REVIEW QUEUE</span><span>{proposals.length} proposal{proposals.length === 1 ? "" : "s"}</span></div>
+          <div className="queue-title"><span className="section-kicker">REVIEW QUEUE</span><span>{proposals.length} proposal{proposals.length === 1 ? "" : "s"}</span></div>
           <label className="memory-check"><input checked={autoCommit} onChange={(event) => toggleAutoCommit(event.target.checked)} type="checkbox" /> Commit accepted proposals automatically</label>
         </div>
-        <p className="proposal-note">Rejecting a proposal leaves the transcript untouched. Deleting a memory is a separate action and suppresses reconstruction from its source turns.</p>
+        {proposals.length > 0 && <p className="proposal-note">Rejecting a proposal leaves the transcript untouched. Deleting a memory is a separate action and suppresses reconstruction from its source turns.</p>}
         {proposals.map((proposal) => {
           const draft = proposalDrafts[proposal.id] ?? proposal.candidate.body;
           return (
@@ -275,12 +302,12 @@ export function MemoryPanel({ active }: { active: boolean }) {
             </article>
           );
         })}
-        {proposals.length === 0 && <p className="muted memory-empty">No pending proposals. Completed chat turns are queued for background extraction; refresh after a provider response finishes.</p>}
+        {proposals.length === 0 && <p className="muted compact-empty">Nothing needs review.</p>}
       </section>
 
-      <section className="proposal-queue" aria-label="Memory conflicts">
+      <section className={conflicts.length === 0 ? "proposal-queue empty-queue" : "proposal-queue"} aria-label="Memory conflicts">
         <div className="memory-list-header">
-          <div><span className="section-kicker">CONFLICTS</span><span>{conflicts.length} conflict{conflicts.length === 1 ? "" : "s"}</span></div>
+          <div className="queue-title"><span className="section-kicker">CONFLICTS</span><span>{conflicts.length} conflict{conflicts.length === 1 ? "" : "s"}</span></div>
         </div>
         {conflicts.map((pair) => (
           <article className="proposal-card" key={`${pair.relation}:${pair.from.id}:${pair.to.id}:${pair.proposal_id}`}>
@@ -306,35 +333,8 @@ export function MemoryPanel({ active }: { active: boolean }) {
             </div>
           </article>
         ))}
-        {conflicts.length === 0 && <p className="muted memory-empty">No open conflicts.</p>}
+        {conflicts.length === 0 && <p className="muted compact-empty">No open conflicts.</p>}
       </section>
-
-      <div className="memory-layout">
-        <div className="memory-list">
-          <div className="memory-list-header"><span>{memories.length} memories</span><button className="text-button" onClick={() => { setSelected(newMemory()); setSelectedOriginal(null); setSelectedFingerprint(null); }} type="button">+ New</button></div>
-          {memories.map((memory) => (
-            <button className={selected?.id === memory.id ? "memory-row selected" : "memory-row"} key={`${memory.memory_type}:${memory.id}`} onClick={() => { setSelected(memory); setSelectedOriginal({ memory_type: memory.memory_type, id: memory.id }); setSelectedFingerprint(memory.fingerprint ?? null); }} type="button">
-              <strong>{memory.id}</strong>
-              <span>{memory.memory_type} · {memory.pinned ? "pinned" : memory.review_status}</span>
-            </button>
-          ))}
-          {memories.length === 0 && <p className="muted memory-empty">No memories loaded yet.</p>}
-        </div>
-
-        <div className="memory-editor">
-          {selected ? (
-            <>
-              <div className="memory-editor-header"><div><span className="section-kicker">EDIT MEMORY</span><h2>{selected.id}</h2></div><button className="text-button danger-button" onClick={() => void remove()} type="button">Delete</button></div>
-              <label>Type<select value={selected.memory_type} onChange={(event) => setSelected({ ...selected, memory_type: event.target.value as MemoryType })}><option value="people">People</option><option value="episodic">Episodic</option><option value="semantic">Semantic</option><option value="relationships">Relationships</option><option value="open_threads">Open threads</option></select></label>
-              <label>Status<select value={selected.review_status} onChange={(event) => setSelected({ ...selected, review_status: event.target.value as MemoryReviewStatus })}><option value="accepted">Accepted</option><option value="needs_review">Needs review</option><option value="excluded">Excluded</option></select></label>
-              <label className="memory-check"><input checked={selected.pinned} onChange={(event) => setSelected({ ...selected, pinned: event.target.checked })} type="checkbox" /> Pin and prioritize this memory</label>
-              <label className="memory-check"><input checked={selected.locked} onChange={(event) => setSelected({ ...selected, locked: event.target.checked })} type="checkbox" /> Lock against automatic changes</label>
-              <label>Content<textarea rows={12} value={selected.body} onChange={(event) => setSelected({ ...selected, body: event.target.value })} /></label>
-              <button className="primary-button" disabled={busy || !selected.body.trim() || !vaultRoot.trim()} onClick={() => void save()} type="button">Save Markdown memory</button>
-            </>
-          ) : <div className="empty-transcript"><span className="section-kicker">MEMORY VAULT</span><h2>Select a memory to inspect it.</h2><p>Changes are written to Markdown first; the search index is rebuilt from those files.</p></div>}
-        </div>
-      </div>
       {error && <p className="conversation-error" role="alert">{error}</p>}
     </section>
   );

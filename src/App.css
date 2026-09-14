@@ -49,16 +49,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 18px; }
 .brand-mark {
-  display: grid;
-  place-items: center;
   width: 36px;
   height: 36px;
   border-radius: 11px;
-  color: var(--ink);
-  background: var(--lime);
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: -0.08em;
+  flex: 0 0 36px;
+  display: block;
+  object-fit: cover;
 }
 .brand h1 { margin: 4px 0 0; font-size: 17px; letter-spacing: -0.04em; }
 
@@ -416,18 +412,15 @@ img.avatar { padding: 0; }
 .message p { margin: 7px 0 0; color: #333937; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
 .conversation-error { margin: 0 22px 8px; padding: 10px 12px; border-radius: 8px; color: var(--danger); background: #f5dfd6; font-size: 12px; }
 .retry-button { align-self: flex-start; margin: 0 22px 8px; }
-.turn-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-self: flex-start;
-  margin: 0 22px 8px;
-}
 .message-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
+}
+.response-actions {
+  padding-top: 7px;
+  border-top: 1px solid rgba(95, 103, 95, 0.18);
 }
 .message-edit {
   width: 100%;
@@ -440,7 +433,17 @@ img.avatar { padding: 0; }
   background: var(--paper);
   font: 13px/1.5 "Segoe UI", sans-serif;
 }
-.chat-status { margin: 0 22px 8px; }
+.composer-status-region {
+  display: grid;
+  gap: 4px;
+  margin: 0 18px 8px;
+  padding: 8px 12px;
+  border-left: 3px solid #a4b85c;
+  border-radius: 8px;
+  background: #ecefdb;
+}
+.composer-status-region .chat-status,
+.composer-status-region .conversation-error { margin: 0; }
 
 .composer {
   display: grid;
@@ -701,7 +704,7 @@ img.avatar { padding: 0; }
   letter-spacing: 0;
   font-family: "Segoe UI", sans-serif;
 }
-.settings-grid label, .vault-open-form label, .memory-toolbar label, .memory-editor label, .prompt-form label, .character-editor label, .character-composer label {
+.settings-grid label, .vault-open-form label, .memory-toolbar label, .memory-editor label, .prompt-form label, .character-editor label, .character-composer label, .folder-field > label {
   display: grid;
   gap: 6px;
   color: #727975;
@@ -710,7 +713,7 @@ img.avatar { padding: 0; }
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
-.settings-grid input, .settings-grid select, .vault-open-form input, .memory-toolbar input, .memory-editor input, .memory-editor select, .memory-editor textarea, .prompt-form textarea, .character-editor input, .character-editor textarea, .character-editor select, .character-composer input, .character-composer textarea {
+.settings-grid input, .settings-grid select, .vault-open-form input, .memory-toolbar input, .memory-editor input, .memory-editor select, .memory-editor textarea, .prompt-form textarea, .character-editor input, .character-editor textarea, .character-editor select, .character-composer input, .character-composer textarea, .folder-field input {
   width: 100%;
   border: 1px solid #d2d0c8;
   border-radius: 9px;
@@ -720,11 +723,16 @@ img.avatar { padding: 0; }
   font: 13px "Segoe UI", sans-serif;
   outline: none;
 }
-.settings-grid input:focus, .settings-grid select:focus, .vault-open-form input:focus, .composer textarea:focus {
+.settings-grid input:focus, .settings-grid select:focus, .vault-open-form input:focus, .composer textarea:focus, .folder-field input:focus {
   border-color: #a4b85c;
   box-shadow: 0 0 0 3px rgba(164, 184, 92, 0.16);
 }
 .vault-open-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; margin-top: 16px; width: min(560px, 100%); }
+.folder-field { display: grid; gap: 6px; min-width: 0; align-content: start; }
+.folder-field-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.folder-field-row .outline-button { min-height: 37px; white-space: nowrap; }
+.folder-field-help { margin: 0; }
+.field-error { margin: 0; color: var(--danger); font-size: 11px; line-height: 1.4; }
 .initiative-result { display: grid; gap: 4px; padding: 12px; border-radius: 10px; background: #ecefdb; color: #454d46; font-size: 12px; }
 
 .prompt-form { display: grid; gap: 12px; max-width: 720px; }
@@ -743,6 +751,40 @@ img.avatar { padding: 0; }
 .character-editor-section { display: grid; gap: 4px; padding-top: 8px; border-top: 1px solid var(--rule); }
 .character-editor-section h3 { margin: 0; color: #414a38; font-size: 13px; letter-spacing: 0.02em; }
 .character-editor-section .panel-description { max-width: none; font-size: 12px; }
+.character-editor-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--rule);
+}
+.character-editor-tab {
+  display: grid;
+  gap: 2px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #68706b;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.character-editor-tab strong { color: #3f4742; font-size: 12px; }
+.character-editor-tab span { font-size: 10px; line-height: 1.3; }
+.character-editor-tab:hover { background: #eeece4; }
+.character-editor-tab.active { border-color: #c4d976; background: #ecefdb; }
+.character-editor-pane { display: grid; gap: 10px; min-width: 0; }
+.character-editor-actions { margin-top: 6px; }
+.character-inline-action { justify-self: start; }
+.character-feedback {
+  padding: 9px 11px;
+  border-left: 3px solid #a4b85c;
+  border-radius: 8px;
+  color: #4d574e;
+  background: #ecefdb;
+  font-size: 12px;
+}
+.character-feedback.error { border-left-color: var(--danger); color: var(--danger); background: #f5dfd6; }
 .character-library-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -777,8 +819,11 @@ img.avatar { padding: 0; }
 .character-portrait-actions .panel-description { margin: 0; max-width: none; font-size: 12px; }
 .character-portrait-actions .character-list-actions .text-button { color: #414a38; }
 
-.memory-panel { display: grid; gap: 16px; min-height: 0; flex: 1; padding: 20px 24px 24px; overflow: auto; }
+.memory-panel { display: grid; grid-auto-rows: max-content; align-content: start; gap: 16px; min-height: 0; flex: 1; padding: 20px 24px 24px; overflow: auto; }
 .proposal-queue { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--rule); border-radius: 14px; background: #f7f3eb; }
+.proposal-queue.empty-queue { gap: 5px; padding-block: 10px; }
+.queue-title { display: flex; align-items: baseline; gap: 8px; }
+.compact-empty { margin: 0; padding: 0; font-size: 11px; }
 .proposal-note { margin: -3px 0 0; color: #7d847e; font-size: 12px; line-height: 1.5; }
 .proposal-card { display: grid; gap: 10px; padding: 13px; border: 1px solid #d8d8cf; border-radius: 11px; background: var(--paper-2); }
 .proposal-card textarea { width: 100%; resize: vertical; border: 1px solid #d2d0c8; border-radius: 9px; padding: 10px; color: #303534; background: #fffefa; font: 13px/1.5 "Segoe UI", sans-serif; }
@@ -817,11 +862,15 @@ img.avatar { padding: 0; }
     grid-template-rows: max-content max-content;
     min-height: 0;
   }
+  .memory-layout {
+    display: contents;
+  }
   .character-list, .memory-list {
     max-height: none;
     overflow: visible;
     min-height: max-content;
   }
+  .character-editor-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; }

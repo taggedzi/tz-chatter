@@ -35,22 +35,21 @@ export function EmojiPicker({
         type="search"
         value={query}
       />
-      <div className="emoji-picker-categories" role="tablist" aria-label="Emoji categories">
+      <div className="emoji-picker-categories" role="group" aria-label="Emoji categories">
         {EMOJI_CATEGORIES.map((item) => (
           <button
             aria-label={item.label}
-            aria-selected={category === item.id}
+            aria-pressed={category === item.id}
             className={category === item.id ? "active" : undefined}
             key={item.id}
             onClick={() => setCategory(item.id)}
-            role="tab"
             type="button"
           >
             {item.icon}
           </button>
         ))}
       </div>
-      <div className="emoji-picker-grid" role="listbox" aria-label={searching ? "Search results" : category}>
+      <div className="emoji-picker-grid" role="group" aria-label={searching ? "Emoji search results" : `${category} emoji`}>
         {results.length === 0 ? (
           <p className="emoji-picker-empty">No matches</p>
         ) : (

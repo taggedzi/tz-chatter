@@ -899,6 +899,25 @@ export function ConversationPanel() {
                   )}
                 </div>
               )}
+              {turn.id === latestAssistant?.id && (canRegenerate || canContinue || canRetry) && (
+                <div className="message-actions response-actions" aria-label="Response actions">
+                  {canRegenerate && (
+                    <button className="text-button" disabled={busy} onClick={() => void regenerate()} type="button">
+                      Regenerate
+                    </button>
+                  )}
+                  {canContinue && (
+                    <button className="text-button" disabled={busy} onClick={() => void continueReply()} type="button">
+                      Continue
+                    </button>
+                  )}
+                  {canRetry && (
+                    <button className="text-button" disabled={busy} onClick={() => void retry()} type="button">
+                      Retry response
+                    </button>
+                  )}
+                </div>
+              )}
             </article>
           ))}
           <div ref={transcriptEnd} />
@@ -964,25 +983,10 @@ export function ConversationPanel() {
           </div>
         </form>
       )}
-      {resumeStatus && <p className="inline-status chat-status" role="status">{resumeStatus}</p>}
-      {error && <p className="conversation-error" role="alert">{error}</p>}
-      {(canRegenerate || canContinue || canRetry) && (
-        <div className="turn-actions">
-          {canRegenerate && (
-            <button className="text-button" disabled={busy} onClick={() => void regenerate()} type="button">
-              Regenerate
-            </button>
-          )}
-          {canContinue && (
-            <button className="text-button" disabled={busy} onClick={() => void continueReply()} type="button">
-              Continue
-            </button>
-          )}
-          {canRetry && (
-            <button className="text-button" disabled={busy} onClick={() => void retry()} type="button">
-              Retry response
-            </button>
-          )}
+      {(resumeStatus || error) && (
+        <div className="composer-status-region">
+          {resumeStatus && <p className="inline-status chat-status" role="status">{resumeStatus}</p>}
+          {error && <p className="conversation-error" role="alert">{error}</p>}
         </div>
       )}
       <form className="composer" onSubmit={submit}>

@@ -5,6 +5,7 @@ import { PortabilityPanel } from "./PortabilityPanel";
 import { PromptPanel } from "./PromptPanel";
 import { ProviderPanel } from "./ProviderPanel";
 import { focusableElements, wrapTab } from "./settingsFocus";
+import { FolderField } from "./FolderField";
 
 export type SettingsSection = "provider" | "prompt" | "initiative" | "vault";
 
@@ -107,14 +108,13 @@ function VaultOpenPanel() {
         Choose the directory that contains <code>character.md</code>. Chat history lives in <code>chats/</code> inside that vault.
       </p>
       <form className="vault-open-form" onSubmit={openVault}>
-        <label>
-          Vault folder
-          <input
-            value={vaultRoot}
-            onChange={(event) => setVaultRoot(event.target.value)}
-            placeholder="C:\\Users\\you\\character-vault"
-          />
-        </label>
+        <FolderField
+          dialogTitle="Choose a character vault"
+          label="Vault folder"
+          onChange={setVaultRoot}
+          placeholder="C:\\Users\\you\\character-vault"
+          value={vaultRoot}
+        />
         <button className="primary-button" disabled={!vaultRoot.trim()} type="submit">
           Open vault
         </button>

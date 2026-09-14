@@ -22,6 +22,7 @@ import {
 import type { SessionSummary } from "./conversation";
 import { characterClient } from "./characters";
 import { CharacterPortraitMark } from "./CharacterPortrait";
+import appIcon from "./assets/tz-chatter-icon.png";
 import {
   fromKeyboardEvent,
   isMacPlatform,
@@ -34,6 +35,11 @@ function focusComposerSoon() {
   window.requestAnimationFrame(() => {
     window.dispatchEvent(new CustomEvent(shellEvents.focusComposer));
   });
+}
+
+function dismissChatPopovers() {
+  window.dispatchEvent(new CustomEvent(shellEvents.closeEmojiPicker));
+  window.dispatchEvent(new CustomEvent(shellEvents.closeNewLocal));
 }
 
 type AppInfo = {
@@ -101,6 +107,7 @@ function App() {
       return;
     }
     if (action === "toggle-character-switcher") {
+      dismissChatPopovers();
       setSwitcherOpen((open) => !open);
       return;
     }
@@ -240,7 +247,7 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar" aria-label="Workspace" aria-hidden={settingsOpen} inert={settingsOpen || undefined}>
         <div className="brand">
-          <div className="brand-mark" aria-hidden="true">tz</div>
+          <img className="brand-mark" src={appIcon} alt="" />
           <div>
             <p className="eyebrow">LOCAL CHARACTER CHAT</p>
             <h1>tz-chatter</h1>
@@ -249,7 +256,7 @@ function App() {
 
         <button
           className="character-card"
-          onClick={() => { setSettingsOpen(false); setActiveView("characters"); }}
+          onClick={() => { dismissChatPopovers(); setSettingsOpen(false); setActiveView("characters"); }}
           type="button"
           aria-keyshortcuts={`${modifierShortcut}+K`}
           aria-label="Open character library"
@@ -283,7 +290,7 @@ function App() {
           <button
             aria-current={activeView === "characters" && !settingsOpen ? "page" : undefined}
             className={activeView === "characters" && !settingsOpen ? "nav-item active" : "nav-item"}
-            onClick={() => { setSettingsOpen(false); setActiveView("characters"); }}
+            onClick={() => { dismissChatPopovers(); setSettingsOpen(false); setActiveView("characters"); }}
             type="button"
           >
             <span className="nav-icon" aria-hidden="true">C</span>
@@ -292,7 +299,7 @@ function App() {
           <button
             aria-current={activeView === "memories" && !settingsOpen ? "page" : undefined}
             className={activeView === "memories" && !settingsOpen ? "nav-item active" : "nav-item"}
-            onClick={() => { setSettingsOpen(false); setActiveView("memories"); }}
+            onClick={() => { dismissChatPopovers(); setSettingsOpen(false); setActiveView("memories"); }}
             type="button"
           >
             <span className="nav-icon" aria-hidden="true">M</span>
@@ -301,7 +308,7 @@ function App() {
           <button
             aria-current={settingsOpen ? "page" : undefined}
             className={settingsOpen ? "nav-item active" : "nav-item"}
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => { dismissChatPopovers(); setSettingsOpen(true); }}
             type="button"
           >
             <span className="nav-icon" aria-hidden="true">S</span>

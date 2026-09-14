@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   characterClient,
   pngFileToBase64,
@@ -21,6 +22,11 @@ import {
   type LocalSummary,
   type SceneSettings,
 } from "./scene";
+import { FolderField } from "./FolderField";
+import {
+  parseGenerationFields,
+  type CharacterEditorSection,
+} from "./characterEditor";
 
 const emptyDraft: CharacterDefinition = {
   schema_version: 1,
@@ -32,6 +38,13 @@ const emptyDraft: CharacterDefinition = {
   boundaries: [],
   tags: [],
 };
+
+const editorSections: { id: CharacterEditorSection; label: string; hint: string }[] = [
+  { id: "identity", label: "Identity", hint: "Prompt and portrait" },
+  { id: "model", label: "Model", hint: "Per-character overrides" },
+  { id: "persona", label: "You", hint: "Relationship context" },
+  { id: "scenes", label: "Scenes", hint: "Places and defaults" },
+];
 
 function linesTo(value: string) {
   return value
@@ -90,6 +103,7 @@ export function CharacterPanel({ active }: { active: boolean }) {
   const [maxTokensText, setMaxTokensText] = useState("");
   const [discoveredModels, setDiscoveredModels] = useState<string[]>([]);
   const [defaultChatModel, setDefaultChatModel] = useState("llama3.2:latest");
+  const [editorSection, setEditorSection] = useState<CharacterEditorSection>("identity");
 
   function applyDraft(character: CharacterDefinition, vaultRoot: string) {
     setSelectedRoot(vaultRoot);
@@ -292,6 +306,11 @@ export function CharacterPanel({ active }: { active: boolean }) {
   async function createCharacter(event: FormEvent) {
     event.preventDefault();
     if (!parentDir.trim() || !newName.trim()) return;
+    const createdLocalId = createLocalTitle.trim() ? localIdFromTitle(createLocalTitle) : "";
+    if (createLocalTitle.trim() && !createdLocalId) {
+      setError("Local title must contain letters or numbers so it can become a file id.");
+      return;
+    }
     setBusy(true);
     setError(null);
     setStatus(null);
@@ -303,23 +322,17 @@ export function CharacterPanel({ active }: { active: boolean }) {
           body: createPersona,
         });
       }
-      let createdLocalId = "";
-      if (createLocalTitle.trim()) {
-        const id = localIdFromTitle(createLocalTitle);
-        if (!id) {
-          throw new Error("Local title must contain letters or numbers so it can become a file id.");
-        }
+      if (createdLocalId) {
         await sceneClient.saveLocal(created.vault_root, {
           schema_version: 1,
-          id,
+          id: createdLocalId,
           title: createLocalTitle.trim(),
           body: createLocalBody,
         });
         await sceneClient.saveSettings(created.vault_root, {
           schema_version: 1,
-          default_local: id,
+          default_local: createdLocalId,
         });
-        createdLocalId = id;
       }
       setComposer(null);
       setNewName("");
@@ -372,7 +385,7 @@ export function CharacterPanel({ active }: { active: boolean }) {
     }
   }
 
-  async function saveCharacter(event: FormEvent) {
+  async function saveIdentity(event: FormEvent) {
     event.preventDefault();
     if (!selectedRoot.trim() || !draft.name.trim() || !draft.system_prompt.trim()) return;
     setBusy(true);
@@ -387,46 +400,74 @@ export function CharacterPanel({ active }: { active: boolean }) {
         traits: linesTo(traitsText),
         boundaries: linesTo(boundariesText),
       });
-      const savedLocal = await persistLocalRecord(selectedRoot.trim(), localDraft);
+      applyDraft(saved, selectedRoot);
+      await reloadList();
+      requestLoadVault(selectedRoot);
+      setStatus("Saved character identity to character.md.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveGeneration(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedRoot.trim()) return;
+    setError(null);
+    setStatus(null);
+    let validated: CharacterGeneration;
+    try {
+      validated = parseGenerationFields(
+        generation.chat_model,
+        temperatureText,
+        maxTokensText,
+      );
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+      return;
+    }
+    setBusy(true);
+    try {
+      const saved = await generationClient.save(selectedRoot.trim(), validated);
+      applyGeneration(saved);
+      notifyGenerationChanged();
+      setStatus("Saved this character's model and sampling overrides.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function savePersona(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedRoot.trim()) return;
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
       await sceneClient.savePersona(selectedRoot.trim(), {
         schema_version: 1,
         body: personaBody,
       });
-      await sceneClient.saveSettings(selectedRoot.trim(), {
-        ...sceneSettings,
-        default_local:
-          sceneSettings.default_local
-          || (locals.length === 0 ? savedLocal?.id ?? null : null),
-      });
-      let temperature: number | null = null;
-      if (temperatureText.trim()) {
-        const parsed = Number(temperatureText);
-        if (!Number.isFinite(parsed)) {
-          throw new Error("Temperature must be a number between 0 and 2, or empty to inherit.");
-        }
-        temperature = parsed;
-      }
-      let maxTokens: number | null = null;
-      if (maxTokensText.trim()) {
-        const parsed = Number(maxTokensText);
-        if (!Number.isFinite(parsed) || parsed <= 0) {
-          throw new Error("Max tokens must be a positive number, or empty to inherit.");
-        }
-        maxTokens = Math.round(parsed);
-      }
-      await generationClient.save(selectedRoot.trim(), {
-        schema_version: 1,
-        chat_model: generation.chat_model?.trim() || null,
-        temperature,
-        max_tokens: maxTokens,
-      });
-      notifyGenerationChanged();
-      applyDraft(saved, selectedRoot);
-      await loadScene(selectedRoot.trim(), savedLocal?.id || selectedLocalId);
-      await loadGeneration(selectedRoot.trim());
-      await reloadList();
-      requestLoadVault(selectedRoot);
-      setStatus("Saved character.md, persona.md, scene.md, generation settings, and any open local.");
+      setStatus("Saved your relationship context to persona.md.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveDefaultScene() {
+    if (!selectedRoot.trim()) return;
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const saved = await sceneClient.saveSettings(selectedRoot.trim(), sceneSettings);
+      setSceneSettings(saved);
+      setStatus("Saved the character's default scene.");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
@@ -468,7 +509,7 @@ export function CharacterPanel({ active }: { active: boolean }) {
   }
 
   async function saveLocal() {
-    if (!selectedRoot.trim() || !localDraft.id.trim() || !localDraft.title.trim()) return;
+    if (!selectedRoot.trim() || !localDraft.title.trim()) return;
     setBusy(true);
     setError(null);
     setStatus(null);
@@ -476,14 +517,8 @@ export function CharacterPanel({ active }: { active: boolean }) {
       const saved = await persistLocalRecord(selectedRoot.trim(), localDraft);
       if (!saved) return;
       setLocalDraft(saved);
-      if (!sceneSettings.default_local) {
-        await sceneClient.saveSettings(selectedRoot.trim(), {
-          ...sceneSettings,
-          default_local: saved.id,
-        });
-      }
       await loadScene(selectedRoot.trim(), saved.id);
-      setStatus(`Saved local ${saved.id}.md.`);
+      setStatus(`Saved scene ${saved.id}.md. Choose it as the default separately if wanted.`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
@@ -493,6 +528,11 @@ export function CharacterPanel({ active }: { active: boolean }) {
 
   async function removeLocal() {
     if (!selectedRoot.trim() || !selectedLocalId) return;
+    const approved = await confirm(
+      `Delete scene ${selectedLocalId}.md? Sessions that use it must choose another scene before sending.`,
+      { title: "Delete scene", kind: "warning" },
+    );
+    if (!approved) return;
     setBusy(true);
     setError(null);
     setStatus(null);
@@ -560,6 +600,11 @@ export function CharacterPanel({ active }: { active: boolean }) {
       <p className="panel-description">
         Building a character writes <code>character.md</code>, <code>persona.md</code>, <code>scene.md</code>, and files under <code>locals/</code>. Optional portraits are <code>assets/portrait.png</code>.
       </p>
+      {(error || status) && (
+        <div className={error ? "character-feedback error" : "character-feedback"} role={error ? "alert" : "status"}>
+          {error ?? status}
+        </div>
+      )}
 
       <div className="character-layout">
         <div className="character-list">
@@ -577,14 +622,7 @@ export function CharacterPanel({ active }: { active: boolean }) {
 
           {composer === "new" && (
             <form className="character-composer" onSubmit={(event) => void createCharacter(event)}>
-              <label>
-                Parent folder
-                <input
-                  onChange={(event) => setParentDir(event.target.value)}
-                  placeholder="C:\\Users\\you\\characters"
-                  value={parentDir}
-                />
-              </label>
+              <FolderField dialogTitle="Choose the characters folder" label="Parent folder" onChange={setParentDir} placeholder="C:\\Users\\you\\characters" value={parentDir} />
               <label>
                 Name
                 <input onChange={(event) => setNewName(event.target.value)} placeholder="Lyra" value={newName} />
@@ -623,14 +661,7 @@ export function CharacterPanel({ active }: { active: boolean }) {
 
           {composer === "add" && (
             <form className="character-composer" onSubmit={(event) => void addExisting(event)}>
-              <label>
-                Existing vault folder
-                <input
-                  onChange={(event) => setAddPath(event.target.value)}
-                  placeholder="Folder with character.md, persona.md, and locals/"
-                  value={addPath}
-                />
-              </label>
+              <FolderField dialogTitle="Choose an existing character vault" label="Existing vault folder" onChange={setAddPath} placeholder="Folder with character.md, persona.md, and locals/" value={addPath} />
               <p className="muted memory-empty">
                 Add loads identity plus any persona, scene default, and locals already in that folder.
               </p>
@@ -663,7 +694,7 @@ export function CharacterPanel({ active }: { active: boolean }) {
           ))}
         </div>
 
-        <form className="character-editor" onSubmit={(event) => void saveCharacter(event)}>
+        <div className="character-editor">
           <div className="memory-editor-header">
             <span className="section-kicker">{draft.id || "IDENTITY"}</span>
             <h2>{draft.name || "New character"}</h2>
@@ -671,6 +702,31 @@ export function CharacterPanel({ active }: { active: boolean }) {
           {selected?.error && (
             <p className="inline-status">{selected.error}</p>
           )}
+          <div className="character-editor-tabs" role="tablist" aria-label="Character editor sections">
+            {editorSections.map((item) => (
+              <button
+                aria-controls={`character-panel-${item.id}`}
+                aria-selected={editorSection === item.id}
+                className={editorSection === item.id ? "character-editor-tab active" : "character-editor-tab"}
+                id={`character-tab-${item.id}`}
+                key={item.id}
+                onClick={() => setEditorSection(item.id)}
+                role="tab"
+                type="button"
+              >
+                <strong>{item.label}</strong>
+                <span>{item.hint}</span>
+              </button>
+            ))}
+          </div>
+          {editorSection === "identity" && (
+          <form
+            aria-labelledby="character-tab-identity"
+            className="character-editor-pane"
+            id="character-panel-identity"
+            onSubmit={(event) => void saveIdentity(event)}
+            role="tabpanel"
+          >
           <div className="character-editor-section">
             <h3>Identity</h3>
             <p className="panel-description">Author-controlled <code>character.md</code>. Extraction cannot edit it.</p>
@@ -781,6 +837,29 @@ export function CharacterPanel({ active }: { active: boolean }) {
               value={boundariesText}
             />
           </label>
+          <div className="action-row character-editor-actions">
+            <button className="primary-button" disabled={busy || !canSave} type="submit">
+              {busy ? "Saving…" : "Save identity"}
+            </button>
+            <button
+              className="text-button danger-button"
+              disabled={busy || !selectedRoot}
+              onClick={() => void removeSelected()}
+              type="button"
+            >
+              Remove from library
+            </button>
+          </div>
+          </form>
+          )}
+          {editorSection === "model" && (
+          <form
+            aria-labelledby="character-tab-model"
+            className="character-editor-pane"
+            id="character-panel-model"
+            onSubmit={(event) => void saveGeneration(event)}
+            role="tabpanel"
+          >
           <div className="character-editor-section">
             <h3>Chat model</h3>
             <p className="panel-description">
@@ -829,6 +908,21 @@ export function CharacterPanel({ active }: { active: boolean }) {
               value={maxTokensText}
             />
           </label>
+          <div className="action-row character-editor-actions">
+            <button className="primary-button" disabled={busy || sceneDisabled} type="submit">
+              {busy ? "Saving…" : "Save model overrides"}
+            </button>
+          </div>
+          </form>
+          )}
+          {editorSection === "persona" && (
+          <form
+            aria-labelledby="character-tab-persona"
+            className="character-editor-pane"
+            id="character-panel-persona"
+            onSubmit={(event) => void savePersona(event)}
+            role="tabpanel"
+          >
           <div className="character-editor-section">
             <h3>You</h3>
             <p className="panel-description">Who you are in this relationship. Saved as <code>persona.md</code> with the character.</p>
@@ -843,9 +937,23 @@ export function CharacterPanel({ active }: { active: boolean }) {
               value={personaBody}
             />
           </label>
+          <div className="action-row character-editor-actions">
+            <button className="primary-button" disabled={busy || sceneDisabled} type="submit">
+              {busy ? "Saving…" : "Save persona"}
+            </button>
+          </div>
+          </form>
+          )}
+          {editorSection === "scenes" && (
+          <section
+            aria-labelledby="character-tab-scenes"
+            className="character-editor-pane"
+            id="character-panel-scenes"
+            role="tabpanel"
+          >
           <div className="character-editor-section">
             <h3>Scenes</h3>
-            <p className="panel-description">Reusable locals. Save character writes the local you are editing, the default, and persona together.</p>
+            <p className="panel-description">Reusable places stored under <code>locals/</code>. Save a place and choose the character default independently.</p>
           </div>
           <label>
             Default local
@@ -867,13 +975,21 @@ export function CharacterPanel({ active }: { active: boolean }) {
               ))}
             </select>
           </label>
+          <button
+            className="outline-button character-inline-action"
+            disabled={busy || sceneDisabled}
+            onClick={() => void saveDefaultScene()}
+            type="button"
+          >
+            Save default scene
+          </button>
           <div className="locals-editor">
             <div className="memory-editor-header">
               <span className="section-kicker">LOCALS</span>
               <h2>{selectedLocalId ? `${selectedLocalId}.md` : "New local"}</h2>
             </div>
             {locals.length === 0 ? (
-              <p className="muted memory-empty">No locals yet. Name one below; Save character files writes it under locals/.</p>
+              <p className="muted memory-empty">No scenes yet. Choose New scene, add a title, and save it under locals/.</p>
             ) : (
               <div className="local-row">
                 {locals.map((entry) => (
@@ -930,27 +1046,14 @@ export function CharacterPanel({ active }: { active: boolean }) {
                 New local
               </button>
               <button className="text-button danger-button" disabled={busy || sceneDisabled || !selectedLocalId} onClick={() => void removeLocal()} type="button">
-                Delete local
+                Delete scene
               </button>
             </div>
           </div>
-          <div className="action-row">
-            <button className="primary-button" disabled={busy || !canSave} type="submit">
-              {busy ? "Saving…" : "Save character files"}
-            </button>
-            <button
-              className="text-button danger-button"
-              disabled={busy || !selectedRoot}
-              onClick={() => void removeSelected()}
-              type="button"
-            >
-              Remove from library
-            </button>
-          </div>
-        </form>
+          </section>
+          )}
+        </div>
       </div>
-      {error && <p className="inline-status">{error}</p>}
-      {status && <p className="inline-status">{status}</p>}
     </section>
   );
 }
