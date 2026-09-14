@@ -354,6 +354,14 @@ Add GitHub Actions workflows that exercise the established frontend and Rust dev
 
 Acceptance: workflow syntax is valid; CI installs the Linux Tauri prerequisites and runs frontend unit tests/lint/typecheck/build plus Rust fmt/tests/strict Clippy; dependency audits cover both lockfiles; CodeQL analyzes TypeScript and Rust with least-privilege permissions; README badges and workflow links target `taggedzi/tz-chatter`; representative local commands and GitHub-run limitations are recorded in `STATUS.md`.
 
+### T37 — Remediate CodeQL review-harness code construction
+
+Depends on: T36.
+
+Resolve CodeQL alerts 1 and 2 in the synthetic browser-review harnesses. Do not interpolate dynamic values into JavaScript source sent to the Chrome DevTools Protocol. Pass button labels and input values as typed `Runtime.callFunctionOn` arguments so data remains separate from executable source.
+
+Acceptance: both alert locations no longer construct code from `JSON.stringify` output; the affected review harnesses retain their behavior; frontend unit/lint/typecheck/build and workflow validation pass; a pushed CodeQL run closes both alerts or any remaining runner-only finding is recorded precisely.
+
 Possible later features live in `docs/PROJECT.md`. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
 
 Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30; contradiction/supersession review is T31; keyboard-first chat is T32; Linux verification is T33; composer emoji picker is T34). Named generation presets and opt-in pack export of sampling remain unscheduled. macOS verification remains unscheduled until a Darwin host can launch the window (ADR-017).

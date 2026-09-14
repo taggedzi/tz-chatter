@@ -4,12 +4,12 @@ Last updated: 2026-09-14
 
 ## Current position
 
-- Project phase: T36 GitHub Linux CI and security scanning done; Milestone 7 environment-limited leftovers (T16/T18) remain.
+- Project phase: T37 CodeQL review-harness remediation in progress; Milestone 7 environment-limited leftovers (T16/T18) remain.
 - Implemented: project documentation, agent continuity system, local Git source control, Tauri desktop shell, provider connections, portable vault storage, conversation lifecycle with restart resume, bounded prompt construction, rebuildable lexical memory indexing, guarded lexical and hybrid memory retrieval, memory review UI, per-turn context inspection, automatic completed-turn extraction enqueue/worker validation, durable initiative eligibility, labeled initiative delivery with silence/stale-work handling, the first validated portable character-pack workflow, T19/A01-A15 and R02 reliability remediation, auto-write of validated memories, hybrid retrieval by default with lexical fallback, portable user persona plus reusable scene locals, portable character portraits, session titles/search/in-place archive, last-exchange edit/regenerate/continue, per-character model and sampling, contradiction/supersession review, keyboard-first chat, an in-app composer emoji picker, and R03 GUI coherence remediation.
 - T01 delivered: React/TypeScript shell, Rust command boundary, frontend/Rust lockfiles, validation scripts, and a Windows launch check.
 - Repository: `main` tracks `origin/main` at `https://github.com/taggedzi/tz-chatter.git`. T19/A13 commit `6a08a51` contains the reviewed application sources.
-- Active task: no active implementation task. T36 completed 2026-09-14 with Linux development gates, dependency audits, TypeScript/Rust CodeQL, and README badges.
-- Next action: push the T36 changes and inspect the first hosted CI/CodeQL runs; then resume the remaining release gate: native Windows dialog/tray/notification/accessibility interaction, install/upgrade/uninstall, live automatic-memory → restart → recall, license audit, large-vault/soak, and provider/platform coverage as available.
+- Active task: T37 CodeQL review-harness remediation, started 2026-09-14.
+- Next action: replace dynamic JavaScript source construction in both flagged browser-review helpers, verify locally, push, and inspect the resulting CodeQL scan.
 - Release readiness: hold public release pending the remaining gate. R02/R03 changes are covered by 172 passing Rust tests, 42 frontend unit tests, fmt/strict Clippy/lint/typecheck/build, and the R03 render harness; native computer-use initialization failed, so browser review used synthetic IPC and is not desktop/tray/accessibility verification. Current Windows Ollama native and compatible smoke tests pass; LM Studio :1234 is unavailable. Prior T33 Linux chat used a stub. macOS remains unverified.
 
 The user approved the architectural direction and requested a plan/status system that lets different agents continue without prior conversation context. T08 now retrieves bounded lexical memories into loopback-provider prompts; memory inspection, extraction, review, semantic ranking, initiative delivery, validated portable packs, and Windows packaging are implemented incrementally. R01 found current implementation defects in addition to the remaining native Windows interaction and provider coverage gaps. R02 addressed the implementation defects; the remaining release evidence is listed above and in `docs/RELEASE_REVIEW.md`.
@@ -62,17 +62,18 @@ The plan contains dependencies and acceptance criteria. This table is the author
 | T34 | Composer emoji picker | done | Composer-footer emoji button opens a searchable categorized Unicode popover; insert-at-caret; Escape closes picker after rename and before new-local. 25 frontend unit tests passed; lint/typecheck/build passed. Native window not re-run. |
 | T35 | Character-chat application icon | done | Promoted src-tauri/icon-alternatives/two-character-chat.png to src-tauri/app-icon-source.png, regenerated the configured desktop/mobile assets with npx tauri icon, wired the same PNG into the sidebar top-left brand, and rebuilt/launched the debug executable so native title-bar/taskbar resources are refreshed. Source and selected alternative hashes match; other alternatives remain preserved. npm lint/typecheck/build and git diff --check pass. |
 | T36 | GitHub Linux CI and security scanning | done | `ci.yml` runs frontend tests/lint/typecheck/build, Rust fmt/tests/strict Clippy, and npm/RustSec audits on Ubuntu 24.04. `codeql.yml` analyzes TypeScript and Rust on pushes, pull requests, manual runs, and weekly. YAML lint and actionlint pass; local quality gates pass. The audit found RUSTSEC-2026-0285, fixed by locking rustls 0.23.45. Hosted runs remain pending push. |
+| T37 | Remediate CodeQL review-harness code construction | in_progress | Alerts 1 and 2 both flag `js/bad-code-sanitization`: dynamic input/button text is interpolated into JavaScript source passed to Chrome DevTools in two documentation review harnesses. Replacing this with `Runtime.callFunctionOn` value arguments. |
 
 ## Active work and resumption
 
-Task: T36 GitHub Linux CI and security scanning complete
+Task: T37 remediate CodeQL review-harness code construction
 Owner/session and date: Codex - 2026-09-14
-Scope / files edited: `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`, `README.md`, `src-tauri/Cargo.lock`, and continuity docs.
-Completed in this session: added Ubuntu 24.04 frontend/Rust development gates, npm/RustSec dependency audits, TypeScript/Rust CodeQL with least-privilege permissions and weekly scheduling, repository-specific README badges/links, and updated source-control documentation. The first RustSec run found RUSTSEC-2026-0285 in rustls 0.23.44; the lockfile now selects fixed 0.23.45.
-Remaining acceptance criteria: none locally. Hosted GitHub execution and badge results require committing and pushing these files.
-Verification commands and outcomes: `npx --yes yaml-lint .github/workflows/*.yml` PASS; actionlint 1.7.12 PASS; `npm run test:unit` PASS (42); lint/typecheck/build PASS; Rust fmt PASS; `cargo test --locked` PASS (172 passed, 2 ignored); strict Clippy PASS; `npm audit --audit-level=high` PASS (0 vulnerabilities); `cargo audit` PASS with 0 vulnerabilities and 7 allowed upstream warnings; `git diff --check` PASS.
-Blocker and unblock action (if any): hosted workflows have not run because this task did not commit or push; push the changes, then inspect the Actions and Security tabs.
-Exact next step: push T36 and verify the first CI and CodeQL runs; then return to the ordered release gate in `docs/RELEASE_REVIEW.md`.
+Scope / files being edited: `docs/review/ui_review.mjs`, `docs/review/gui_remediation_review.mjs`, and continuity docs.
+Completed in this session: retrieved both GitHub alert records and confirmed they are medium-severity `js/bad-code-sanitization` findings at the two dynamic `JSON.stringify` interpolation sites.
+Remaining acceptance criteria: implement value-argument CDP calls; rerun affected harnesses and development gates; push and confirm CodeQL closes alerts 1 and 2.
+Verification commands and outcomes: pending.
+Blocker and unblock action (if any): none.
+Exact next step: patch both harness helpers to keep dynamic values out of JavaScript source.
 
 ## Verification ledger
 

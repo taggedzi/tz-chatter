@@ -136,13 +136,34 @@ await call("Page.addScriptToEvaluateOnNewDocument", { source: `(${initialize.toS
 await call("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
 await call("Page.navigate", { url: "http://localhost:1420/" });
 await sleep(1200);
+const globalResult = await call("Runtime.evaluate", { expression: "globalThis" });
+const globalObjectId = globalResult.result.objectId;
+if (!globalObjectId) throw new Error("Browser global object unavailable");
+const callPageFunction = async (functionDeclaration, values = []) => {
+  const result = await call("Runtime.callFunctionOn", {
+    functionDeclaration,
+    objectId: globalObjectId,
+    arguments: values.map((value) => ({ value })),
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
+  return result.result.value;
+};
 
 const screenshot = async (name) => {
   const result = await call("Page.captureScreenshot", { format: "png" });
   await fs.writeFile(new URL(name, import.meta.url), Buffer.from(result.data, "base64"));
 };
 const clickText = async (label) => {
-  await evaluate(`[...document.querySelectorAll("button")].find((button) => button.textContent.trim().includes(${JSON.stringify(label)}))?.click()`);
+  await callPageFunction(
+    `function(label) {
+      const button = [...document.querySelectorAll("button")].find((candidate) => candidate.textContent.trim().includes(label));
+      if (!button) throw new Error("Button not found");
+      button.click();
+    }`,
+    [label],
+  );
   await sleep(180);
 };
 

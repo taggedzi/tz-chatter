@@ -58,28 +58,48 @@ const init=()=>{
 await call('Page.enable');await call('Page.addScriptToEvaluateOnNewDocument',{source:`(${init.toString()})()`});
 await call('Emulation.setDeviceMetricsOverride',{width:1280,height:800,deviceScaleFactor:1,mobile:false});
 await call('Page.navigate',{url:'http://127.0.0.1:1420/'});await sleep(1400);
+const globalResult=await call('Runtime.evaluate',{expression:'globalThis'});
+const globalObjectId=globalResult.result.objectId;
+if(!globalObjectId)throw Error('Browser global object unavailable');
+const callPageFunction=async(functionDeclaration,values=[])=>{
+  const r=await call('Runtime.callFunctionOn',{
+    functionDeclaration,
+    objectId:globalObjectId,
+    arguments:values.map(value=>({value})),
+    awaitPromise:true,
+    returnByValue:true,
+  });
+  if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));
+  return r.result.value;
+};
 const screenshot=async name=>{const r=await call('Page.captureScreenshot',{format:'png'});await fs.writeFile(new URL(name,import.meta.url),Buffer.from(r.data,'base64'));};
-const button=label=>`[...document.querySelectorAll('button')].find(b=>b.textContent.trim().endsWith(${JSON.stringify(label)}))`;
-const input=async text=>evaluate(`(()=>{const el=document.querySelector('textarea[aria-label="Message"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el,${JSON.stringify(text)});el.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+const clickButton=label=>callPageFunction(
+  `function(label){const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent.trim().endsWith(label));if(!button)throw Error('Button not found');button.click();}`,
+  [label],
+);
+const input=text=>callPageFunction(
+  `function(text){const el=document.querySelector('textarea[aria-label="Message"]');if(!el)throw Error('Message input not found');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el,text);el.dispatchEvent(new Event('input',{bubbles:true}));}`,
+  [text],
+);
 const results={};
 await screenshot('chat-1280.png');
-await input('Original message to Alpha');await sleep(50);await evaluate(`${button('Send')}.click()`);await sleep(75);
+await input('Original message to Alpha');await sleep(50);await clickButton('Send');await sleep(75);
 await input('Next draft typed while waiting');await sleep(50);await evaluate('window.review.pending.shift()()');await sleep(100);
 results.draftAfterCompletion=await evaluate(`document.querySelector('textarea[aria-label="Message"]').value`);
-await input('Second message to Alpha');await sleep(50);await evaluate(`${button('Send')}.click()`);await sleep(75);
+await input('Second message to Alpha');await sleep(50);await clickButton('Send');await sleep(75);
 await evaluate(`window.dispatchEvent(new CustomEvent('tz-chatter-load-vault',{detail:'beta'}))`);await sleep(150);
 await evaluate('window.review.pending.shift()()');await sleep(150);
 results.characterSwitch=await evaluate(`({active:localStorage.getItem('tz-chatter.active-character-name'),body:document.querySelector('.chat-transcript')?.innerText??document.querySelector('.conversation-panel')?.innerText??document.querySelector('main').innerText,cancelCalls:window.review.calls.filter(c=>c.cmd==='conversation_cancel').length})`);
 await screenshot('switched-character-stale-reply.png');
-await evaluate(`${button('Settings')}.click()`);await sleep(250);
+await clickButton('Settings');await sleep(250);
 results.settingsFocus=await evaluate(`({focused:document.activeElement?.tagName,insideDialog:!!document.activeElement?.closest('[role="dialog"]')})`);
 await call('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await call('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});results.settingsTab=await evaluate('({insideDialog:!!document.activeElement?.closest(\'[role=dialog]\'),focused:document.activeElement?.getAttribute(\'aria-label\')})');
 await screenshot('settings-1280.png');
 await call('Emulation.setDeviceMetricsOverride',{width:900,height:620,deviceScaleFactor:1,mobile:false});await screenshot('settings-900.png');
-await evaluate(`${button('Done')}.click()`);await sleep(50);await screenshot('chat-900.png');
-await evaluate(`${button('Characters')}.click()`);await sleep(350);await screenshot('characters-900.png');results.characterLibrary=await evaluate('({height:document.querySelector(\'.character-list\').getBoundingClientRect().height,scrollHeight:document.querySelector(\'.character-list\').scrollHeight})');
-await evaluate(`${button('Memories')}.click()`);await sleep(150);await screenshot('memories-900.png');
-await evaluate(`${button('Chat')}.click()`);await sleep(50);
+await clickButton('Done');await sleep(50);await screenshot('chat-900.png');
+await clickButton('Characters');await sleep(350);await screenshot('characters-900.png');results.characterLibrary=await evaluate('({height:document.querySelector(\'.character-list\').getBoundingClientRect().height,scrollHeight:document.querySelector(\'.character-list\').scrollHeight})');
+await clickButton('Memories');await sleep(150);await screenshot('memories-900.png');
+await clickButton('Chat');await sleep(50);
 await input('IME pending text');await sleep(50);
 await evaluate(`document.querySelector('textarea[aria-label="Message"]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',isComposing:true,bubbles:true,cancelable:true}))`);await sleep(100);
 results.imeEnterSubmitted=await evaluate('window.review.pending.length>0');
