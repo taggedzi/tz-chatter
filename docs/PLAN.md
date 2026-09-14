@@ -344,6 +344,16 @@ Replace the stock Tauri icon set with a project-specific character-chat mark. Ke
 
 Acceptance: the active icon is distinct from the Tauri logo; the sidebar top-left brand renders the selected icon; Windows/macOS/Linux icon assets are generated from the same source for the native app/taskbar; two character-oriented alternatives are preserved for later selection; no existing alternative is deleted.
 
+## Milestone 19 — GitHub continuous integration
+
+### T36 — GitHub Linux CI and security scanning
+
+Depends on: T33, R02.
+
+Add GitHub Actions workflows that exercise the established frontend and Rust development gates on Ubuntu, scan npm and Cargo dependencies for known vulnerabilities, and run CodeQL over TypeScript and Rust. Trigger the development and scan gates for pushes and pull requests targeting `main`, permit manual runs, and schedule CodeQL weekly. Add repository-specific README badges that link to each workflow.
+
+Acceptance: workflow syntax is valid; CI installs the Linux Tauri prerequisites and runs frontend unit tests/lint/typecheck/build plus Rust fmt/tests/strict Clippy; dependency audits cover both lockfiles; CodeQL analyzes TypeScript and Rust with least-privilege permissions; README badges and workflow links target `taggedzi/tz-chatter`; representative local commands and GitHub-run limitations are recorded in `STATUS.md`.
+
 Possible later features live in `docs/PROJECT.md`. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
 
 Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30; contradiction/supersession review is T31; keyboard-first chat is T32; Linux verification is T33; composer emoji picker is T34). Named generation presets and opt-in pack export of sampling remain unscheduled. macOS verification remains unscheduled until a Darwin host can launch the window (ADR-017).

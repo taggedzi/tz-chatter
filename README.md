@@ -1,5 +1,8 @@
 # tz-chatter
 
+[![CI](https://github.com/taggedzi/tz-chatter/actions/workflows/ci.yml/badge.svg)](https://github.com/taggedzi/tz-chatter/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/taggedzi/tz-chatter/actions/workflows/codeql.yml/badge.svg)](https://github.com/taggedzi/tz-chatter/actions/workflows/codeql.yml)
+
 A desktop application for chatting with AI characters powered by models running on the user's computer. Each character has an editable definition and a portable Markdown memory vault. The application retrieves relevant memories, records significant conversational events, and can initiate conversation when the user enables it.
 
 ## Project navigation
@@ -78,6 +81,12 @@ npm run tauri dev
 npx tauri build --bundles deb,appimage
 ```
 
+## Continuous integration
+
+GitHub Actions runs the frontend unit tests, ESLint, TypeScript checks, frontend build, Rust tests, rustfmt, and Clippy on Ubuntu 24.04 for pushes and pull requests targeting `main`. The same CI workflow audits npm and Cargo dependencies for known vulnerabilities. A separate CodeQL workflow scans the TypeScript and Rust sources on pushes, pull requests, manual runs, and a weekly schedule.
+
+See [the CI workflow](.github/workflows/ci.yml) and [the CodeQL workflow](.github/workflows/codeql.yml). The badges at the top of this README report the latest default-branch result for each workflow.
+
 The current build includes provider contracts and local connections, Markdown-backed vault persistence, lexical and hybrid retrieval, memory review/extraction, bounded initiative delivery, native tray/notification hooks, and validated portable character packs. Check `docs/STATUS.md` before relying on any feature claim; T18 release validation remains in progress.
 
 Portable character packs are created from Settings → Vault. Export writes a new directory containing canonical Markdown and durable operational state; import validates the manifest, rejects traversal and unrelated-vault overwrite, rebuilds the search index, and keeps a backup when explicitly replacing the same character.
@@ -116,6 +125,6 @@ Linux was tested on Ubuntu 24.04.5 LTS GNOME/Wayland (T33). That run produced `t
 
 ## Source control
 
-The project uses Git with `main` as its initial branch. Use `git status` to inspect changes and `git log --oneline` to inspect history. No remote is configured yet.
+The project uses Git with `main` as its initial branch and is hosted at [taggedzi/tz-chatter](https://github.com/taggedzi/tz-chatter). Use `git status` to inspect changes and `git log --oneline` to inspect history.
 
 Commit source files, documentation, and application lockfiles. Build/dependency folders, local environment files, downloaded models, and root-level `characters/` runtime vaults are ignored. Keep intentional sample characters in `examples/` and synthetic test vaults in `tests/fixtures/` so they can be versioned. Keep private data outside tracked sample directories.

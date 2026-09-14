@@ -835,3 +835,19 @@ Verification and actual results: `npm run test:unit` PASS (42); `npm run lint` P
 Incomplete work / blockers: none for R04. Existing native Windows dialog/accessibility/tray and broader release-gate gaps remain T16/T18 work.
 
 Next concrete action: resume the ordered release gate in `docs/RELEASE_REVIEW.md`.
+
+## 2026-09-14 — T36: GitHub Linux CI and security scanning
+
+Scope and outcome: added two Ubuntu 24.04 GitHub Actions workflows for the newly published `taggedzi/tz-chatter` repository. `ci.yml` runs the frontend unit suite, ESLint, TypeScript checks, frontend build, Rust formatting, locked Rust tests, strict Clippy, and npm/RustSec dependency audits on pushes and pull requests targeting `main`, plus manual dispatch. `codeql.yml` analyzes TypeScript and Rust on those events, manual dispatch, and a Monday weekly schedule. Both workflows use read-only repository permissions by default; only the CodeQL job receives `security-events: write` plus its required read permissions. README badges link directly to each workflow.
+
+The initial RustSec audit found RUSTSEC-2026-0285 in transitive `rustls 0.23.44`, published on 2026-09-14. `src-tauri/Cargo.lock` now selects fixed `rustls 0.23.45`. The clean audit retains seven allowed warnings from upstream transitive crates (six unmaintained `proc-macro-error`/`unic-*` advisories and one `glib 0.18.5` unsoundness warning); cargo-audit's default vulnerability gate does not fail on those warnings.
+
+Files changed: `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`, `README.md`, `src-tauri/Cargo.lock`, `docs/PLAN.md`, `docs/STATUS.md`, and this handoff.
+
+Decisions added/superseded: none. This is development/repository infrastructure and does not change runtime architecture.
+
+Verification and actual results: YAML lint PASS; actionlint 1.7.12 PASS; `npm run test:unit` PASS (42); `npm run lint`, `npm run typecheck`, and `npm run build` PASS; Rust fmt PASS; `cargo test --locked --manifest-path src-tauri/Cargo.toml` PASS (172 passed, 2 ignored); strict Clippy PASS; `npm audit --audit-level=high` PASS with 0 vulnerabilities; `cargo audit` PASS with 0 vulnerabilities and 7 allowed warnings after the rustls update; `git diff --check` PASS.
+
+Incomplete work / blockers: GitHub-hosted runs and live badge states cannot exist until the user commits and pushes these changes. CodeQL result upload can only be verified in the repository's Actions/Security UI.
+
+Next concrete action: commit and push T36, inspect the first CI and CodeQL runs, and address any runner-only discrepancy. Then resume the ordered release gate in `docs/RELEASE_REVIEW.md`.
