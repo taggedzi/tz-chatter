@@ -372,6 +372,16 @@ Add a deliberately small Stage 1 release process with no certificate enrollment 
 
 Acceptance: invalid, unsafe, or unsynchronized versions fail before builds; version mutation has focused unit coverage and is safely rerunnable after a partial version-only update; complete Windows/Linux artifact names are deterministic; safe dry-run is the default; publish cannot run without both packages, the SBOM, checksums, and immutable-release configuration; workflow permissions are job-scoped and actions are immutable; concise `RELEASING.md` and `VERIFYING.md` instructions cover the normal path and recovery. Local workflow/static validation and existing frontend checks pass. Do not publish a real release or change GitHub repository settings as part of implementation verification.
 
+## Milestone 21 — OS-protected provider credentials
+
+### T39 — Store provider bearer tokens in the operating-system credential vault
+
+Depends on: T02, T23.
+
+Move optional provider bearer tokens out of `provider-settings.json` and into the current user's operating-system credential store. Persist only non-secret provider configuration and whether a credential is configured. Resolve the credential in the Rust core immediately before provider operations; never return an existing secret to the frontend. Migrate legacy plaintext settings only after the credential-store write succeeds, and surface an actionable error if the OS store is unavailable rather than silently retaining or falling back to plaintext.
+
+Acceptance: saving a provider with a token writes no secret to the JSON settings file; restart/load reports that a token exists without exposing its value; health, discovery, chat, embeddings, extraction, and initiative can resolve and use the saved token; replacing and removing a token update the OS store; legacy schema-1 plaintext settings migrate without data loss; failed credential-store operations do not erase a usable credential or rewrite settings into a misleading state; deterministic tests cover persistence, migration, preservation, removal, and secret-resolution failure; Rust and frontend quality gates pass.
+
 Possible later features live in `docs/PROJECT.md`. Do not add further IDs until the user accepts a specific item into this plan with dependencies and acceptance criteria.
 
 Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30; contradiction/supersession review is T31; keyboard-first chat is T32; Linux verification is T33; composer emoji picker is T34). Named generation presets and opt-in pack export of sampling remain unscheduled. macOS verification remains unscheduled until a Darwin host can launch the window (ADR-017).

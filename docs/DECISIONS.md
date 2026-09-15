@@ -169,3 +169,15 @@ Official binary releases are built only by a manually dispatched GitHub Actions 
 The Windows package is deliberately not Authenticode-signed and documentation must disclose the likely SmartScreen warning. Cryptographic provenance establishes origin and integrity, not safety. Authenticode certificates, self-signed certificates, SignPath or other enrollment, paid services, package repositories, auto-update signing, macOS, ARM, MSI, `.deb`, and extra Linux formats are outside this decision. They are not implied follow-up work.
 
 Consequence: T38 implements the release workflow and a short, safely rerunnable version-preparation helper. The workflow defaults to a dry run that assembles but does not publish artifacts. Publishing a release remains a deliberate maintainer action and is prohibited while the project release gate is on hold.
+
+## ADR-019 — Provider bearer tokens use the operating-system credential vault
+
+Date: 2026-09-14. State: accepted. Basis: explicit user request to protect valuable API tokens while keeping authenticated provider requests usable.
+
+Store provider bearer tokens under an application service and provider-scoped account in the current user's native credential system: Windows Credential Manager, macOS Keychain, or Linux Secret Service. `provider-settings.json` schema 2 stores non-secret connection fields plus `has_bearer_token`; it never serializes the token. Rust resolves a saved token immediately before provider work and the frontend receives only the existence flag. Bind automatic lookup to the saved provider id, kind, and endpoint so an unsaved endpoint edit cannot redirect an existing credential.
+
+Migrate schema-1 plaintext tokens by writing the OS credential first and only then replacing the JSON with schema 2. If the credential system is unavailable, return an actionable error and retain the prior settings for retry; never introduce a plaintext fallback. Replacing a token writes the credential before settings metadata. Failed removal restores the prior metadata when possible so an existing usable token is not silently erased.
+
+This is protection for secrets at rest and against casual file disclosure, backups, or accidental pack export. It is not a defense against compromise of the signed-in OS account or a process that can act with the application's authority.
+
+Consequence: T39 implements the cross-platform keyring adapter, redacted UI contract, migration, explicit removal, request-time resolution, and deterministic plus live Windows tests. Portable character data remains credential-free.

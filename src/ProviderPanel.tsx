@@ -10,6 +10,7 @@ const initialProvider: ProviderConfig = {
   chat_model: "llama3.2:latest",
   embedding_model: null,
   bearer_token: null,
+  has_bearer_token: false,
 };
 
 const customChatModelValue = "__tz_custom_chat_model__";
@@ -31,8 +32,8 @@ export function ProviderPanel() {
       const saved = await providerClient.loadSettings();
       const active = saved.providers.find((candidate) => candidate.id === saved.active_provider_id) ?? saved.providers[0];
       if (active) setProvider(active);
-    } catch {
-      // Defaults remain usable before the first saved app config.
+    } catch (requestError) {
+      setStatus(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
       setSettingsReady(true);
     }
@@ -94,17 +95,18 @@ export function ProviderPanel() {
 
   async function saveProvider() {
     try {
-      const existing = await providerClient.loadSettings().catch(() => ({
-        schema_version: 1,
-        active_provider_id: null,
-        providers: [],
-      }));
+      const existing = await providerClient.loadSettings();
       const providers = existing.providers.filter((candidate) => candidate.id !== provider.id);
       providers.push(provider);
       await providerClient.saveSettings({
-        schema_version: 1,
+        schema_version: 2,
         active_provider_id: provider.id,
         providers,
+      });
+      setProvider({
+        ...provider,
+        bearer_token: null,
+        has_bearer_token: Boolean(provider.bearer_token?.trim()) || provider.has_bearer_token,
       });
       let schedulerRefreshed = false;
       const vaultRoot = localStorage.getItem(activeSessionStorageKeys.vaultRoot)?.trim() ?? "";
@@ -169,6 +171,8 @@ export function ProviderPanel() {
             setProvider({
               ...provider,
               ...providerDefaults(kind),
+              bearer_token: null,
+              has_bearer_token: false,
             });
           }}>
             <option value="ollama">Ollama</option>
@@ -228,10 +232,27 @@ export function ProviderPanel() {
           Endpoint
           <input value={provider.endpoint} onChange={(event) => setProvider({ ...provider, endpoint: event.target.value })} />
         </label>
-        <label>
-          Bearer token (optional)
-          <input type="password" value={provider.bearer_token ?? ""} onChange={(event) => setProvider({ ...provider, bearer_token: event.target.value || null })} placeholder="Only for the selected endpoint" />
-        </label>
+        <div className="settings-field">
+          <label>
+            Bearer token (optional)
+            <input
+              type="password"
+              value={provider.bearer_token ?? ""}
+              onChange={(event) => setProvider({ ...provider, bearer_token: event.target.value || null })}
+              placeholder={provider.has_bearer_token ? "Saved in the OS credential vault" : "Only for the selected endpoint"}
+              autoComplete="off"
+            />
+          </label>
+          {provider.has_bearer_token ? (
+            <button
+              className="text-button"
+              onClick={() => setProvider({ ...provider, bearer_token: null, has_bearer_token: false })}
+              type="button"
+            >
+              Remove saved token
+            </button>
+          ) : null}
+        </div>
         <label className="checkbox-row">
           <input
             checked={useHybridRetrieval}
@@ -246,6 +267,9 @@ export function ProviderPanel() {
           Use hybrid semantic retrieval
         </label>
       </div>
+      <p className="field-help">
+        Saved tokens are kept in your operating system credential vault and are never written to provider-settings.json.
+      </p>
       <div className="action-row">
         <button className="primary-button" onClick={() => void saveProvider()} type="button">Save provider</button>
         <button className="outline-button" onClick={() => void checkProvider()} type="button">Check connection</button>

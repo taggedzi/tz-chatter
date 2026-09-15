@@ -272,11 +272,21 @@ fn active_provider(app: &AppHandle) -> Result<providers::ProviderConfig, String>
     let active_id = settings
         .active_provider_id
         .ok_or_else(|| "no active provider is configured".to_owned())?;
-    settings
+    let config = settings
         .providers
         .into_iter()
         .find(|provider| provider.id == active_id)
-        .ok_or_else(|| "the active provider configuration was not found".to_owned())
+        .ok_or_else(|| "the active provider configuration was not found".to_owned())?
+        .runtime_config();
+    providers::resolve_config(&settings_path, config).map_err(String::from)
+}
+
+fn resolve_provider(
+    app: &AppHandle,
+    config: providers::ProviderConfig,
+) -> Result<providers::ProviderConfig, String> {
+    let path = providers::settings_path(&app_config_dir(app)?);
+    providers::resolve_config(&path, config).map_err(String::from)
 }
 
 fn app_config_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -363,7 +373,9 @@ fn initiative_scheduler_start(
         .providers
         .into_iter()
         .find(|candidate| candidate.id == active_provider_id)
-        .ok_or_else(|| "the active provider configuration was not found".to_owned())?;
+        .ok_or_else(|| "the active provider configuration was not found".to_owned())?
+        .runtime_config();
+    let provider = providers::resolve_config(&settings_path, provider).map_err(String::from)?;
     let initiative_settings = initiative::InitiativeStore::open(&vault, &character_id)
         .map_err(String::from)?
         .settings()
@@ -653,8 +665,10 @@ fn save_provider_settings(
 
 #[tauri::command]
 async fn provider_health(
+    app: AppHandle,
     config: providers::ProviderConfig,
 ) -> Result<providers::HealthResponse, String> {
+    let config = resolve_provider(&app, config)?;
     connections::ProviderClient::default()
         .health(&config)
         .await
@@ -663,8 +677,10 @@ async fn provider_health(
 
 #[tauri::command]
 async fn provider_discover(
+    app: AppHandle,
     config: providers::ProviderConfig,
 ) -> Result<providers::DiscoveryResponse, String> {
+    let config = resolve_provider(&app, config)?;
     connections::ProviderClient::default()
         .discover(&config)
         .await
@@ -673,9 +689,11 @@ async fn provider_discover(
 
 #[tauri::command]
 async fn provider_embed(
+    app: AppHandle,
     config: providers::ProviderConfig,
     request: providers::EmbeddingRequest,
 ) -> Result<providers::EmbeddingResponse, String> {
+    let config = resolve_provider(&app, config)?;
     connections::ProviderClient::default()
         .embed(&config, &request)
         .await
@@ -1072,6 +1090,7 @@ async fn conversation_chat_turn(
     let (vault, canonical_character) = open_character_vault(&vault_root, &snapshot.character.id)?;
     snapshot.character = canonical_character;
     snapshot.application_prompt = application_prompt_text(&app);
+    snapshot.provider = resolve_provider(&app, snapshot.provider)?;
     let _ = initiative::InitiativeStore::open(&vault, &snapshot.character.id)
         .and_then(|store| store.record_user_activity(unix_now()));
     let key = format!("{}:{}", snapshot.character.id, snapshot.session_id);
@@ -1509,6 +1528,7 @@ async fn initiative_send(
     let (vault, canonical_character) = open_character_vault(vault_root, &request.character.id)?;
     request.character = canonical_character;
     request.application_prompt = application_prompt_text(&app);
+    request.provider = resolve_provider(&app, request.provider)?;
     let key = format!("{}:{}", request.character.id, request.session_id);
     let notification_character = request.character.clone();
     let (runtime_generation, cancellation) = state.begin(&key);

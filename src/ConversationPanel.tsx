@@ -50,6 +50,7 @@ const initialProvider: ProviderConfig = {
   chat_model: "llama3.2:latest",
   embedding_model: null,
   bearer_token: null,
+  has_bearer_token: false,
 };
 
 function roleLabel(turn: TranscriptTurn, characterName: string) {
@@ -320,8 +321,8 @@ export function ConversationPanel() {
       const saved = await providerClient.loadSettings();
       const active = saved.providers.find((candidate) => candidate.id === saved.active_provider_id) ?? saved.providers[0];
       if (active) setProvider(active);
-    } catch {
-      // The defaults remain usable when the app config has not been created yet.
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
     }
     setUseHybridRetrieval(localStorage.getItem("tz-chatter.use-hybrid-retrieval") !== "false");
   }, []);

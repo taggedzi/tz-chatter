@@ -85,7 +85,7 @@ characters/<character-id>/
 - `index.sqlite`: rebuildable derived search data, chunks, links, and embeddings. Deleting it must not lose memories or transcripts.
 - `state.sqlite`: durable operational state such as pending jobs, review candidates, initiative counters, and suppression of deleted memory proposals. It is not a disposable index and belongs in backup/export behavior.
 
-Any SQLite transcript representation is a projection of canonical transcripts, not an independent writable history. Provider URLs, credentials, and machine-specific preferences live in application configuration, outside portable character identity. Do not export credentials.
+Any SQLite transcript representation is a projection of canonical transcripts, not an independent writable history. Provider URLs and machine-specific preferences live in application configuration, outside portable character identity. Provider bearer tokens live in the current user's operating-system credential vault; application configuration stores only non-secret connection fields and whether a token is configured. Do not export credentials.
 
 This layout is a schema proposal to formalize during T03. Version all persisted formats and provide migrations when they change.
 
@@ -143,6 +143,7 @@ Apply backoff after ignored messages, persist counters across restarts, and avoi
 - Local storage and inference by default; remote endpoints require explicit configuration. No automatic cloud fallback.
 - Do not download models or launch new inference services without a user-visible action.
 - Do not log credentials or entire conversations by default in diagnostic output.
+- Store provider bearer tokens in the operating-system credential vault (Windows Credential Manager, macOS Keychain, or Linux Secret Service). Never fall back to plaintext when that store is unavailable; surface an actionable error instead. This protects secrets at rest, not against a compromised signed-in account or running application process.
 - Validate imported paths and assets and confine writes to the selected vault.
 - Preserve character isolation even when switching during in-flight requests.
 - Treat interrupted replies as interrupted; only complete eligible turns enter normal extraction.

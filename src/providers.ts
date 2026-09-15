@@ -17,6 +17,7 @@ export type ProviderConfig = {
   chat_model: string;
   embedding_model?: string | null;
   bearer_token?: string | null;
+  has_bearer_token: boolean;
 };
 
 export function providerDefaults(kind: ProviderKind): Pick<ProviderConfig, "id" | "kind" | "endpoint"> {

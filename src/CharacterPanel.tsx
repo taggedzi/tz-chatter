@@ -218,8 +218,11 @@ export function CharacterPanel({ active }: { active: boolean }) {
             .map((model) => model.id)
             .filter((id, index, all) => id && all.indexOf(id) === index),
         );
-      } catch {
-        if (!cancelled) setDiscoveredModels([]);
+      } catch (requestError) {
+        if (!cancelled) {
+          setDiscoveredModels([]);
+          setError(requestError instanceof Error ? requestError.message : String(requestError));
+        }
       }
     })();
     return () => {
