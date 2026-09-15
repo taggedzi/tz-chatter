@@ -16,3 +16,5 @@
 *.zip binary
 *.sqlite binary
 *.db binary
+
+vendor/glib-0.18.5/LICENSE whitespace=-blank-at-eof

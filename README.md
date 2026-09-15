@@ -140,6 +140,8 @@ The project uses Git with `main` as its initial branch and is hosted at [taggedz
 
 Commit source files, documentation, and application lockfiles. Build/dependency folders, local environment files, downloaded models, and root-level `characters/` runtime vaults are ignored. Keep intentional sample characters in `examples/` and synthetic test vaults in `tests/fixtures/` so they can be versioned. Keep private data outside tracked sample directories.
 
+For dependency updates, follow [dependency maintenance](docs/DEPENDENCY_MAINTENANCE.md) before changing lockfiles. It lists the required audits, platform-specific regression checks, and the procedure for retiring a vendored security backport.
+
 ## Temporary dependency backport
 
-The Linux GTK stack uses a locally patched `glib 0.18.5` for RUSTSEC-2024-0429. See [the backport notes](vendor/README.md) for source provenance, optimized regression commands, scanner limitations, and removal when a compatible upstream fix is available.
+The Linux GTK stack uses a locally patched `glib 0.18.5` for RUSTSEC-2024-0429. See the [dependency maintenance guide](docs/DEPENDENCY_MAINTENANCE.md) and [backport notes](vendor/README.md) for source provenance, optimized regression commands, scanner limitations, and removal when a compatible upstream fix is available.
