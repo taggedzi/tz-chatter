@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-# A test-only workspace member; shares the application's lockfile and patch.
+# A test-only workspace member; uses the vendored crate and shares the application's lockfile.
 [target.'cfg(target_os = "linux")'.dependencies]
-glib = { version = "0.18", default-features = false }
+glib = { path = "../../../vendor/glib-0.18.5", default-features = false }

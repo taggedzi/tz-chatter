@@ -1,6 +1,6 @@
 # Temporary glib safety backport
 
-`glib-0.18.5/` is the complete published MIT-licensed crate. Its version is unchanged. The application workspace overrides crates.io glib through `[patch.crates-io]` in `src-tauri/Cargo.toml`; the test-only `glib-variant-regression` workspace member shares that override and lockfile. The application remains the default workspace member.
+`glib-0.18.5/` is the complete published MIT-licensed crate. Its version is unchanged. The application workspace overrides crates.io glib through `[patch.crates-io]` in `src-tauri/Cargo.toml`; the test-only `glib-variant-regression` workspace member uses the same vendored crate by path and shares the application lockfile. The application remains the default workspace member.
 
 For the repository-wide update process, see [dependency maintenance](../docs/DEPENDENCY_MAINTENANCE.md).
 

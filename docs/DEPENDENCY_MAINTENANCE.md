@@ -35,6 +35,6 @@ Review the lockfile diff for unrelated upgrades, run `git diff --check`, and rec
 
 ## Active glib backport
 
-The Linux GTK graph currently uses a vendored `glib 0.18.5` with the two-line fix from gtk-rs-core PR 1343 for RUSTSEC-2024-0429. Cargo selects it through `[patch.crates-io]`; do not replace it with a direct glib dependency or add a blanket audit ignore. Version-based scanners may continue to report the alert because the crate version remains 0.18.5.
+The Linux GTK graph currently uses a vendored `glib 0.18.5` with the two-line fix from gtk-rs-core PR 1343 for RUSTSEC-2024-0429. Cargo selects it through `[patch.crates-io]`, and the regression harness points directly at the vendored crate so Dependabot does not create a duplicate version alert; do not replace it with an unrelated direct glib dependency or add a blanket audit ignore. Version-based scanners may continue to report the alert because the crate version remains 0.18.5.
 
 When a compatible upstream release contains the fix, remove the Cargo patch, update the lockfile, keep the optimized regression, and remove the vendored crate only after the resolved tree contains no affected glib. If the fixed release is from an incompatible series, update the Tauri/GTK/WebKit stack first. Follow the complete procedure in `vendor/README.md`.
