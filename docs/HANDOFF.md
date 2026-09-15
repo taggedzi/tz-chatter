@@ -910,3 +910,13 @@ Environment and temporary work: installed missing GLib development headers in ex
 Limitations: no full Linux desktop rebuild/launch or hosted workflow run this turn. Windows test success alone is not evidence for the Linux-only fix; the native GLib regression supplies that evidence. Cargo audit skips the local source's prior warning, so the clean audit is not proof of remediation. GitHub may continue version-based reporting until it processes the committed dependency graph; no alert was dismissed and no commit, push, or release was performed. T39 is already committed at a5a657f, correcting earlier stale next-step text; its native packaged UI journey remains outstanding.
 
 Next concrete action: review and commit T40, inspect hosted CI/Dependabot after merge, then resume the independent native Settings journey and release gate. Patch removal steps are in `vendor/README.md`.
+
+## 2026-09-15 — T41: vendored GLib CodeQL alert triage
+
+Scope and outcome: reviewed all 13 new High CodeQL alerts 3–15 on main commit c313ada. Every location is in the exact-source vendored glib 0.18.5 crate, not tz-chatter application Rust source. Source review is in docs/CODEQL_ALERT_REVIEW.md. GitHub alert 3 (numeric log-level panic) and 15 (write to allocated pointer-array slot after dropping its element) are dismissed as false positive; alert 6 is dismissed as used in tests; alerts 4, 5, and 7–14 are dismissed as won't fix with source-scoped FFI-contract and revisit comments. The GitHub API now reports zero open High alerts.
+
+Files changed: docs/CODEQL_ALERT_REVIEW.md, docs/PLAN.md, docs/STATUS.md, and this handoff. Application code and the CodeQL workflow are unchanged. A proposed persistent vendor exclusion was rejected by automatic approval review because it would suppress future dependency analysis; no exclusion was added.
+
+Verification and limits: inspected each source location, checked that src-tauri/src contains no direct glib or unsafe call, and ran node --test tests/glibBackport.test.mjs (2/2 pass), which confirms all vendored files match the published crate except the T40 iterator correction. GitHub dismissal states and comments were verified through its API. This does not prove arbitrary GLib pointers safe or replace upstream FFI review; keep CodeQL scanning vendor source and reassess on a concrete invalid call path or compatible upstream update. No full Linux desktop rerun was performed.
+
+Next concrete action: resume T39 packaged Settings token save/restart/authenticated operation/removal and the T16/T18 release gate. T38 hosted dry-run remains separate; public publication is still on hold.

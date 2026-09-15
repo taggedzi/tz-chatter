@@ -394,6 +394,14 @@ Remediate Dependabot alert 1 (RUSTSEC-2024-0429 / GHSA-wrw7-89jp-8q8g) while ret
 
 Acceptance: Cargo resolves the patched source for Linux without unrelated upgrades; optimized regression tests exercise the affected iterator operations against the selected crate; existing applicable Rust checks pass; CI and release validation run the regression; provenance and the exact upstream delta are verifiable; scanner/version limitations and unrun platform checks are recorded. Do not dismiss the alert or publish a release as part of this change.
 
+## T41 — Triage vendored GLib CodeQL alerts
+
+Depends on: T40.
+
+Review GitHub CodeQL alerts 3–15 at their exact source locations. Distinguish concrete defects from unsafe FFI contracts and test-only or misclassified findings. Preserve CodeQL coverage of the vendored dependency, record a source-specific GitHub disposition for each reviewed alert, and document residual risk and revisit triggers.
+
+Acceptance: all 13 source locations and alert states are recorded; vendored-source provenance and absence of application raw-pointer callers are checked; each GitHub disposition has a reviewable comment; no High alert remains open; the workflow still scans vendor source; status and handoff identify limitations without claiming the GLib FFI layer is proven safe.
+
 ## Milestone exit policy
 
 A milestone is complete only when its tasks are `done`. Mark task criteria separately if an implementation is ready but a required runtime check is unavailable. Do not infer tested operating systems, models, or providers from shared code paths.
