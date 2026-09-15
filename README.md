@@ -139,3 +139,7 @@ Linux was tested on Ubuntu 24.04.5 LTS GNOME/Wayland (T33). That run produced `t
 The project uses Git with `main` as its initial branch and is hosted at [taggedzi/tz-chatter](https://github.com/taggedzi/tz-chatter). Use `git status` to inspect changes and `git log --oneline` to inspect history.
 
 Commit source files, documentation, and application lockfiles. Build/dependency folders, local environment files, downloaded models, and root-level `characters/` runtime vaults are ignored. Keep intentional sample characters in `examples/` and synthetic test vaults in `tests/fixtures/` so they can be versioned. Keep private data outside tracked sample directories.
+
+## Temporary dependency backport
+
+The Linux GTK stack uses a locally patched `glib 0.18.5` for RUSTSEC-2024-0429. See [the backport notes](vendor/README.md) for source provenance, optimized regression commands, scanner limitations, and removal when a compatible upstream fix is available.

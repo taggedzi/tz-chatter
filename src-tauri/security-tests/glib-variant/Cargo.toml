@@ -1,0 +1,9 @@
+[package]
+name = "glib-variant-regression"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# A test-only workspace member; shares the application's lockfile and patch.
+[target.'cfg(target_os = "linux")'.dependencies]
+glib = { version = "0.18", default-features = false }

@@ -386,6 +386,14 @@ Possible later features live in `docs/PROJECT.md`. Do not add further IDs until 
 
 Remaining suggested cluster (not scheduled): memory inbox chrome, remember-this-from-a-turn, and open-vault-as-files (folder / Obsidian / reveal; portraits are T27; session names/search/archive are T28; edit/regenerate/continue is T29; per-character model/sampling is T30; contradiction/supersession review is T31; keyboard-first chat is T32; Linux verification is T33; composer emoji picker is T34). Named generation presets and opt-in pack export of sampling remain unscheduled. macOS verification remains unscheduled until a Darwin host can launch the window (ADR-017).
 
+## T40 — Backport the glib iterator safety fix
+
+Depends on: T36.
+
+Remediate Dependabot alert 1 (RUSTSEC-2024-0429 / GHSA-wrw7-89jp-8q8g) while retaining Tauri's compatible glib 0.18 dependency family. Vendor the published crate with license and provenance, backport upstream gtk-rs-core PR 1343, and route the application dependency graph through that source. Keep the original version truthful and document removal when a compatible fixed upstream release is available.
+
+Acceptance: Cargo resolves the patched source for Linux without unrelated upgrades; optimized regression tests exercise the affected iterator operations against the selected crate; existing applicable Rust checks pass; CI and release validation run the regression; provenance and the exact upstream delta are verifiable; scanner/version limitations and unrun platform checks are recorded. Do not dismiss the alert or publish a release as part of this change.
+
 ## Milestone exit policy
 
 A milestone is complete only when its tasks are `done`. Mark task criteria separately if an implementation is ready but a required runtime check is unavailable. Do not infer tested operating systems, models, or providers from shared code paths.

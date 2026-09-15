@@ -44,3 +44,12 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+[workspace]
+members = ["security-tests/glib-variant"]
+default-members = ["."]
+resolver = "2"
+
+# Temporary upstream safety backport; removal procedure: ../vendor/README.md.
+[patch.crates-io]
+glib = { path = "../vendor/glib-0.18.5" }
