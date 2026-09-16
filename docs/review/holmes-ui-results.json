@@ -1,0 +1,30 @@
+{
+  "900": {
+    "left": 319,
+    "right": 846,
+    "width": 527,
+    "portraitLoaded": true,
+    "viewportWidth": 900,
+    "documentWidth": 900
+  },
+  "1280": {
+    "left": 319,
+    "right": 635.125,
+    "width": 316.125,
+    "portraitLoaded": true,
+    "viewportWidth": 1280,
+    "documentWidth": 1280
+  },
+  "evidence": "Real React layout with synthetic IPC; actual installer separately covered by Rust tests.",
+  "parentFolderField": true,
+  "browseButton": true,
+  "installCall": {
+    "command": "character_install_holmes",
+    "args": {
+      "parentDir": "C:\\Characters"
+    }
+  },
+  "conflictVisible": true,
+  "formRecovered": true,
+  "runtimeErrorCount": 0
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "format": "tz-chatter-character-pack",
+  "character_id": "sherlock-holmes",
+  "files": [
+    "character.md",
+    "persona.md",
+    "scene.md",
+    "locals/baker-street.md",
+    "locals/fireside.md",
+    "locals/correspondence.md",
+    "memories/semantic/holmes-origins.md",
+    "memories/relationships/holmes-watson.md",
+    "memories/people/holmes-irene-adler.md",
+    "memories/people/holmes-mycroft.md",
+    "memories/people/holmes-hudson.md",
+    "memories/relationships/holmes-lestrade.md",
+    "memories/semantic/holmes-music.md",
+    "memories/semantic/holmes-restlessness.md",
+    "memories/semantic/holmes-rooms.md",
+    "memories/semantic/holmes-seventeen-steps.md",
+    "memories/episodic/holmes-norbury.md",
+    "memories/episodic/holmes-silver-blaze.md",
+    "memories/episodic/holmes-blue-carbuncle.md",
+    "memories/people/holmes-moriarty.md",
+    "memories/semantic/holmes-return.md",
+    "memories/semantic/holmes-pack-provenance.md",
+    "assets/portrait.png"
+  ]
+}

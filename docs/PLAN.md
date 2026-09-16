@@ -445,3 +445,11 @@ Depends on: R03.
 Correct the Settings → Vault portability grid so folder controls with different amounts of help text share the same label and input rows instead of stretching their internal tracks to different vertical positions.
 
 Acceptance: all four portability folder labels and input/button rows align at the wide desktop layout shown in the reported screenshot; help text remains immediately below its own control; compact layout remains usable; focused frontend tests/lint/typecheck/build pass, with rendered bounding-box evidence for the alignment.
+
+## T42 — Sherlock Holmes featured demonstration character
+
+Depends on: T08, T17, T21, T26, T27.
+
+Build Sherlock Holmes — A Visitor at Baker Street from Arthur Conan Doyle's original public-domain stories. Deliver a detailed portable character, user persona, reusable locations, source-backed searchable background, original portrait, and a front-facing route to install the sample. Separate canonical facts from original adaptation choices and user conversation memories. Include a repeatable demonstration of personality, retrieval, correction, cross-session recall, and opt-in initiative without fabricating completed model verification.
+
+Acceptance: the real vault/scene/memory parsers accept all files; character and scene fit the default prompt budget with retrieval headroom; source notes have stable provenance; sample installation preserves existing vaults; export/import preserves playable data and portrait; focused retrieval and integration tests pass; README explains how to start and run the demonstration; live provider results and unrun checks are recorded separately.

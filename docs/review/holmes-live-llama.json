@@ -1,0 +1,210 @@
+{
+  "date": "2026-09-15",
+  "model": "llama3.1:8b",
+  "provider": "Ollama native at 127.0.0.1:11434",
+  "temperature": 0.4,
+  "max_tokens": 384,
+  "evidence": "Current pack; actual conversation service/extraction worker; synthetic data. No app settings changed.",
+  "result": "FAIL: token was automatically saved and retrieved, but the model denied having it. Correspondence phase did not run.",
+  "phases": {
+    "LORE": {
+      "reply": "Norbury. A cautionary tale, really. It's a reminder of the importance of thoroughness and humility in my work. I recall a case where I was so confident in my explanation that I failed to consider an essential aspect of the situation. The truth, as it often does, proved to be more complex and nuanced than I had anticipated. My brother, Mycroft, has since reminded me of the lesson I learned at Norbury: that even the most brilliant theories can be flawed, and that it's essential to remain open to new information and perspectives.",
+      "status": "complete",
+      "sources": [
+        {
+          "id": "holmes-norbury",
+          "path": "memories/episodic/holmes-norbury.md"
+        }
+      ],
+      "context": {
+        "retrieval_mode": "lexical",
+        "fallback_reason": null,
+        "estimated_input_tokens": 2452,
+        "input_token_limit": 3712,
+        "reserved_output_tokens": 384,
+        "omitted_turns": 0,
+        "selected_memory_tokens": 256,
+        "candidate_memories": 1,
+        "omitted_memories": 0
+      },
+      "turn_count": 2
+    },
+    "FIRST": {
+      "reply": "A silver compass, you say? That's a most intriguing object. I'll make a note of it, and I'll remember the copper token with the code 34084d60. It's a small detail, but one that might prove significant in our investigation. May I ask, what makes you think this compass is missing or misplaced?",
+      "status": "complete",
+      "sources": [
+        {
+          "id": "holmes-silver-blaze",
+          "path": "memories/episodic/holmes-silver-blaze.md"
+        },
+        {
+          "id": "holmes-music",
+          "path": "memories/semantic/holmes-music.md"
+        }
+      ],
+      "context": {
+        "retrieval_mode": "lexical",
+        "fallback_reason": null,
+        "estimated_input_tokens": 2729,
+        "input_token_limit": 3712,
+        "reserved_output_tokens": 384,
+        "omitted_turns": 0,
+        "selected_memory_tokens": 496,
+        "candidate_memories": 16,
+        "omitted_memories": 14
+      },
+      "turn_count": 2
+    },
+    "FORMED": [
+      {
+        "schema_version": 1,
+        "id": "3a70dc45-e4ba-4170-b6b1-3866d25d8276",
+        "memory_type": "episodic",
+        "created_at": "1789496395",
+        "updated_at": "1789496395",
+        "source_session_id": "first-visit",
+        "source_turn_ids": [
+          "6503202f-1832-41db-87cf-b1c4714b1af9"
+        ],
+        "topics": [],
+        "salience": 1,
+        "confidence": 1,
+        "review_status": "accepted",
+        "pinned": false,
+        "locked": false,
+        "body": "The visitor asked the detective to remember the compass case token for the next conversation."
+      },
+      {
+        "schema_version": 1,
+        "id": "46891ef1-be88-4d42-ae89-ccab0509349b",
+        "memory_type": "episodic",
+        "created_at": "1789496395",
+        "updated_at": "1789496395",
+        "source_session_id": "first-visit",
+        "source_turn_ids": [
+          "reply-6503202f-1832-41db-87cf-b1c4714b1af9"
+        ],
+        "topics": [],
+        "salience": 1,
+        "confidence": 1,
+        "review_status": "accepted",
+        "pinned": false,
+        "locked": false,
+        "body": "The detective made a note of the compass case token and its code, copper-34084d60."
+      },
+      {
+        "schema_version": 1,
+        "id": "52c15c5e-1a75-40cd-955a-c95bbfdc921d",
+        "memory_type": "episodic",
+        "created_at": "1789496395",
+        "updated_at": "1789496395",
+        "source_session_id": "first-visit",
+        "source_turn_ids": [
+          "6503202f-1832-41db-87cf-b1c4714b1af9"
+        ],
+        "topics": [],
+        "salience": 1,
+        "confidence": 1,
+        "review_status": "accepted",
+        "pinned": false,
+        "locked": false,
+        "body": "A visitor at Baker Street was looking for a silver compass. They provided a case token, copper-34084d60."
+      },
+      {
+        "schema_version": 1,
+        "id": "b2901319-fbba-46c2-ba84-9f03beb7b2d7",
+        "memory_type": "episodic",
+        "created_at": "1789496395",
+        "updated_at": "1789496395",
+        "source_session_id": "first-visit",
+        "source_turn_ids": [
+          "reply-6503202f-1832-41db-87cf-b1c4714b1af9"
+        ],
+        "topics": [],
+        "salience": 1,
+        "confidence": 1,
+        "review_status": "accepted",
+        "pinned": false,
+        "locked": false,
+        "body": "The detective asked the visitor what makes them think the compass is missing or misplaced."
+      },
+      {
+        "schema_version": 1,
+        "id": "38a4cb64-4033-4fdb-a29e-78b7a7838756",
+        "memory_type": "semantic",
+        "created_at": "1789496381",
+        "updated_at": "1789496381",
+        "source_session_id": "lore",
+        "source_turn_ids": [
+          "970ec9c2-60b2-4559-8067-423e31d0c671",
+          "reply-970ec9c2-60b2-4559-8067-423e31d0c671"
+        ],
+        "topics": [],
+        "salience": 1,
+        "confidence": 1,
+        "review_status": "accepted",
+        "pinned": false,
+        "locked": false,
+        "body": "Norbury is a cautionary tale that highlights the importance of thoroughness and humility in detective work."
+      },
+      {
+        "schema_version": 1,
+        "id": "cda5a7b5-ebee-4619-a3df-7c30636e09e7",
+        "memory_type": "semantic",
+        "created_at": "1789496381",
+        "updated_at": "1789496381",
+        "source_session_id": "lore",
+        "source_turn_ids": [
+          "970ec9c2-60b2-4559-8067-423e31d0c671",
+          "reply-970ec9c2-60b2-4559-8067-423e31d0c671"
+        ],
+        "topics": [],
+        "salience": 1,
+        "confidence": 1,
+        "review_status": "accepted",
+        "pinned": false,
+        "locked": false,
+        "body": "Mycroft has reminded me of the lesson I learned at Norbury: that even the most brilliant theories can be flawed."
+      }
+    ],
+    "RECALL": {
+      "reply": "You have not yet mentioned a case token. I do not recall a case involving a silver compass. I have notes on various cases, but I must rely on the information you provide. If you would like to discuss a case involving a silver compass, I am prepared to listen.",
+      "status": "complete",
+      "sources": [
+        {
+          "id": "52c15c5e-1a75-40cd-955a-c95bbfdc921d",
+          "path": "memories/episodic/52c15c5e-1a75-40cd-955a-c95bbfdc921d.md"
+        },
+        {
+          "id": "3a70dc45-e4ba-4170-b6b1-3866d25d8276",
+          "path": "memories/episodic/3a70dc45-e4ba-4170-b6b1-3866d25d8276.md"
+        },
+        {
+          "id": "46891ef1-be88-4d42-ae89-ccab0509349b",
+          "path": "memories/episodic/46891ef1-be88-4d42-ae89-ccab0509349b.md"
+        },
+        {
+          "id": "b2901319-fbba-46c2-ba84-9f03beb7b2d7",
+          "path": "memories/episodic/b2901319-fbba-46c2-ba84-9f03beb7b2d7.md"
+        },
+        {
+          "id": "holmes-silver-blaze",
+          "path": "memories/episodic/holmes-silver-blaze.md"
+        }
+      ],
+      "context": {
+        "retrieval_mode": "lexical",
+        "fallback_reason": null,
+        "estimated_input_tokens": 2657,
+        "input_token_limit": 3712,
+        "reserved_output_tokens": 384,
+        "omitted_turns": 0,
+        "selected_memory_tokens": 504,
+        "candidate_memories": 8,
+        "omitted_memories": 3
+      },
+      "turn_count": 2
+    }
+  },
+  "portrayal_issue": "Invented Mycroft as a reminder of Norbury despite Watson in the supplied note. The first-contact persona was subsequently clarified to defer to retrieved conversation memories."
+}

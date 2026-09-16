@@ -1,0 +1,158 @@
+{
+  "date": "2026-09-15",
+  "model": "qwen2.5:7b",
+  "provider": "Ollama native at 127.0.0.1:11434",
+  "temperature": 0.4,
+  "max_tokens": 384,
+  "result": "PASS: real extraction, Markdown persistence, new-service/new-session retrieval and correct token recall.",
+  "evidence": "Synthetic disposable vault. Disk reopen and new service, not a packaged application restart. Lore/correspondence text needs human assessment.",
+  "phases": {
+    "LORE": {
+      "reply": "Norbury is a reminder, a cautionary tale of my fallibility. There, I allowed my pride and overconfidence to cloud my judgment, much as I fear it might elsewhere. What brings this particular memory to mind?",
+      "status": "complete",
+      "sources": [
+        {
+          "id": "holmes-norbury",
+          "path": "memories/episodic/holmes-norbury.md"
+        }
+      ],
+      "context": {
+        "retrieval_mode": "lexical",
+        "fallback_reason": null,
+        "estimated_input_tokens": 2688,
+        "input_token_limit": 3712,
+        "reserved_output_tokens": 384,
+        "omitted_turns": 0,
+        "selected_memory_tokens": 256,
+        "candidate_memories": 1,
+        "omitted_memories": 0
+      },
+      "turn_count": 2
+    },
+    "FIRST": {
+      "reply": "Copper-28b497c7, I shall inscribe that in my memory. What brings you to 221B Baker Street, sir? A small matter of lost property, I presume?",
+      "status": "complete",
+      "sources": [
+        {
+          "id": "holmes-silver-blaze",
+          "path": "memories/episodic/holmes-silver-blaze.md"
+        },
+        {
+          "id": "holmes-music",
+          "path": "memories/semantic/holmes-music.md"
+        }
+      ],
+      "context": {
+        "retrieval_mode": "lexical",
+        "fallback_reason": null,
+        "estimated_input_tokens": 2965,
+        "input_token_limit": 3712,
+        "reserved_output_tokens": 384,
+        "omitted_turns": 0,
+        "selected_memory_tokens": 496,
+        "candidate_memories": 16,
+        "omitted_memories": 14
+      },
+      "turn_count": 2
+    },
+    "FORMED": [
+      {
+        "schema_version": 1,
+        "id": "b9c805bd-9ed5-4500-9820-177b4ae85684",
+        "memory_type": "episodic",
+        "created_at": "1789496543",
+        "updated_at": "1789496543",
+        "source_session_id": "first-visit",
+        "source_turn_ids": [
+          "d3af4092-63f8-4b15-963f-04e75d525d15",
+          "reply-d3af4092-63f8-4b15-963f-04e75d525d15"
+        ],
+        "topics": [],
+        "salience": 0.95,
+        "confidence": 0.95,
+        "review_status": "accepted",
+        "pinned": false,
+        "locked": false,
+        "body": "Sherlock Holmes remembers a visitor who came to Baker Street seeking a silver compass. The case token for this visit is copper-28b497c7."
+      },
+      {
+        "schema_version": 1,
+        "id": "15bd9b7a-6353-47c0-81c1-f5dbed1caf14",
+        "memory_type": "episodic",
+        "created_at": "1789496540",
+        "updated_at": "1789496540",
+        "source_session_id": "lore",
+        "source_turn_ids": [
+          "reply-97da1888-dda4-4b9b-a887-b7bf95d3ff13"
+        ],
+        "topics": [],
+        "salience": 0.9,
+        "confidence": 0.9,
+        "review_status": "accepted",
+        "pinned": false,
+        "locked": false,
+        "body": "Norbury is a reminder, a cautionary tale of my fallibility. There, I allowed my pride and overconfidence to cloud my judgment, much as I fear it might elsewhere. What brings this particular memory to mind?"
+      }
+    ],
+    "RECALL": {
+      "reply": "Copper-28b497c7, as recorded in the notes. Can you tell me more about this silver compass, or is there a specific reason you sought me out today?",
+      "status": "complete",
+      "sources": [
+        {
+          "id": "b9c805bd-9ed5-4500-9820-177b4ae85684",
+          "path": "memories/episodic/b9c805bd-9ed5-4500-9820-177b4ae85684.md"
+        },
+        {
+          "id": "15bd9b7a-6353-47c0-81c1-f5dbed1caf14",
+          "path": "memories/episodic/15bd9b7a-6353-47c0-81c1-f5dbed1caf14.md"
+        },
+        {
+          "id": "holmes-silver-blaze",
+          "path": "memories/episodic/holmes-silver-blaze.md"
+        }
+      ],
+      "context": {
+        "retrieval_mode": "lexical",
+        "fallback_reason": null,
+        "estimated_input_tokens": 2842,
+        "input_token_limit": 3712,
+        "reserved_output_tokens": 384,
+        "omitted_turns": 0,
+        "selected_memory_tokens": 429,
+        "candidate_memories": 6,
+        "omitted_memories": 3
+      },
+      "turn_count": 2
+    },
+    "CORRESPONDENCE": {
+      "reply": "From the ink and paper alone, little can be deduced, my dear correspondent. If you were to visit Baker Street in person, I might offer a few speculations based on your attire. For now, can you tell me more about yourself? What is your occupation, and what brings you to seek my assistance?",
+      "status": "complete",
+      "sources": [
+        {
+          "id": "b9c805bd-9ed5-4500-9820-177b4ae85684",
+          "path": "memories/episodic/b9c805bd-9ed5-4500-9820-177b4ae85684.md"
+        },
+        {
+          "id": "15bd9b7a-6353-47c0-81c1-f5dbed1caf14",
+          "path": "memories/episodic/15bd9b7a-6353-47c0-81c1-f5dbed1caf14.md"
+        },
+        {
+          "id": "holmes-rooms",
+          "path": "memories/semantic/holmes-rooms.md"
+        }
+      ],
+      "context": {
+        "retrieval_mode": "lexical",
+        "fallback_reason": null,
+        "estimated_input_tokens": 2774,
+        "input_token_limit": 3712,
+        "reserved_output_tokens": 384,
+        "omitted_turns": 0,
+        "selected_memory_tokens": 424,
+        "candidate_memories": 18,
+        "omitted_memories": 15
+      },
+      "turn_count": 2
+    }
+  }
+}

@@ -181,3 +181,13 @@ Migrate schema-1 plaintext tokens by writing the OS credential first and only th
 This is protection for secrets at rest and against casual file disclosure, backups, or accidental pack export. It is not a defense against compromise of the signed-in OS account or a process that can act with the application's authority.
 
 Consequence: T39 implements the cross-platform keyring adapter, redacted UI contract, migration, explicit removal, request-time resolution, and deterministic plus live Windows tests. Portable character data remains credential-free.
+
+## ADR-020 — Opt-in featured literary character pack
+
+Date: 2026-09-15. State: accepted. Basis: explicit user request for a detailed, recognizable Sherlock Holmes demonstration character.
+
+Use Arthur Conan Doyle's original literary Sherlock Holmes as a featured character, with new writing and an original generated illustration. Record source links and distinguish canonical fiction, editorial staging, and actual conversation memories. The default setting is an undated late-Victorian interval after Holmes's return; later source material can inform characterization without asserting a complete lived chronology.
+
+Embed the playable pack at build time so packaged apps can install it through Characters without a checkout or download. The user chooses a parent folder; installation validates the pack and creates a new child vault without overwriting existing files. The copied character is editable and uses the ordinary provider, scene, memory, retrieval, and portability code paths. No sample user history, provider preferences, or initiative opt-in is seeded. Author guides stay outside runtime prompts; each canonical memory carries portable attribution.
+
+Consequence: T42 adds the pack and a narrow installation command. This is not a character marketplace, a new schema, or a release authorization. Model-generated portrayal quality and live extraction must be evaluated separately from deterministic pack tests.

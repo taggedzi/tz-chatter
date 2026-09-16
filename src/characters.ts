@@ -32,6 +32,9 @@ export const characterClient = {
   create(parentDir: string, name: string) {
     return invoke<CharacterLibraryItem>("character_library_create", { parentDir, name });
   },
+  installHolmes(parentDir: string) {
+    return invoke<CharacterLibraryItem>("character_install_holmes", { parentDir });
+  },
   remove(vaultRoot: string) {
     return invoke<void>("character_library_remove", { vaultRoot });
   },

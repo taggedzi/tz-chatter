@@ -23,6 +23,7 @@ import {
   type SceneSettings,
 } from "./scene";
 import { FolderField } from "./FolderField";
+import holmesPortrait from "../examples/characters/sherlock-holmes/assets/portrait.png";
 import {
   parseGenerationFields,
   type CharacterEditorSection,
@@ -73,7 +74,7 @@ export function CharacterPanel({ active }: { active: boolean }) {
   const [parentDir, setParentDir] = useState("");
   const [newName, setNewName] = useState("");
   const [addPath, setAddPath] = useState("");
-  const [composer, setComposer] = useState<"new" | "add" | null>(null);
+  const [composer, setComposer] = useState<"new" | "add" | "holmes" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -299,6 +300,25 @@ export function CharacterPanel({ active }: { active: boolean }) {
       await loadScene(entry.vault_root);
       await loadGeneration(entry.vault_root);
       requestLoadVault(entry.vault_root);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function installHolmes(event: FormEvent) {
+    event.preventDefault();
+    if (!parentDir.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const installed = await characterClient.installHolmes(parentDir.trim());
+      setComposer(null);
+      await reloadList();
+      await selectEntry(installed);
+      setStatus("Sherlock Holmes is ready. Open Chat and introduce yourself, or bring a puzzle to Baker Street.");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
@@ -622,6 +642,37 @@ export function CharacterPanel({ active }: { active: boolean }) {
               </button>
             </div>
           </div>
+
+          <article className="featured-character" aria-labelledby="holmes-featured-heading">
+            <div className="featured-character-heading">
+              <img src={holmesPortrait} alt="" width="64" height="64" />
+              <div>
+                <span className="eyebrow">Featured character</span>
+                <h3 id="holmes-featured-heading">Sherlock Holmes</h3>
+                <span>A Visitor at Baker Street</span>
+              </div>
+            </div>
+            <p>Bring a puzzle, compare observations, or settle in for a conversation with Doyle's consulting detective.</p>
+            <button className="primary-button" type="button" disabled={busy} aria-expanded={composer === "holmes"} aria-controls="holmes-install-form" onClick={() => setComposer(composer === "holmes" ? null : "holmes")}>
+              Meet Sherlock Holmes
+            </button>
+            {composer === "holmes" && (
+              <form id="holmes-install-form" className="character-composer" onSubmit={(event) => void installHolmes(event)}>
+                <FolderField dialogTitle="Choose where to keep Sherlock Holmes" label="Parent folder" onChange={setParentDir} value={parentDir} placeholder="Choose your characters folder" />
+                <p>Your own editable copy, with three scenes and background from the original stories.</p>
+                <button className="primary-button" type="submit" disabled={busy || !parentDir.trim()}>{busy ? "Creating…" : "Create my Holmes"}</button>
+              </form>
+            )}
+            <details>
+              <summary>Try a short demonstration</summary>
+              <ol>
+                <li>Ask: “What does Norbury mean to you?” Then open Sources to inspect the background supplied.</li>
+                <li>Tell him a made-up detail about a missing object. Let him respond.</li>
+                <li>After the detail appears in Memories, start a new chat and ask about it again.</li>
+              </ol>
+              <p>Choose an existing local model in Settings to chat. Replies and memory extraction depend on that model. Spontaneous messages are optional in Settings.</p>
+            </details>
+          </article>
 
           {composer === "new" && (
             <form className="character-composer" onSubmit={(event) => void createCharacter(event)}>

@@ -1,0 +1,158 @@
+{
+  "date": "2026-09-15",
+  "model": "qwen2.5:7b",
+  "provider": "Ollama native at 127.0.0.1:11434",
+  "temperature": 0.4,
+  "max_tokens": 384,
+  "evidence": "Real ConversationService and extraction worker, disposable synthetic vault; disk reopened and new transcript for recall. Not a native app restart or tray test.",
+  "portrayal_issue": "Initial lore response wrongly addresses the new visitor as Watson; revised core/persona will be tested separately.",
+  "phases": {
+    "LORE": {
+      "reply": "Norbury is a reminder, Watson. A case where my deductions fell short, and a family's secrets were more complex than I had imagined. It serves as a caution against overconfidence and the importance of thoroughness. What brings this to mind, my dear fellow?",
+      "status": "complete",
+      "sources": [
+        {
+          "id": "holmes-norbury",
+          "path": "memories/episodic/holmes-norbury.md"
+        }
+      ],
+      "context": {
+        "retrieval_mode": "lexical",
+        "fallback_reason": null,
+        "estimated_input_tokens": 2279,
+        "input_token_limit": 3712,
+        "reserved_output_tokens": 384,
+        "omitted_turns": 0,
+        "selected_memory_tokens": 256,
+        "candidate_memories": 1,
+        "omitted_memories": 0
+      },
+      "turn_count": 2
+    },
+    "FIRST": {
+      "reply": "Copper-6107a7c2, I note that token carefully. A silver compass, you say? An intriguing puzzle indeed. What circumstances led you to seek my assistance, and do you have any details about the compass itself?",
+      "status": "complete",
+      "sources": [
+        {
+          "id": "holmes-silver-blaze",
+          "path": "memories/episodic/holmes-silver-blaze.md"
+        },
+        {
+          "id": "holmes-music",
+          "path": "memories/semantic/holmes-music.md"
+        }
+      ],
+      "context": {
+        "retrieval_mode": "lexical",
+        "fallback_reason": null,
+        "estimated_input_tokens": 2556,
+        "input_token_limit": 3712,
+        "reserved_output_tokens": 384,
+        "omitted_turns": 0,
+        "selected_memory_tokens": 496,
+        "candidate_memories": 16,
+        "omitted_memories": 14
+      },
+      "turn_count": 2
+    },
+    "FORMED": [
+      {
+        "schema_version": 1,
+        "id": "ed3c63c8-5996-47ff-9f5c-d63c3b55083b",
+        "memory_type": "episodic",
+        "created_at": "1789495927",
+        "updated_at": "1789495927",
+        "source_session_id": "lore",
+        "source_turn_ids": [
+          "reply-fb9c0fd0-81b5-46e8-ad13-a2dda876cb74"
+        ],
+        "topics": [],
+        "salience": 0.9,
+        "confidence": 0.9,
+        "review_status": "accepted",
+        "pinned": false,
+        "locked": false,
+        "body": "Norbury is a reminder of a case where my deductions fell short, and a family's secrets were more complex than I had imagined. It serves as a caution against overconfidence and the importance of thoroughness."
+      },
+      {
+        "schema_version": 1,
+        "id": "1f24756c-4882-4a65-bdbd-cd46e292689d",
+        "memory_type": "episodic",
+        "created_at": "1789495925",
+        "updated_at": "1789495925",
+        "source_session_id": "first-visit",
+        "source_turn_ids": [
+          "dbb52b91-007f-47fa-8d18-250371ba418c",
+          "reply-dbb52b91-007f-47fa-8d18-250371ba418c"
+        ],
+        "topics": [],
+        "salience": 0.95,
+        "confidence": 0.95,
+        "review_status": "accepted",
+        "pinned": false,
+        "locked": false,
+        "body": "Sherlock Holmes was asked to assist in locating a silver compass, with the case token being copper-6107a7c2. Holmes noted the token and inquired about the circumstances leading to the request and details about the compass."
+      }
+    ],
+    "RECALL": {
+      "reply": "Copper-6107a7c2, as you mentioned. Can you tell me more about the circumstances surrounding your request for assistance? What exactly are you trying to achieve by locating this compass?",
+      "status": "complete",
+      "sources": [
+        {
+          "id": "1f24756c-4882-4a65-bdbd-cd46e292689d",
+          "path": "memories/episodic/1f24756c-4882-4a65-bdbd-cd46e292689d.md"
+        },
+        {
+          "id": "ed3c63c8-5996-47ff-9f5c-d63c3b55083b",
+          "path": "memories/episodic/ed3c63c8-5996-47ff-9f5c-d63c3b55083b.md"
+        },
+        {
+          "id": "holmes-silver-blaze",
+          "path": "memories/episodic/holmes-silver-blaze.md"
+        }
+      ],
+      "context": {
+        "retrieval_mode": "lexical",
+        "fallback_reason": null,
+        "estimated_input_tokens": 2462,
+        "input_token_limit": 3712,
+        "reserved_output_tokens": 384,
+        "omitted_turns": 0,
+        "selected_memory_tokens": 459,
+        "candidate_memories": 6,
+        "omitted_memories": 3
+      },
+      "turn_count": 2
+    },
+    "CORRESPONDENCE": {
+      "reply": "From the correspondence alone, I must confess I cannot observe your attire, for the written word does not convey visual details. However, if you were to describe your clothing or the envelope in which the letter was placed, I might be able to infer something about your occupation or recent activities. What can you tell me about the envelope or your appearance?",
+      "status": "complete",
+      "sources": [
+        {
+          "id": "1f24756c-4882-4a65-bdbd-cd46e292689d",
+          "path": "memories/episodic/1f24756c-4882-4a65-bdbd-cd46e292689d.md"
+        },
+        {
+          "id": "ed3c63c8-5996-47ff-9f5c-d63c3b55083b",
+          "path": "memories/episodic/ed3c63c8-5996-47ff-9f5c-d63c3b55083b.md"
+        },
+        {
+          "id": "holmes-rooms",
+          "path": "memories/semantic/holmes-rooms.md"
+        }
+      ],
+      "context": {
+        "retrieval_mode": "lexical",
+        "fallback_reason": null,
+        "estimated_input_tokens": 2433,
+        "input_token_limit": 3712,
+        "reserved_output_tokens": 384,
+        "omitted_turns": 0,
+        "selected_memory_tokens": 454,
+        "candidate_memories": 18,
+        "omitted_memories": 15
+      },
+      "turn_count": 2
+    }
+  }
+}

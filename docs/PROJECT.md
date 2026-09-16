@@ -32,6 +32,10 @@ Versioned Windows x64 NSIS and Linux x86_64 AppImage releases use a manual, GitH
 7. Enable spontaneous engagement and configure quiet hours, cooldowns, and frequency limits.
 8. Export or move a character and its memories, then load it on another installation.
 
+## Featured demonstration characters
+
+The Characters library offers an explicit action to create a personal copy of the embedded Sherlock Holmes pack. Its original literary portrayal includes a compact identity, user persona, reusable locations, portrait, and source-backed searchable background. Installation uses the same validated portable-pack importer and refuses existing destinations. It requires no source checkout, network connection, model download, or provider-specific identity settings. Canonical fictional background is distinct from new user conversations; demo transcripts and user facts are not preloaded. Author/operator documentation includes a repeatable evaluation that separates portrayal quality from actual retrieval and automatic memory formation (ADR-020).
+
 ## Component boundaries
 
 | Component | Responsibility |

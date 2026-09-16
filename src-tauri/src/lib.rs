@@ -19,6 +19,7 @@ pub mod connections;
 pub mod conversation;
 pub mod embeddings;
 pub mod extraction;
+pub mod featured;
 pub mod generation;
 pub mod initiative;
 pub mod memory;
@@ -723,6 +724,19 @@ fn character_library_create(
 ) -> Result<characters::CharacterLibraryItem, String> {
     let path = characters::library_path(app_config_dir(&app)?);
     characters::create_character(&path, parent_dir, &name).map_err(String::from)
+}
+
+#[tauri::command]
+async fn character_install_holmes(
+    app: AppHandle,
+    parent_dir: String,
+) -> Result<characters::CharacterLibraryItem, String> {
+    let path = characters::library_path(app_config_dir(&app)?);
+    tauri::async_runtime::spawn_blocking(move || {
+        featured::install_holmes(&path, std::path::Path::new(&parent_dir)).map_err(String::from)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -1900,6 +1914,7 @@ pub fn run() {
             character_library_list,
             character_library_add,
             character_library_create,
+            character_install_holmes,
             character_library_remove,
             character_load,
             character_save,
@@ -2763,3 +2778,9 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[cfg(test)]
+mod holmes_live_tests;
+
+#[cfg(test)]
+mod featured_tests;
