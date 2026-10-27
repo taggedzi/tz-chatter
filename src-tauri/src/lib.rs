@@ -245,6 +245,62 @@ fn hide_window_instead_of_closing(prevent_close: impl FnOnce(), hide: impl FnOnc
     hide();
 }
 
+/// Windows 11 hides a new tray icon until its taskbar setting is promoted.
+/// Close-to-tray would then leave no visible control. Set the missing
+/// preference once, and leave an explicit user hide (`IsPromoted = 0`) alone.
+#[cfg(windows)]
+fn promote_unconfigured_windows_tray_icon() -> bool {
+    let Ok(current_exe) = std::env::current_exe() else {
+        return false;
+    };
+    let Ok(settings) = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+        .open_subkey_with_flags(r"Control Panel\NotifyIconSettings", winreg::enums::KEY_READ)
+    else {
+        return false;
+    };
+    let mut promoted = false;
+    for name in settings.enum_keys().filter_map(Result::ok) {
+        let Ok(icon) = settings.open_subkey_with_flags(
+            &name,
+            winreg::enums::KEY_QUERY_VALUE | winreg::enums::KEY_SET_VALUE,
+        ) else {
+            continue;
+        };
+        let Ok(registered) = icon.get_value::<String, _>("ExecutablePath") else {
+            continue;
+        };
+        if !same_executable(&registered, &current_exe) {
+            continue;
+        }
+        if icon.get_value::<u32, _>("IsPromoted").is_ok() {
+            continue;
+        }
+        if icon.set_value("IsPromoted", &1u32).is_ok() {
+            promoted = true;
+        }
+    }
+    promoted
+}
+
+#[cfg(windows)]
+fn same_executable(registered: &str, current: &std::path::Path) -> bool {
+    fn normalize(path: &str) -> String {
+        path.trim()
+            .trim_start_matches(r"\\?\")
+            .replace('/', "\\")
+            .to_ascii_lowercase()
+    }
+    normalize(registered) == normalize(&current.to_string_lossy())
+}
+
+#[cfg(windows)]
+fn refresh_windows_tray_icon(tray: &tauri::tray::TrayIcon) {
+    if promote_unconfigured_windows_tray_icon() {
+        let _ = tray.set_visible(false);
+        let _ = tray.set_visible(true);
+    }
+}
+
 fn open_character_vault(
     vault_root: impl AsRef<std::path::Path>,
     expected_character_id: &str,
@@ -1863,7 +1919,8 @@ pub fn run() {
             let show = MenuItemBuilder::with_id("show", "Show tz-chatter").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit tz-chatter").build(app)?;
             let menu = MenuBuilder::new(app).items(&[&show, &quit]).build()?;
-            TrayIconBuilder::new()
+            let tray = TrayIconBuilder::new()
+                .tooltip("tz-chatter")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -1892,6 +1949,10 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+            #[cfg(windows)]
+            refresh_windows_tray_icon(&tray);
+            #[cfg(not(windows))]
+            drop(tray);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2094,6 +2155,26 @@ mod tests {
         hide_window_instead_of_closing(|| prevented = true, || hidden = true);
         assert!(prevented);
         assert!(hidden);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn tray_promotion_matches_only_the_running_executable() {
+        let current = std::path::Path::new(
+            r"E:\Home\Documents\Programming\tz-chatter\src-tauri\target\release\tz-chatter.exe",
+        );
+        assert!(super::same_executable(
+            r"E:\Home\Documents\Programming\tz-chatter\src-tauri\target\release\tz-chatter.exe",
+            current
+        ));
+        assert!(super::same_executable(
+            r"\\?\E:\Home\Documents\Programming\tz-chatter\src-tauri\target\release\TZ-CHATTER.EXE",
+            current
+        ));
+        assert!(!super::same_executable(
+            r"E:\Home\Documents\Programming\tz-chatter\src-tauri\target\debug\tz-chatter.exe",
+            current
+        ));
     }
 
     #[test]

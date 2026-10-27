@@ -36,6 +36,9 @@ uuid = { version = "1", features = ["v4"] }
 url = "2"
 tauri-plugin-dialog = "2"
 
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

@@ -936,3 +936,15 @@ Environment: normal shell, node, image reader, and browser startup intermittentl
 Remaining limits: some model replies still ask too many questions, use an unchosen gendered address, or make a memory promise before storage. Live correction, hybrid embeddings, initiative/tray/notifications, packaged native installation and real desktop restart remain unrun. Public release is still on hold. No commit or push was made.
 
 Next executable step: rebuild/relaunch when the running development app can release its executable, open Characters → Meet Sherlock Holmes, create a personal copy, and follow examples/characters/sherlock-holmes/DEMO.md. Reproduce the opt-in live check with cargo test --locked --manifest-path src-tauri/Cargo.toml --lib holmes_live_chat_extraction_and_new_session_recall -- --ignored --nocapture. Then continue the independent T39 native Settings and T16/T18 release evidence, with T38 hosted dry-run separate.
+
+## 2026-10-27 — T16: Windows tray and notification verification
+
+Scope and outcome: finished the remaining T16 acceptance check on branch `t16-tray-notification`. The tray icon now has the tooltip `tz-chatter`. On Windows, if this executable's `HKCU\Control Panel\NotifyIconSettings` value `IsPromoted` is absent, the app sets it to 1 and re-adds the icon so close-to-tray does not hide the only way back. An explicit 0 is left unchanged. No new product command or provider behavior was added.
+
+Files changed: `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `docs/STATUS.md`, and this handoff. `winreg` 0.55 is a direct Windows-only dependency; it was already in the lockfile transitively.
+
+Verification: `cargo build --release` passed. `cargo fmt --all -- --check` passed. `cargo clippy --all-targets -- -D warnings` passed. `tray_promotion_matches_only_the_running_executable` passed. Live UI Automation on the release executable: the icon was named `tz-chatter` on first launch, close hid the window without exiting, left click showed it, the menu contained Show tz-chatter and Quit tz-chatter, and Quit exited 0. An isolated profile called `initiative_send` against a local mock. The result was Delivered, the transcript contained one initiative turn and no user turn, and the Windows notification database stored a toast titled `Lyra Vale reached out` with body `The kettle is warm.` The full Rust suite was not rerun.
+
+Limitations: UI Automation did not capture the toast banner. The checked binary lives under `target\release`, so the notification plugin uses the PowerShell app id; an installed build sets `com.tzchatter.desktop`. The plain release executable still loads the Vite dev URL because this package does not enable Tauri's production asset feature. No commit, push, or public release was made.
+
+Next concrete action: T18 Windows validation remains open, with the T39 packaged Settings token check and the T38 hosted dry-run still separate. Public release stays on hold.
