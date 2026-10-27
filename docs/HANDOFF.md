@@ -1010,3 +1010,11 @@ Limitations: quiet hours, model health, cooldown, frequency cap, and resource av
 Next executable action: push `fix/3-initiative-commit-revalidation` and open the pull request targeting `main`. Inspect hosted Linux CI and CodeQL. Do not merge or close issue #3 by hand. Then resume T39 and T18.
 
 R06 pull request: https://github.com/taggedzi/tz-chatter/pull/12 targets `main` and closes #3 on merge. Commit `562e3bf`. Hosted CI run 40562353427 passed frontend, Rust tests and lint (including the Linux glib regression), and the dependency audit. CodeQL run 40562353406 passed JavaScript/TypeScript and Rust. Do not merge or close the issue by hand. Resume T39 and T18. Publication stays on hold.
+
+## 2026-10-27 — R06 review: guard initiative replacement
+
+Review on `35e91c7` (taggedzi, 2026-10-27T19:36:37Z) reproduced an overwrite: reconciliation finished, then an edit during temporary-file preparation was replaced. `replace_transcript_if_current` now checks the observed fingerprint after that temporary file is ready and before the canonical rename. A metadata-only change is merged and retried. A turn change or disappearance is left on disk and returned as the reload conflict. `Vault::save_transcript` and the guarded replace share one process lock. Regression: `initiative_replacement_keeps_metadata_and_refuses_turn_edits`.
+
+The review's note about the R05 status row was not changed. That sentence is already on `main`, and the separate local follow-up commits are still not in `origin/main`.
+
+Verification: `cargo fmt --check`, `cargo test --locked --lib` (209 passed / 4 ignored), and `cargo clippy --locked --all-targets -- -D warnings` passed on Windows. Hosted CI for this follow-up is pending. No schema or migration. Issue #5 remains independent. Public release stays on hold.

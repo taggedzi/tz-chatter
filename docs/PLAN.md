@@ -6,9 +6,9 @@ This document defines work and acceptance criteria. `STATUS.md` is the sole live
 
 Depends on: T05, T16.
 
-After initiative inference, re-check cancellation, a saved disabled setting, generation mismatch, and newer user activity before writing the transcript. Preserve a concurrent title, archive, or scene edit. Leave turn edits and deletion unchanged and report a reloadable conflict. Do not emit, notify, or increment the sent counter for a cancelled or superseded outcome.
+After initiative inference, re-check cancellation, a saved disabled setting, generation mismatch, and newer user activity before writing the transcript. Preserve a concurrent title, archive, or scene edit, including one that lands while the replacement file is being prepared. Leave turn edits and deletion unchanged and report a reloadable conflict. Do not emit, notify, or increment the sent counter for a cancelled or superseded outcome. The version observed for that decision is checked again at the replacement itself, and application transcript writes are serialized.
 
-Acceptance: cancellation after a completed model event writes no turn and produces no notification or sent counter; external title, archive, and scene edits survive a normal delivery; turn edits and deletion remain and surface a conflict that tells the caller to reload; a normal delivery still writes exactly one initiative turn and no synthetic user turn; switching character or session cannot emit the stale outcome. Run the Rust test suite, formatting, and strict Clippy. Chat's separate metadata-merge defect stays in GitHub #5.
+Acceptance: cancellation after a completed model event writes no turn and produces no notification or sent counter; external title, archive, and scene edits survive a normal delivery, including an edit during replacement preparation; turn edits and deletion remain and surface a conflict that tells the caller to reload; a normal delivery still writes exactly one initiative turn and no synthetic user turn; switching character or session cannot emit the stale outcome. Run the Rust test suite, formatting, and strict Clippy. Chat's separate metadata-merge defect stays in GitHub #5.
 
 ## R05 — Recover interrupted-write backups (GitHub #2)
 
