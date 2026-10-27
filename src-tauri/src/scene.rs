@@ -134,11 +134,7 @@ pub fn list_locals(vault: &Vault) -> Result<Vec<LocalSummary>, StorageError> {
         return Ok(Vec::new());
     }
     let mut locals = Vec::new();
-    for entry in fs::read_dir(&directory)? {
-        let path = entry?.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("md") {
-            continue;
-        }
+    for path in vault.markdown_paths(&directory)? {
         let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else {
             continue;
         };
@@ -211,6 +207,7 @@ pub fn save_local(vault: &Vault, record: &LocalRecord) -> Result<(), StorageErro
 pub fn delete_local(vault: &Vault, id: &str) -> Result<(), StorageError> {
     validate_id(id)?;
     let path = local_path(vault, id)?;
+    crate::storage::remove_backup(&path)?;
     if path.exists() {
         fs::remove_file(path)?;
     }
@@ -372,6 +369,35 @@ mod tests {
             id: "cafe".into(),
             title: "Evening cafe".into(),
             body: "A quiet corner table, rain on the windows.".into(),
+        }
+    }
+
+    #[test]
+    fn delete_local_does_not_recover_a_source_backup() {
+        for backup_only in [false, true] {
+            let (root, vault) = vault_with_character("delete-local-backup");
+            save_local(&vault, &cafe()).unwrap();
+            save_scene_settings(
+                &vault,
+                &SceneSettings {
+                    schema_version: STORAGE_SCHEMA_VERSION,
+                    default_local: Some("cafe".into()),
+                },
+            )
+            .unwrap();
+            let path = local_path(&vault, "cafe").unwrap();
+            let backup = path.with_extension("md.bak");
+            fs::copy(&path, &backup).unwrap();
+            if backup_only {
+                fs::remove_file(&path).unwrap();
+            }
+            delete_local(&vault, "cafe").unwrap();
+            assert!(list_locals(&vault).unwrap().is_empty());
+            assert!(load_local(&vault, "cafe").is_err());
+            assert_eq!(load_scene_settings(&vault).unwrap().default_local, None);
+            assert!(!path.exists());
+            assert!(!backup.exists());
+            fs::remove_dir_all(root).unwrap();
         }
     }
 

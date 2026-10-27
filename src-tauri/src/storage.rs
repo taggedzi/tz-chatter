@@ -290,6 +290,8 @@ impl Vault {
         Ok(())
     }
 
+    /// Confine a path to this vault and restore an interrupted file replacement
+    /// when only its regular-file backup remains. Readers still validate bytes.
     pub fn resolve_relative(&self, relative: impl AsRef<Path>) -> Result<PathBuf, StorageError> {
         let relative = relative.as_ref();
         if relative.as_os_str().is_empty() {
@@ -329,7 +331,36 @@ impl Vault {
                 ));
             }
         }
+        // Resolve an interrupted replacement before callers test existence. The
+        // backup is data too: never promote a symlink from outside this vault.
+        recover_missing(&candidate)?;
         Ok(candidate)
+    }
+
+    pub(crate) fn markdown_paths(&self, directory: &Path) -> Result<Vec<PathBuf>, StorageError> {
+        if !directory.is_dir() {
+            return Ok(Vec::new());
+        }
+        let mut paths = std::collections::BTreeSet::new();
+        for entry in fs::read_dir(directory)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() {
+                continue;
+            }
+            let path = entry.path();
+            let canonical = if path.to_string_lossy().ends_with(".md.bak") {
+                path.with_extension("")
+            } else if path.extension().and_then(|value| value.to_str()) == Some("md") {
+                path
+            } else {
+                continue;
+            };
+            let relative = canonical.strip_prefix(&self.root).map_err(|_| {
+                StorageError::InvalidPath("directory escapes the selected vault".into())
+            })?;
+            paths.insert(self.resolve_relative(relative)?);
+        }
+        Ok(paths.into_iter().collect())
     }
 
     pub fn character_path(&self) -> Result<PathBuf, StorageError> {
@@ -408,11 +439,7 @@ impl Vault {
             return Ok(Vec::new());
         }
         let mut transcripts = Vec::new();
-        for entry in fs::read_dir(&chats)? {
-            let path = entry?.path();
-            if path.extension().and_then(|extension| extension.to_str()) != Some("md") {
-                continue;
-            }
+        for path in self.markdown_paths(&chats)? {
             let Some(session_id) = path.file_stem().and_then(|stem| stem.to_str()) else {
                 continue;
             };
@@ -690,35 +717,74 @@ fn parse_transcript_body(
     })
 }
 
-fn read_recovering(path: &Path) -> Result<Vec<u8>, StorageError> {
-    if path.exists() {
-        return Ok(fs::read(path)?);
-    }
-    let backup = path.with_extension(format!(
+fn backup_path(path: &Path) -> PathBuf {
+    path.with_extension(format!(
         "{}.bak",
         path.extension()
             .and_then(|extension| extension.to_str())
             .unwrap_or("tmp")
-    ));
-    if backup.exists() {
-        fs::rename(&backup, path)?;
-        return Ok(fs::read(path)?);
+    ))
+}
+
+// Call before removing or moving canonical bytes, so recovery cannot undo the
+// operation. On failure the canonical file remains available for retry.
+pub(crate) fn remove_backup(path: &Path) -> Result<(), StorageError> {
+    let backup = backup_path(path);
+    match fs::symlink_metadata(&backup) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(fs::remove_file(backup)?),
+        Ok(_) => Err(StorageError::InvalidPath(format!(
+            "backup is not a regular file: {}",
+            backup.display()
+        ))),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
     }
-    Err(StorageError::Persistence(format!(
-        "file does not exist: {}",
-        path.display()
-    )))
+}
+
+fn finish_committed_write(path: &Path, retained: Option<PathBuf>) -> Result<(), StorageError> {
+    remove_backup(path)?;
+    if let Some(retained) = retained {
+        // Retained copies are never promoted by recovery.
+        let _ = fs::remove_file(retained);
+    }
+    Ok(())
+}
+
+fn recover_missing(path: &Path) -> Result<(), StorageError> {
+    if path.try_exists()? {
+        return Ok(());
+    }
+    let backup = backup_path(path);
+    match fs::symlink_metadata(&backup) {
+        Ok(metadata) if metadata.file_type().is_file() => {
+            fs::rename(&backup, path)?;
+            Ok(())
+        }
+        Ok(_) => Err(StorageError::InvalidPath(format!(
+            "backup must be a regular file: {}",
+            backup.display()
+        ))),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn read_recovering(path: &Path) -> Result<Vec<u8>, StorageError> {
+    recover_missing(path)?;
+    Ok(fs::read(path)?)
 }
 
 pub(crate) fn atomic_write(path: &Path, bytes: Vec<u8>) -> Result<(), StorageError> {
-    atomic_write_internal(path, bytes, false)
+    atomic_write_internal(path, bytes, false, false)
 }
 
 fn atomic_write_internal(
     path: &Path,
     bytes: Vec<u8>,
     fail_before_replace: bool,
+    fail_after_backup: bool,
 ) -> Result<(), StorageError> {
+    recover_missing(path)?;
     let parent = path
         .parent()
         .ok_or_else(|| StorageError::Persistence("target path has no parent".into()))?;
@@ -740,30 +806,48 @@ fn atomic_write_internal(
         ));
     }
 
-    let backup = path.with_extension(format!(
-        "{}.bak",
-        path.extension()
-            .and_then(|extension| extension.to_str())
-            .unwrap_or("tmp")
-    ));
-    if backup.exists() {
-        fs::remove_file(&backup)?;
-    }
+    let backup = backup_path(path);
+    // A leftover backup may be the only *valid* copy even if canonical bytes
+    // exist. Keep it until commit rather than deleting it before replacement.
+    let retained = if backup.try_exists()? {
+        let retained = parent.join(format!(
+            ".{}.retained-backup-{}",
+            path.file_name().unwrap_or_default().to_string_lossy(),
+            new_stable_id()
+        ));
+        fs::rename(&backup, &retained)?;
+        Some(retained)
+    } else {
+        None
+    };
     let had_previous = path.exists();
     if had_previous {
-        fs::rename(path, &backup)?;
+        if let Err(error) = fs::rename(path, &backup) {
+            if let Some(retained) = &retained {
+                let _ = fs::rename(retained, &backup);
+            }
+            let _ = fs::remove_file(&temporary);
+            return Err(error.into());
+        }
+    }
+    // Simulate process loss at the second rename's boundary, without rollback.
+    if fail_after_backup {
+        let _ = fs::remove_file(&temporary);
+        return Err(StorageError::Persistence(
+            "write interrupted after backup rename".into(),
+        ));
     }
     match fs::rename(&temporary, path) {
-        Ok(()) => {
-            if had_previous {
-                let _ = fs::remove_file(backup);
-            }
-            Ok(())
-        }
+        Ok(()) => finish_committed_write(path, retained),
         Err(error) => {
             let _ = fs::remove_file(&temporary);
             if had_previous && backup.exists() {
                 let _ = fs::rename(backup, path);
+            }
+            if let Some(retained) = retained {
+                if !backup_path(path).exists() {
+                    let _ = fs::rename(retained, backup_path(path));
+                }
             }
             Err(StorageError::Persistence(error.to_string()))
         }
@@ -776,6 +860,168 @@ mod tests {
 
     fn test_root(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!("tz-chatter-{label}-{}", new_stable_id()))
+    }
+
+    #[test]
+    fn backup_cleanup_failure_preserves_canonical_bytes() {
+        let root = test_root("cleanup-failure");
+        let vault = Vault::create(&root).unwrap();
+        let path = vault.character_path().unwrap();
+        fs::write(&path, b"canonical").unwrap();
+        fs::create_dir(backup_path(&path)).unwrap();
+        assert!(remove_backup(&path).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"canonical");
+        assert!(backup_path(&path).is_dir());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn committed_write_reports_backup_cleanup_failure() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let root = test_root("committed-cleanup-failure");
+        let vault = Vault::create(&root).unwrap();
+        let path = vault.character_path().unwrap();
+        // State immediately after the committing rename, with another process
+        // holding the backup open without delete sharing.
+        fs::write(&path, b"committed").unwrap();
+        let backup = backup_path(&path);
+        fs::write(&backup, b"previous").unwrap();
+        let held_backup = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(3) // FILE_SHARE_READ | FILE_SHARE_WRITE; no FILE_SHARE_DELETE.
+            .open(&backup)
+            .unwrap();
+        let result = finish_committed_write(&path, None);
+        drop(held_backup);
+        assert!(result.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"committed");
+        assert_eq!(fs::read(&backup).unwrap(), b"previous");
+        // A retry clears the stale backup and leaves only the new canonical.
+        atomic_write(&path, b"retry".to_vec()).unwrap();
+        assert!(!backup.exists());
+        assert_eq!(fs::read(&path).unwrap(), b"retry");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn interrupted_replacement_recovers_before_another_write() {
+        let root = test_root("crash-replacement");
+        let vault = Vault::create(&root).unwrap();
+        let path = vault.transcript_path("session-1").unwrap();
+        let transcript = TranscriptDocument::new("session-1", "lyra");
+        vault.save_transcript(&transcript).unwrap();
+        let original = fs::read(&path).unwrap();
+        assert!(atomic_write_internal(&path, b"new".to_vec(), false, true).is_err());
+        assert!(!path.exists());
+        assert_eq!(fs::read(backup_path(&path)).unwrap(), original);
+        // The low-level writer must protect backups even without a vault reader.
+        assert!(atomic_write_internal(&path, b"new".to_vec(), true, false).is_err());
+        assert_eq!(fs::read(&path).unwrap(), original);
+        assert_eq!(vault.load_transcript("session-1").unwrap(), transcript);
+        atomic_write(&path, original.clone()).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), original);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn canonical_wins_and_existing_backup_survives_an_interrupted_replacement() {
+        let root = test_root("two-copies");
+        let vault = Vault::create(&root).unwrap();
+        let mut transcript = TranscriptDocument::new("session-1", "lyra");
+        vault.save_transcript(&transcript).unwrap();
+        let path = vault.transcript_path("session-1").unwrap();
+        fs::copy(&path, backup_path(&path)).unwrap();
+        transcript.title = "Canonical title".into();
+        fs::write(&path, render_transcript(&transcript).unwrap()).unwrap();
+        assert_eq!(vault.list_transcripts().unwrap(), vec![transcript.clone()]);
+        let backup_bytes = fs::read(backup_path(&path)).unwrap();
+        assert!(atomic_write_internal(&path, b"new".to_vec(), false, true).is_err());
+        assert_eq!(vault.load_transcript("session-1").unwrap(), transcript);
+        let retained = fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|entry| entry.to_string_lossy().contains("retained-backup"))
+            .unwrap();
+        assert_eq!(fs::read(retained).unwrap(), backup_bytes);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_backup_is_preserved_and_never_treated_as_a_new_record() {
+        let root = test_root("invalid-backup");
+        let vault = Vault::create(&root).unwrap();
+        let path = vault.transcript_path("session-1").unwrap();
+        fs::write(backup_path(&path), b"invalid transcript").unwrap();
+        assert!(vault.load_transcript("session-1").is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"invalid transcript");
+        assert!(vault.list_transcripts().unwrap().is_empty());
+        // A corrupt canonical file must not silently fall back to older data.
+        let valid = TranscriptDocument::new("session-1", "lyra");
+        fs::write(backup_path(&path), render_transcript(&valid).unwrap()).unwrap();
+        assert!(vault.load_transcript("session-1").is_err());
+        assert!(backup_path(&path).is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sole_valid_backup_is_retained_until_a_replacement_commits() {
+        let root = test_root("sole-valid-backup");
+        let vault = Vault::create(&root).unwrap();
+        let transcript = TranscriptDocument::new("session-1", "lyra");
+        let valid = render_transcript(&transcript).unwrap();
+        let path = vault.transcript_path("session-1").unwrap();
+        fs::write(&path, b"corrupt canonical").unwrap();
+        fs::write(backup_path(&path), &valid).unwrap();
+        assert!(atomic_write_internal(&path, valid.clone(), false, true).is_err());
+        let retained = fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|entry| entry.to_string_lossy().contains("retained-backup"))
+            .unwrap();
+        assert_eq!(fs::read(&retained).unwrap(), valid);
+        // Recovery keeps canonical precedence, including its validation error.
+        assert!(vault.load_transcript("session-1").is_err());
+        fs::copy(&retained, backup_path(&path)).unwrap();
+        atomic_write(&path, valid).unwrap();
+        assert_eq!(vault.load_transcript("session-1").unwrap(), transcript);
+        assert!(!backup_path(&path).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn backup_directories_are_rejected_without_mutation() {
+        let root = test_root("invalid-backup-path");
+        let vault = Vault::create(&root).unwrap();
+        let path = vault.character_path().unwrap();
+        fs::create_dir(backup_path(&path)).unwrap();
+        assert!(matches!(
+            vault.character_path(),
+            Err(StorageError::InvalidPath(_))
+        ));
+        assert!(!path.exists());
+        assert!(backup_path(&path).is_dir());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backup_symlinks_cannot_escape_the_vault() {
+        let root = test_root("backup-link");
+        let outside = test_root("outside");
+        fs::write(&outside, b"outside").unwrap();
+        let vault = Vault::create(&root).unwrap();
+        let path = vault.character_path().unwrap();
+        std::os::unix::fs::symlink(&outside, backup_path(&path)).unwrap();
+        assert!(matches!(
+            vault.load_character(),
+            Err(StorageError::InvalidPath(_))
+        ));
+        assert_eq!(fs::read(&outside).unwrap(), b"outside");
+        assert!(!path.exists());
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_file(outside).unwrap();
     }
 
     #[test]
@@ -901,8 +1147,8 @@ mod tests {
         let character = CharacterDefinition::new("lyra", "Lyra", "Original prompt.");
         vault.save_character(&character).unwrap();
         let path = vault.character_path().unwrap();
-        let error =
-            atomic_write_internal(&path, b"partial invalid content".to_vec(), true).unwrap_err();
+        let error = atomic_write_internal(&path, b"partial invalid content".to_vec(), true, false)
+            .unwrap_err();
         assert!(matches!(error, StorageError::Persistence(_)));
         assert_eq!(vault.load_character().unwrap(), character);
         assert!(!path.with_extension("md.bak").exists());

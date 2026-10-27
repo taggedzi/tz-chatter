@@ -125,6 +125,7 @@ impl MemoryStore {
         }
         self.ensure_unchanged(old_type, old_id, &old_path, None)?;
         if old_path != new_path {
+            crate::storage::remove_backup(&old_path)?;
             fs::rename(&old_path, &new_path)?;
         }
         self.vault.save_memory(memory)?;
@@ -133,6 +134,7 @@ impl MemoryStore {
 
     pub fn delete(&mut self, memory_type: &MemoryType, id: &str) -> Result<(), MemoryError> {
         let path = self.vault.memory_path(memory_type, id)?;
+        crate::storage::remove_backup(&path)?;
         if path.exists() {
             fs::remove_file(path)?;
         }
@@ -442,6 +444,7 @@ fn ensure_metadata_column(
 }
 
 fn discover_memory_files(root: &Path) -> Result<Vec<MemoryFile>, MemoryError> {
+    let vault = Vault::open(root)?;
     let memory_root = root.join("memories");
     if !memory_root.exists() {
         return Ok(Vec::new());
@@ -455,14 +458,7 @@ fn discover_memory_files(root: &Path) -> Result<Vec<MemoryFile>, MemoryError> {
         let Some(memory_type) = parse_memory_type(&type_entry.file_name().to_string_lossy()) else {
             continue;
         };
-        for entry in fs::read_dir(type_entry.path())? {
-            let entry = entry?;
-            if !entry.file_type()?.is_file()
-                || entry.path().extension().and_then(|value| value.to_str()) != Some("md")
-            {
-                continue;
-            }
-            let path = entry.path();
+        for path in vault.markdown_paths(&type_entry.path())? {
             let Some(id) = path
                 .file_stem()
                 .and_then(|value| value.to_str())
@@ -472,7 +468,7 @@ fn discover_memory_files(root: &Path) -> Result<Vec<MemoryFile>, MemoryError> {
             };
             let relative_path = Path::new("memories")
                 .join(memory_type_folder(&memory_type))
-                .join(entry.file_name())
+                .join(path.file_name().expect("discovered file has a name"))
                 .to_string_lossy()
                 .replace('\\', "/");
             files.push(MemoryFile {
@@ -598,6 +594,98 @@ mod tests {
         memory.created_at = "1".into();
         memory.updated_at = "1".into();
         memory
+    }
+
+    #[test]
+    fn backup_cleanup_failure_blocks_delete_and_rename() {
+        let root = root("cleanup-failure");
+        let vault = Vault::create(&root).unwrap();
+        let mut index = MemoryStore::open(&vault, "lyra").unwrap();
+        let original = memory("fact", "Mina likes tea");
+        index.create(&original).unwrap();
+        let path = vault.memory_path(&MemoryType::Semantic, "fact").unwrap();
+        let backup = path.with_extension("md.bak");
+        fs::create_dir(&backup).unwrap();
+        assert!(index.delete(&MemoryType::Semantic, "fact").is_err());
+        assert!(index
+            .rename(
+                &MemoryType::Semantic,
+                "fact",
+                &memory("renamed", "Mina likes tea")
+            )
+            .is_err());
+        assert_eq!(
+            vault.load_memory(&MemoryType::Semantic, "fact").unwrap(),
+            original
+        );
+        assert!(!vault
+            .memory_path(&MemoryType::Semantic, "renamed")
+            .unwrap()
+            .exists());
+        assert!(backup.is_dir());
+        drop(index);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn delete_does_not_recover_a_source_backup() {
+        for backup_only in [false, true] {
+            let root = root("delete-backup");
+            let vault = Vault::create(&root).unwrap();
+            let mut index = MemoryStore::open(&vault, "lyra").unwrap();
+            index.create(&memory("fact", "Mina likes tea")).unwrap();
+            let path = vault.memory_path(&MemoryType::Semantic, "fact").unwrap();
+            let backup = path.with_extension("md.bak");
+            fs::copy(&path, &backup).unwrap();
+            if backup_only {
+                fs::remove_file(&path).unwrap();
+            }
+            index.delete(&MemoryType::Semantic, "fact").unwrap();
+            index.rebuild().unwrap();
+            assert!(index.search("tea", 10).unwrap().is_empty());
+            assert!(!vault
+                .memory_path(&MemoryType::Semantic, "fact")
+                .unwrap()
+                .exists());
+            assert!(!backup.exists());
+            drop(index);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn rename_does_not_recover_a_source_backup() {
+        for backup_only in [false, true] {
+            let root = root("rename-backup");
+            let vault = Vault::create(&root).unwrap();
+            let mut index = MemoryStore::open(&vault, "lyra").unwrap();
+            index.create(&memory("fact", "Mina likes tea")).unwrap();
+            let path = vault.memory_path(&MemoryType::Semantic, "fact").unwrap();
+            let backup = path.with_extension("md.bak");
+            fs::copy(&path, &backup).unwrap();
+            if backup_only {
+                fs::remove_file(&path).unwrap();
+            }
+            let renamed = memory("renamed", "Mina likes tea");
+            index
+                .rename(&MemoryType::Semantic, "fact", &renamed)
+                .unwrap();
+            index.rebuild().unwrap();
+            let results = index.search("tea", 10).unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].memory_id, "renamed");
+            assert_eq!(
+                vault.load_memory(&MemoryType::Semantic, "renamed").unwrap(),
+                renamed
+            );
+            assert!(!vault
+                .memory_path(&MemoryType::Semantic, "fact")
+                .unwrap()
+                .exists());
+            assert!(!backup.exists());
+            drop(index);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

@@ -214,8 +214,7 @@ pub fn create_character(
     }
     let id = character_id_from_name(name)?;
     let destination = parent_dir.as_ref().join(&id);
-    let character_path = destination.join("character.md");
-    if character_path.exists() {
+    if destination.is_dir() && Vault::open(&destination)?.character_path()?.exists() {
         return Err(CharacterError::Invalid(format!(
             "a character already exists at {}",
             destination.display()
@@ -305,6 +304,7 @@ pub fn set_portrait(vault_root: impl AsRef<Path>, bytes: &[u8]) -> Result<(), Ch
 
 pub fn clear_portrait(vault_root: impl AsRef<Path>) -> Result<(), CharacterError> {
     if let Some(path) = portrait_file(vault_root.as_ref())? {
+        crate::storage::remove_backup(&path)?;
         fs::remove_file(path)?;
     }
     Ok(())
@@ -319,7 +319,7 @@ fn portrait_is_present(vault_root: impl AsRef<Path>) -> bool {
 
 fn portrait_file(vault_root: &Path) -> Result<Option<PathBuf>, CharacterError> {
     let vault = Vault::open(vault_root)?;
-    let path = vault.root().join("assets").join("portrait.png");
+    let path = vault.resolve_relative(PORTRAIT_RELATIVE)?;
     if !path.exists() {
         return Ok(None);
     }
@@ -527,6 +527,24 @@ mod tests {
     }
 
     #[test]
+    fn create_character_refuses_to_overwrite_backup_only_identity() {
+        let root = test_root("backup-identity");
+        let library = library_path(root.join("config"));
+        let parent = root.join("characters");
+        let created = create_character(&library, &parent, "Lyra").unwrap();
+        let vault = Vault::open(&created.vault_root).unwrap();
+        let path = vault.character_path().unwrap();
+        let original = fs::read(&path).unwrap();
+        fs::rename(&path, path.with_extension("md.bak")).unwrap();
+        assert!(create_character(&library, &parent, "Lyra")
+            .unwrap_err()
+            .to_string()
+            .contains("already exists"));
+        assert_eq!(fs::read(path).unwrap(), original);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn add_existing_is_idempotent_and_list_keeps_missing_vaults() {
         let root = test_root("add-missing");
         let library = library_path(root.join("config"));
@@ -621,6 +639,28 @@ mod tests {
         assert!(!created.has_portrait);
         assert!(load_portrait(&created.vault_root).unwrap().is_none());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn clear_portrait_does_not_recover_a_source_backup() {
+        for backup_only in [false, true] {
+            let root = test_root("clear-portrait-backup");
+            let library = library_path(root.join("config"));
+            let created = create_character(&library, root.join("characters"), "Lyra").unwrap();
+            set_portrait(&created.vault_root, &tiny_png()).unwrap();
+            let path = Path::new(&created.vault_root).join(PORTRAIT_RELATIVE);
+            let backup = path.with_extension("png.bak");
+            fs::copy(&path, &backup).unwrap();
+            if backup_only {
+                fs::remove_file(&path).unwrap();
+            }
+            clear_portrait(&created.vault_root).unwrap();
+            assert!(load_portrait(&created.vault_root).unwrap().is_none());
+            assert!(!list_library(&library).unwrap().entries[0].has_portrait);
+            assert!(!path.exists());
+            assert!(!backup.exists());
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

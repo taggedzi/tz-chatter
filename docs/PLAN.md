@@ -2,6 +2,14 @@
 
 This document defines work and acceptance criteria. `STATUS.md` is the sole live task-state tracker. Execute dependencies first; task order within a milestone can change when dependencies allow it.
 
+## R05 — Recover interrupted-write backups (GitHub #2)
+
+Depends on: T03, T05, T17.
+
+Recover vault backups before treating durable files as missing or discovering portable records. Preserve canonical precedence when both copies exist and retain backup data until replacement succeeds. Keep existing schemas, IDs, and vault confinement.
+
+Acceptance: resume, listing, opening, and sending recover backup-only transcripts without losing prior turns; writes preserve the sole backup on failure; memories and other portable records have tested recovery outcomes; backup-only, canonical-plus-backup, and invalid-backup cases have regression coverage. Memory delete/rename, local delete, and portrait clear must not resurrect source backups, including when both copies exist; committed-write backup cleanup failures must be reported. Run the Rust library suite, formatting, and applicable CI checks, and record any unavailable checks.
+
 ## D00 — Project planning and continuity
 
 Deliver the project specification, implementation plan, authoritative status file, decision log, handoff log, and agent entry point. A new agent must be able to identify the goal, implemented state, next task, and verification expectations without the original conversation.

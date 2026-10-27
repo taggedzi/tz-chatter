@@ -220,7 +220,7 @@ fn canonical_files(
 ) -> Result<Vec<String>, PortabilityError> {
     let mut files = vec!["character.md".to_owned()];
     for extra in ["persona.md", "scene.md"] {
-        if vault.root().join(extra).exists() {
+        if vault.resolve_relative(extra)?.exists() {
             files.push(extra.to_owned());
         }
     }
@@ -232,11 +232,7 @@ fn canonical_files(
     }
     let locals = vault.root().join("locals");
     if locals.is_dir() {
-        for entry in fs::read_dir(locals)? {
-            let path = entry?.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("md") {
-                continue;
-            }
+        for path in vault.markdown_paths(&locals)? {
             let id = path
                 .file_stem()
                 .and_then(|value| value.to_str())
@@ -255,12 +251,7 @@ fn canonical_files(
         if !directory.exists() {
             continue;
         }
-        for entry in fs::read_dir(directory)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("md") {
-                continue;
-            }
+        for path in vault.markdown_paths(&directory)? {
             let id = path
                 .file_stem()
                 .and_then(|value| value.to_str())
@@ -279,12 +270,7 @@ fn canonical_files(
 
     let chats = vault.root().join("chats");
     if chats.exists() {
-        for entry in fs::read_dir(chats)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("md") {
-                continue;
-            }
+        for path in vault.markdown_paths(&chats)? {
             let session_id = path
                 .file_stem()
                 .and_then(|value| value.to_str())
@@ -477,13 +463,14 @@ fn ensure_destination_safe(
             "restore destination is not a directory".into(),
         ));
     }
-    let character_path = destination.join("character.md");
+    let existing_vault = Vault::open(destination)?;
+    let character_path = existing_vault.character_path()?;
     if !character_path.exists() {
         return Err(PortabilityError::Conflict(
             "refusing to overwrite an unrelated directory".into(),
         ));
     }
-    let existing = Vault::create(destination)?.load_character()?;
+    let existing = existing_vault.load_character()?;
     if existing.id != manifest.character_id {
         return Err(PortabilityError::Conflict(
             "restore destination belongs to another character".into(),
@@ -667,6 +654,148 @@ mod tests {
     }
 
     #[test]
+    fn backup_only_portable_records_are_discovered_indexed_and_exported() {
+        let source_root = root("recovery-source");
+        let pack_root = root("recovery-pack");
+        let target_root = root("recovery-target");
+        let source = seed_vault(&source_root, "lyra");
+        crate::characters::set_portrait(source.root(), &tiny_png()).unwrap();
+        let generation = crate::generation::CharacterGeneration {
+            chat_model: Some("custom-model".into()),
+            ..Default::default()
+        };
+        crate::generation::save(&source, &generation).unwrap();
+        let records = [
+            "character.md",
+            "persona.md",
+            "scene.md",
+            "locals/cafe.md",
+            "memories/open-threads/topic.md",
+            "chats/session.md",
+            ".tz-chatter/state.json",
+            "assets/portrait.png",
+            ".tz-chatter/generation.json",
+        ];
+        let originals: Vec<_> = records
+            .iter()
+            .map(|relative| {
+                let path = source.root().join(relative);
+                let bytes = fs::read(&path).unwrap();
+                let extension = path.extension().unwrap().to_str().unwrap();
+                fs::rename(&path, path.with_extension(format!("{extension}.bak"))).unwrap();
+                (*relative, bytes)
+            })
+            .collect();
+        // Exercise discovery before any direct load can accidentally repair it.
+        let mut memories = MemoryStore::open(&source, "lyra").unwrap();
+        memories.rebuild().unwrap();
+        assert_eq!(memories.list().unwrap().len(), 1);
+        assert_eq!(memories.search("garden", 10).unwrap().len(), 1);
+        drop(memories);
+        assert_eq!(crate::scene::list_locals(&source).unwrap()[0].id, "cafe");
+        let manifest = export_pack(&source, &pack_root).unwrap();
+        for relative in &records[..8] {
+            let packed = if *relative == ".tz-chatter/state.json" {
+                "state/state.json"
+            } else {
+                relative
+            };
+            assert!(
+                manifest.files.iter().any(|file| file == packed),
+                "missing {packed}"
+            );
+        }
+        assert_eq!(crate::generation::load(&source).unwrap(), generation);
+        for (relative, bytes) in originals {
+            assert_eq!(
+                fs::read(source.root().join(relative)).unwrap(),
+                bytes,
+                "{relative}"
+            );
+        }
+        import_pack(&pack_root, &target_root, false).unwrap();
+        let target = Vault::open(&target_root).unwrap();
+        assert_eq!(
+            target.load_transcript("session").unwrap().turns[0].content,
+            "Hello"
+        );
+        assert_eq!(
+            crate::scene::load_persona(&target).unwrap().body.trim(),
+            "I am Alex."
+        );
+        assert_eq!(
+            crate::scene::load_scene_settings(&target)
+                .unwrap()
+                .default_local
+                .as_deref(),
+            Some("cafe")
+        );
+        assert_eq!(
+            target
+                .load_state()
+                .unwrap()
+                .last_opened_session_id
+                .as_deref(),
+            Some("session")
+        );
+        assert_eq!(
+            crate::characters::load_portrait(target.root()).unwrap(),
+            Some(tiny_png())
+        );
+        fs::remove_dir_all(source_root).unwrap();
+        fs::remove_dir_all(pack_root).unwrap();
+        fs::remove_dir_all(target_root).unwrap();
+    }
+
+    #[test]
+    fn invalid_recovered_records_keep_bytes_and_report_errors() {
+        for relative in [
+            "character.md",
+            "persona.md",
+            "scene.md",
+            "locals/cafe.md",
+            "memories/open-threads/topic.md",
+            ".tz-chatter/state.json",
+            ".tz-chatter/generation.json",
+            "assets/portrait.png",
+        ] {
+            let source_root = root("invalid-recovery");
+            let pack_root = root("invalid-recovery-pack");
+            let source = seed_vault(&source_root, "lyra");
+            let path = source.resolve_relative(relative).unwrap();
+            if path.exists() {
+                fs::remove_file(&path).unwrap();
+            }
+            let extension = path.extension().unwrap().to_str().unwrap();
+            fs::write(
+                path.with_extension(format!("{extension}.bak")),
+                b"invalid record",
+            )
+            .unwrap();
+            match relative {
+                "persona.md" => assert!(crate::scene::load_persona(&source).is_err()),
+                "scene.md" => assert!(crate::scene::load_scene_settings(&source).is_err()),
+                "locals/cafe.md" => assert!(crate::scene::load_local(&source, "cafe").is_err()),
+                ".tz-chatter/generation.json" => assert!(crate::generation::load(&source).is_err()),
+                ".tz-chatter/state.json" => assert!(source.load_state().is_err()),
+                "character.md" => assert!(source.load_character().is_err()),
+                "assets/portrait.png" => assert!(crate::characters::load_portrait(source.root())
+                    .unwrap()
+                    .is_none()),
+                _ => {
+                    let mut store = MemoryStore::open(&source, "lyra").unwrap();
+                    store.rebuild().unwrap();
+                    assert!(store.list().unwrap().is_empty());
+                    assert!(store.search("garden", 10).unwrap().is_empty());
+                    assert!(export_pack(&source, &pack_root).is_err());
+                }
+            }
+            assert_eq!(fs::read(&path).unwrap(), b"invalid record", "{relative}");
+            fs::remove_dir_all(source_root).unwrap();
+        }
+    }
+
+    #[test]
     fn export_import_includes_portrait_png() {
         let source_root = root("portrait-source");
         let pack_root = root("portrait-pack");
@@ -846,6 +975,39 @@ mod tests {
         fs::remove_dir_all(pack_root).unwrap();
         fs::remove_dir_all(target_root).unwrap();
         fs::remove_dir_all(backup).unwrap();
+    }
+
+    #[test]
+    fn restore_recovers_destination_identity_before_replacement_checks() {
+        let source_root = root("restore-identity-source");
+        let pack_root = root("restore-identity-pack");
+        let target_root = root("restore-identity-target");
+        let source = seed_vault(&source_root, "lyra");
+        export_pack(&source, &pack_root).unwrap();
+        let target = seed_vault(&target_root, "lyra");
+        let path = target.character_path().unwrap();
+        let original = fs::read(&path).unwrap();
+        fs::rename(&path, path.with_extension("md.bak")).unwrap();
+        let error = import_pack(&pack_root, &target_root, false).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("explicit replacement is required"));
+        assert_eq!(fs::read(&path).unwrap(), original);
+        fs::rename(&path, path.with_extension("md.bak")).unwrap();
+        let result = import_pack(&pack_root, &target_root, true).unwrap();
+        let preserved = Vault::open(result.backup_path.as_ref().unwrap()).unwrap();
+        assert_eq!(
+            preserved.load_character().unwrap(),
+            target.load_character().unwrap()
+        );
+        for directory in [
+            source_root,
+            pack_root,
+            target_root,
+            PathBuf::from(result.backup_path.unwrap()),
+        ] {
+            fs::remove_dir_all(directory).unwrap();
+        }
     }
 
     #[test]

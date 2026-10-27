@@ -276,16 +276,12 @@ impl ConversationService {
             }
         }
         let state = vault.load_state()?;
-        let transcript = state
-            .last_opened_session_id
-            .filter(|session_id| {
-                vault
-                    .transcript_path(session_id)
-                    .map(|path| path.exists())
-                    .unwrap_or(false)
-            })
-            .map(|session_id| vault.load_transcript(&session_id))
-            .transpose()?;
+        let transcript = match state.last_opened_session_id {
+            Some(session_id) if vault.transcript_path(&session_id)?.exists() => {
+                Some(vault.load_transcript(&session_id)?)
+            }
+            _ => None,
+        };
         if let Some(transcript) = &transcript {
             if transcript.character_id != character.id {
                 return Err(ConversationError::Invalid(
@@ -1720,6 +1716,94 @@ mod tests {
             "tz-chatter-conversation-{label}-{}",
             crate::storage::new_stable_id()
         ))
+    }
+
+    #[tokio::test]
+    async fn backup_only_session_recovers_for_resume_listing_open_and_send() {
+        for operation in ["resume", "list", "open", "send", "send-with-fingerprint"] {
+            let root = root(operation);
+            let vault = Vault::create(&root).unwrap();
+            vault
+                .save_character(&snapshot("session-1", "lyra", "unused", "").character)
+                .unwrap();
+            let mut original = TranscriptDocument::new("session-1", "lyra");
+            original.turns.push(TranscriptTurn {
+                id: "old-user".into(),
+                timestamp: "1".into(),
+                role: TurnRole::User,
+                status: TurnStatus::Complete,
+                content: "Remember the old conversation".into(),
+            });
+            vault.save_transcript(&original).unwrap();
+            remember_session(&vault, "session-1").unwrap();
+            let path = vault.transcript_path("session-1").unwrap();
+            let fingerprint = Vault::file_fingerprint(&path).unwrap();
+            fs::rename(&path, path.with_extension("md.bak")).unwrap();
+            match operation {
+                "resume" => assert_eq!(
+                    ConversationService::resume(&vault, None)
+                        .unwrap()
+                        .transcript
+                        .unwrap(),
+                    original
+                ),
+                "list" => assert_eq!(
+                    ConversationService::list_sessions(&vault).unwrap()[0].session_id,
+                    "session-1"
+                ),
+                "open" => assert_eq!(
+                    ConversationService::open_session(&vault, "session-1")
+                        .unwrap()
+                        .transcript
+                        .unwrap(),
+                    original
+                ),
+                _ => {
+                    let transport =
+                        Arc::new(FakeTransport::new(vec![Ok(complete_reply("New reply"))]));
+                    let service = ConversationService::new(transport.clone());
+                    let mut request = snapshot("session-1", "lyra", "new-user", "New message");
+                    if operation == "send-with-fingerprint" {
+                        request.expected_transcript_fingerprint = Some(fingerprint);
+                    }
+                    let outcome = service
+                        .send(&vault, request, CancellationToken::new())
+                        .await
+                        .unwrap();
+                    assert_eq!(outcome.transcript.turns.len(), 3);
+                    assert_eq!(outcome.transcript.turns[0], original.turns[0]);
+                    assert!(transport.requests.lock().unwrap()[0]
+                        .messages
+                        .iter()
+                        .any(|message| message.content == original.turns[0].content));
+                }
+            }
+            assert_eq!(
+                vault.load_transcript("session-1").unwrap().turns[0],
+                original.turns[0]
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_backup_blocks_resume_open_and_send_without_replacing_bytes() {
+        let root = root("invalid-backup");
+        let vault = Vault::create(&root).unwrap();
+        let request = snapshot("session-1", "lyra", "new-user", "New message");
+        vault.save_character(&request.character).unwrap();
+        remember_session(&vault, "session-1").unwrap();
+        let path = vault.transcript_path("session-1").unwrap();
+        fs::write(path.with_extension("md.bak"), b"invalid transcript").unwrap();
+        assert!(ConversationService::resume(&vault, None).is_err());
+        assert!(ConversationService::open_session(&vault, "session-1").is_err());
+        let service = ConversationService::new(Arc::new(FakeTransport::new(vec![])));
+        assert!(service
+            .send(&vault, request, CancellationToken::new())
+            .await
+            .is_err());
+        assert_eq!(fs::read(path).unwrap(), b"invalid transcript");
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
