@@ -726,6 +726,30 @@ fn backup_path(path: &Path) -> PathBuf {
     ))
 }
 
+// Call before removing or moving canonical bytes, so recovery cannot undo the
+// operation. On failure the canonical file remains available for retry.
+pub(crate) fn remove_backup(path: &Path) -> Result<(), StorageError> {
+    let backup = backup_path(path);
+    match fs::symlink_metadata(&backup) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(fs::remove_file(backup)?),
+        Ok(_) => Err(StorageError::InvalidPath(format!(
+            "backup is not a regular file: {}",
+            backup.display()
+        ))),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn finish_committed_write(path: &Path, retained: Option<PathBuf>) -> Result<(), StorageError> {
+    remove_backup(path)?;
+    if let Some(retained) = retained {
+        // Retained copies are never promoted by recovery.
+        let _ = fs::remove_file(retained);
+    }
+    Ok(())
+}
+
 fn recover_missing(path: &Path) -> Result<(), StorageError> {
     if path.try_exists()? {
         return Ok(());
@@ -814,15 +838,7 @@ fn atomic_write_internal(
         ));
     }
     match fs::rename(&temporary, path) {
-        Ok(()) => {
-            if had_previous {
-                let _ = fs::remove_file(backup);
-            }
-            if let Some(retained) = retained {
-                let _ = fs::remove_file(retained);
-            }
-            Ok(())
-        }
+        Ok(()) => finish_committed_write(path, retained),
         Err(error) => {
             let _ = fs::remove_file(&temporary);
             if had_previous && backup.exists() {
@@ -844,6 +860,49 @@ mod tests {
 
     fn test_root(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!("tz-chatter-{label}-{}", new_stable_id()))
+    }
+
+    #[test]
+    fn backup_cleanup_failure_preserves_canonical_bytes() {
+        let root = test_root("cleanup-failure");
+        let vault = Vault::create(&root).unwrap();
+        let path = vault.character_path().unwrap();
+        fs::write(&path, b"canonical").unwrap();
+        fs::create_dir(backup_path(&path)).unwrap();
+        assert!(remove_backup(&path).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"canonical");
+        assert!(backup_path(&path).is_dir());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn committed_write_reports_backup_cleanup_failure() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let root = test_root("committed-cleanup-failure");
+        let vault = Vault::create(&root).unwrap();
+        let path = vault.character_path().unwrap();
+        // State immediately after the committing rename, with another process
+        // holding the backup open without delete sharing.
+        fs::write(&path, b"committed").unwrap();
+        let backup = backup_path(&path);
+        fs::write(&backup, b"previous").unwrap();
+        let held_backup = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(3) // FILE_SHARE_READ | FILE_SHARE_WRITE; no FILE_SHARE_DELETE.
+            .open(&backup)
+            .unwrap();
+        let result = finish_committed_write(&path, None);
+        drop(held_backup);
+        assert!(result.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"committed");
+        assert_eq!(fs::read(&backup).unwrap(), b"previous");
+        // A retry clears the stale backup and leaves only the new canonical.
+        atomic_write(&path, b"retry".to_vec()).unwrap();
+        assert!(!backup.exists());
+        assert_eq!(fs::read(&path).unwrap(), b"retry");
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -125,6 +125,7 @@ impl MemoryStore {
         }
         self.ensure_unchanged(old_type, old_id, &old_path, None)?;
         if old_path != new_path {
+            crate::storage::remove_backup(&old_path)?;
             fs::rename(&old_path, &new_path)?;
         }
         self.vault.save_memory(memory)?;
@@ -133,6 +134,7 @@ impl MemoryStore {
 
     pub fn delete(&mut self, memory_type: &MemoryType, id: &str) -> Result<(), MemoryError> {
         let path = self.vault.memory_path(memory_type, id)?;
+        crate::storage::remove_backup(&path)?;
         if path.exists() {
             fs::remove_file(path)?;
         }
@@ -592,6 +594,98 @@ mod tests {
         memory.created_at = "1".into();
         memory.updated_at = "1".into();
         memory
+    }
+
+    #[test]
+    fn backup_cleanup_failure_blocks_delete_and_rename() {
+        let root = root("cleanup-failure");
+        let vault = Vault::create(&root).unwrap();
+        let mut index = MemoryStore::open(&vault, "lyra").unwrap();
+        let original = memory("fact", "Mina likes tea");
+        index.create(&original).unwrap();
+        let path = vault.memory_path(&MemoryType::Semantic, "fact").unwrap();
+        let backup = path.with_extension("md.bak");
+        fs::create_dir(&backup).unwrap();
+        assert!(index.delete(&MemoryType::Semantic, "fact").is_err());
+        assert!(index
+            .rename(
+                &MemoryType::Semantic,
+                "fact",
+                &memory("renamed", "Mina likes tea")
+            )
+            .is_err());
+        assert_eq!(
+            vault.load_memory(&MemoryType::Semantic, "fact").unwrap(),
+            original
+        );
+        assert!(!vault
+            .memory_path(&MemoryType::Semantic, "renamed")
+            .unwrap()
+            .exists());
+        assert!(backup.is_dir());
+        drop(index);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn delete_does_not_recover_a_source_backup() {
+        for backup_only in [false, true] {
+            let root = root("delete-backup");
+            let vault = Vault::create(&root).unwrap();
+            let mut index = MemoryStore::open(&vault, "lyra").unwrap();
+            index.create(&memory("fact", "Mina likes tea")).unwrap();
+            let path = vault.memory_path(&MemoryType::Semantic, "fact").unwrap();
+            let backup = path.with_extension("md.bak");
+            fs::copy(&path, &backup).unwrap();
+            if backup_only {
+                fs::remove_file(&path).unwrap();
+            }
+            index.delete(&MemoryType::Semantic, "fact").unwrap();
+            index.rebuild().unwrap();
+            assert!(index.search("tea", 10).unwrap().is_empty());
+            assert!(!vault
+                .memory_path(&MemoryType::Semantic, "fact")
+                .unwrap()
+                .exists());
+            assert!(!backup.exists());
+            drop(index);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn rename_does_not_recover_a_source_backup() {
+        for backup_only in [false, true] {
+            let root = root("rename-backup");
+            let vault = Vault::create(&root).unwrap();
+            let mut index = MemoryStore::open(&vault, "lyra").unwrap();
+            index.create(&memory("fact", "Mina likes tea")).unwrap();
+            let path = vault.memory_path(&MemoryType::Semantic, "fact").unwrap();
+            let backup = path.with_extension("md.bak");
+            fs::copy(&path, &backup).unwrap();
+            if backup_only {
+                fs::remove_file(&path).unwrap();
+            }
+            let renamed = memory("renamed", "Mina likes tea");
+            index
+                .rename(&MemoryType::Semantic, "fact", &renamed)
+                .unwrap();
+            index.rebuild().unwrap();
+            let results = index.search("tea", 10).unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].memory_id, "renamed");
+            assert_eq!(
+                vault.load_memory(&MemoryType::Semantic, "renamed").unwrap(),
+                renamed
+            );
+            assert!(!vault
+                .memory_path(&MemoryType::Semantic, "fact")
+                .unwrap()
+                .exists());
+            assert!(!backup.exists());
+            drop(index);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

@@ -304,6 +304,7 @@ pub fn set_portrait(vault_root: impl AsRef<Path>, bytes: &[u8]) -> Result<(), Ch
 
 pub fn clear_portrait(vault_root: impl AsRef<Path>) -> Result<(), CharacterError> {
     if let Some(path) = portrait_file(vault_root.as_ref())? {
+        crate::storage::remove_backup(&path)?;
         fs::remove_file(path)?;
     }
     Ok(())
@@ -638,6 +639,28 @@ mod tests {
         assert!(!created.has_portrait);
         assert!(load_portrait(&created.vault_root).unwrap().is_none());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn clear_portrait_does_not_recover_a_source_backup() {
+        for backup_only in [false, true] {
+            let root = test_root("clear-portrait-backup");
+            let library = library_path(root.join("config"));
+            let created = create_character(&library, root.join("characters"), "Lyra").unwrap();
+            set_portrait(&created.vault_root, &tiny_png()).unwrap();
+            let path = Path::new(&created.vault_root).join(PORTRAIT_RELATIVE);
+            let backup = path.with_extension("png.bak");
+            fs::copy(&path, &backup).unwrap();
+            if backup_only {
+                fs::remove_file(&path).unwrap();
+            }
+            clear_portrait(&created.vault_root).unwrap();
+            assert!(load_portrait(&created.vault_root).unwrap().is_none());
+            assert!(!list_library(&library).unwrap().entries[0].has_portrait);
+            assert!(!path.exists());
+            assert!(!backup.exists());
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]
