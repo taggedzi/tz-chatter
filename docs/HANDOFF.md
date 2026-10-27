@@ -936,3 +936,35 @@ Environment: normal shell, node, image reader, and browser startup intermittentl
 Remaining limits: some model replies still ask too many questions, use an unchosen gendered address, or make a memory promise before storage. Live correction, hybrid embeddings, initiative/tray/notifications, packaged native installation and real desktop restart remain unrun. Public release is still on hold. No commit or push was made.
 
 Next executable step: rebuild/relaunch when the running development app can release its executable, open Characters → Meet Sherlock Holmes, create a personal copy, and follow examples/characters/sherlock-holmes/DEMO.md. Reproduce the opt-in live check with cargo test --locked --manifest-path src-tauri/Cargo.toml --lib holmes_live_chat_extraction_and_new_session_recall -- --ignored --nocapture. Then continue the independent T39 native Settings and T16/T18 release evidence, with T38 hosted dry-run separate.
+
+## 2026-10-27 — T16: Windows tray and notification verification
+
+Scope and outcome: finished the remaining T16 acceptance check on branch `t16-tray-notification`. The tray icon now has the tooltip `tz-chatter`. On Windows, if this executable's `HKCU\Control Panel\NotifyIconSettings` value `IsPromoted` is absent, the app sets it to 1 and re-adds the icon so close-to-tray does not hide the only way back. An explicit 0 is left unchanged. No new product command or provider behavior was added.
+
+Files changed: `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `docs/STATUS.md`, and this handoff. `winreg` 0.55 is a direct Windows-only dependency; it was already in the lockfile transitively.
+
+Verification: `cargo build --release` passed. `cargo fmt --all -- --check` passed. `cargo clippy --all-targets -- -D warnings` passed. `tray_promotion_matches_only_the_running_executable` passed. Live UI Automation on the release executable: the icon was named `tz-chatter` on first launch, close hid the window without exiting, left click showed it, the menu contained Show tz-chatter and Quit tz-chatter, and Quit exited 0. An isolated profile called `initiative_send` against a local mock. The result was Delivered, the transcript contained one initiative turn and no user turn, and the Windows notification database stored a toast titled `Lyra Vale reached out` with body `The kettle is warm.` The full Rust suite was not rerun.
+
+Limitations: UI Automation did not capture the toast banner. The checked binary lives under `target\release`, so the notification plugin uses the PowerShell app id; an installed build sets `com.tzchatter.desktop`. The plain release executable still loads the Vite dev URL because this package does not enable Tauri's production asset feature. No commit, push, or public release was made.
+
+Next concrete action: T18 Windows validation remains open, with the T39 packaged Settings token check and the T38 hosted dry-run still separate. Public release stays on hold.
+
+## 2026-10-27 — Clear the high-severity npm audit
+
+Scope and outcome: GitHub CI `npm audit --audit-level=high` failed on pull request #1. `npm audit fix` updated only `package-lock.json`, inside the ranges already declared by the direct and transitive packages. The vendored glib backport and `src-tauri/Cargo.lock` were not touched.
+
+Locked versions: vite 8.3.0 → 8.3.5 (GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw, GHSA-587h-7wmj-h5pm, GHSA-9jrq-w75r-8gcw, GHSA-rq7h-c2jc-7f22, GHSA-vfpm-58rq-9qcg), zod 4.6.2 → 4.6.7 (GHSA-mrhx-c7xc-m3w5), brace-expansion 5.0.9 → 5.0.12 (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p), source-map-js 1.2.1 → 1.2.2 (GHSA-68fv-2mgg-jv7q). Vite's lock step also moved rolldown 1.2.8 → 1.2.15 (every published platform binding), postcss 8.5.28 → 8.5.32, nanoid 3.3.19 → 3.3.20, and `@oxc-project/types` 0.149.0 → 0.155.0.
+
+Verification: `npm audit --audit-level=high` reports 0 vulnerabilities. `npm run test:unit` passed 49 tests. `npm run lint`, `npm run typecheck`, and `npm run build` passed on vite 8.3.5. A later local `npm ci` could not delete `node_modules` because an already running `npm run dev` had the rolldown native binding open; that process was left running. Rust fmt, tests, Clippy, and `cargo audit` were not rerun because no Rust dependency changed. Linux `npm ci` in CI is the remaining clean-install check.
+
+Next concrete action: unchanged. T18, the T39 packaged Settings token check, and the T38 hosted dry-run remain separate. Public release stays on hold.
+
+## 2026-10-27 — Clear the RustSec dependency audit
+
+Scope and outcome: pull request #1's dependency-audit job passed npm and failed `cargo audit` with 10 vulnerabilities. `src-tauri/Cargo.lock` now selects the patched releases named by those advisories. No direct dependency range changed, and the vendored glib backport was not touched. The 11 unmaintained or unsound warnings were already allowed and still do not fail the audit.
+
+Locked versions: ctutils 0.4.2 → 0.4.4 (RUSTSEC-2026-0385), quinn-proto 0.11.17 → 0.11.18 (RUSTSEC-2026-0343, RUSTSEC-2026-0340, RUSTSEC-2026-0338), rustls 0.23.45 → 0.23.46 (RUSTSEC-2026-0347, RUSTSEC-2026-0348, RUSTSEC-2026-0349, RUSTSEC-2026-0346), rustls-webpki 0.103.15 → 0.103.16 (RUSTSEC-2026-0382), webpki-roots 1.0.9 → 1.0.10 (RUSTSEC-2026-0381).
+
+Verification: `cargo audit --file src-tauri/Cargo.lock` reports 0 vulnerabilities and 11 allowed warnings. `cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets` passed on Windows. The full Rust suite, strict Clippy, and the Linux glib regression were not rerun. Hosted CI is the remaining check.
+
+Next concrete action: unchanged. T18, the T39 packaged Settings token check, and the T38 hosted dry-run remain separate. Public release stays on hold.
