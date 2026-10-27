@@ -107,6 +107,8 @@ The manual [Release workflow](.github/workflows/release.yml) is the only support
 
 Maintainers use the one-page [release checklist](RELEASING.md). Users can follow [VERIFYING.md](VERIFYING.md) to verify a download against `taggedzi/tz-chatter`, its immutable GitHub release, and its checksums.
 
+Publication requires a successful administrative read with JSON boolean `enabled: true`; disabled or unverifiable settings block before draft/tag creation. Maintainers configure the separate read-only `RELEASE_ADMIN_READ_TOKEN` credential and can test it with the nonpublishing **check-immutability** workflow mode. The default **dry-run** build does not need that credential. See the checklist for setup and recovery.
+
 These packages are intentionally not Authenticode-signed. Windows may display a SmartScreen warning; a self-signed or paid certificate and enrollment in a signing service are outside the selected release scope. Provenance establishes where and how an artifact was built, not that the application is free of defects. Do not publish while `docs/STATUS.md` says the release gate is on hold.
 
 The current build includes provider contracts and local connections, Markdown-backed vault persistence, lexical and hybrid retrieval, memory review/extraction, bounded initiative delivery, native tray/notification hooks, and validated portable character packs. Check `docs/STATUS.md` before relying on any feature claim; T18 release validation remains in progress.

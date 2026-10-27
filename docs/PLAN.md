@@ -2,6 +2,14 @@
 
 This document defines work and acceptance criteria. `STATUS.md` is the sole live task-state tracker. Execute dependencies first; task order within a milestone can change when dependencies allow it.
 
+## R07 — Require explicitly enabled immutable releases (GitHub #4)
+
+Depends on: T38. Related: GitHub #10 (publish CLI context/lookup errors), independent.
+
+Replace the success-status-only immutable-release gate with a validated boolean check. Use a repository-scoped Administration read credential only for the administrative GET, retain the built-in token for release writes, and provide a nonpublishing hosted verification mode. Preserve the default dry-run and never change repository settings automatically.
+
+Acceptance: HTTP success with `enabled: false` blocks before draft/tag creation; only boolean `enabled: true` permits progress; missing/nonboolean fields, malformed JSON, API/authentication errors and absent credentials fail closed with accurate explanations. Synthetic response tests and existing release/source checks pass. Confirm the administrative read with the actual hosted credential without publication, or explicitly record that verification as blocked and keep the PR draft. Document setup, least-privilege permissions and recovery. No real publication is part of this task.
+
 ## R06 — Revalidate initiative before commit (GitHub #3)
 
 Depends on: T05, T16.
