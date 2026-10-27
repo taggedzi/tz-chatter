@@ -463,13 +463,14 @@ fn ensure_destination_safe(
             "restore destination is not a directory".into(),
         ));
     }
-    let character_path = destination.join("character.md");
+    let existing_vault = Vault::open(destination)?;
+    let character_path = existing_vault.character_path()?;
     if !character_path.exists() {
         return Err(PortabilityError::Conflict(
             "refusing to overwrite an unrelated directory".into(),
         ));
     }
-    let existing = Vault::create(destination)?.load_character()?;
+    let existing = existing_vault.load_character()?;
     if existing.id != manifest.character_id {
         return Err(PortabilityError::Conflict(
             "restore destination belongs to another character".into(),
@@ -974,6 +975,39 @@ mod tests {
         fs::remove_dir_all(pack_root).unwrap();
         fs::remove_dir_all(target_root).unwrap();
         fs::remove_dir_all(backup).unwrap();
+    }
+
+    #[test]
+    fn restore_recovers_destination_identity_before_replacement_checks() {
+        let source_root = root("restore-identity-source");
+        let pack_root = root("restore-identity-pack");
+        let target_root = root("restore-identity-target");
+        let source = seed_vault(&source_root, "lyra");
+        export_pack(&source, &pack_root).unwrap();
+        let target = seed_vault(&target_root, "lyra");
+        let path = target.character_path().unwrap();
+        let original = fs::read(&path).unwrap();
+        fs::rename(&path, path.with_extension("md.bak")).unwrap();
+        let error = import_pack(&pack_root, &target_root, false).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("explicit replacement is required"));
+        assert_eq!(fs::read(&path).unwrap(), original);
+        fs::rename(&path, path.with_extension("md.bak")).unwrap();
+        let result = import_pack(&pack_root, &target_root, true).unwrap();
+        let preserved = Vault::open(result.backup_path.as_ref().unwrap()).unwrap();
+        assert_eq!(
+            preserved.load_character().unwrap(),
+            target.load_character().unwrap()
+        );
+        for directory in [
+            source_root,
+            pack_root,
+            target_root,
+            PathBuf::from(result.backup_path.unwrap()),
+        ] {
+            fs::remove_dir_all(directory).unwrap();
+        }
     }
 
     #[test]

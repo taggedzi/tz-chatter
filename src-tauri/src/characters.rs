@@ -214,8 +214,7 @@ pub fn create_character(
     }
     let id = character_id_from_name(name)?;
     let destination = parent_dir.as_ref().join(&id);
-    let character_path = destination.join("character.md");
-    if character_path.exists() {
+    if destination.is_dir() && Vault::open(&destination)?.character_path()?.exists() {
         return Err(CharacterError::Invalid(format!(
             "a character already exists at {}",
             destination.display()
@@ -523,6 +522,24 @@ mod tests {
         create_character(&library, &parent, "Lyra").unwrap();
         let error = create_character(&library, &parent, "Lyra").unwrap_err();
         assert!(error.to_string().contains("already exists"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn create_character_refuses_to_overwrite_backup_only_identity() {
+        let root = test_root("backup-identity");
+        let library = library_path(root.join("config"));
+        let parent = root.join("characters");
+        let created = create_character(&library, &parent, "Lyra").unwrap();
+        let vault = Vault::open(&created.vault_root).unwrap();
+        let path = vault.character_path().unwrap();
+        let original = fs::read(&path).unwrap();
+        fs::rename(&path, path.with_extension("md.bak")).unwrap();
+        assert!(create_character(&library, &parent, "Lyra")
+            .unwrap_err()
+            .to_string()
+            .contains("already exists"));
+        assert_eq!(fs::read(path).unwrap(), original);
         fs::remove_dir_all(root).unwrap();
     }
 
