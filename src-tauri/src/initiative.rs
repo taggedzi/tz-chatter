@@ -182,6 +182,27 @@ pub fn initiative_is_stale(
         || latest_user_activity_at.is_some_and(|activity| activity > request.started_at)
 }
 
+/// Fresh durable gates that can revoke a message after inference has started.
+/// Missing settings are not an explicit disable. A saved `enabled: false` is.
+pub fn delivery_revoked(
+    vault: &Vault,
+    request: &InitiativeRequest,
+    current_generation: u64,
+    latest_user_activity_at: Option<i64>,
+) -> Result<bool, InitiativeError> {
+    if initiative_is_stale(request, current_generation, latest_user_activity_at) {
+        return Ok(true);
+    }
+    let store = InitiativeStore::open(vault, &request.character.id)?;
+    let state = store.state()?;
+    if initiative_is_stale(request, current_generation, state.last_user_activity_at) {
+        return Ok(true);
+    }
+    Ok(store
+        .saved_settings()?
+        .is_some_and(|settings| !settings.enabled))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EligibilityReason {
@@ -294,6 +315,11 @@ impl InitiativeStore {
     }
 
     pub fn settings(&self) -> Result<InitiativeSettings, InitiativeError> {
+        Ok(self.saved_settings()?.unwrap_or_default())
+    }
+
+    /// `None` when this character has never saved initiative settings.
+    pub fn saved_settings(&self) -> Result<Option<InitiativeSettings>, InitiativeError> {
         let result = self.connection.query_row(
             "SELECT schema_version, enabled, notifications_enabled, min_inactive_seconds, cooldown_seconds,
                     max_per_day, max_ignored, quiet_start_minute, quiet_end_minute
@@ -316,9 +342,9 @@ impl InitiativeStore {
         match result {
             Ok(settings) => {
                 settings.validate()?;
-                Ok(settings)
+                Ok(Some(settings))
             }
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(InitiativeSettings::default()),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(error) => Err(error.into()),
         }
     }

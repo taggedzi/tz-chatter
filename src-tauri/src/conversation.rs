@@ -203,6 +203,52 @@ pub enum InitiativeDeliveryStatus {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InitiativeFollowUp {
+    pub record_sent: bool,
+    pub record_silenced: bool,
+    pub emit: bool,
+    pub notify: bool,
+}
+
+/// Scheduler and command side effects. A superseded generation records nothing
+/// and emits nothing, even if inference already produced a message.
+pub fn initiative_follow_up(
+    status: InitiativeDeliveryStatus,
+    superseded: bool,
+) -> InitiativeFollowUp {
+    if superseded {
+        return InitiativeFollowUp {
+            record_sent: false,
+            record_silenced: false,
+            emit: false,
+            notify: false,
+        };
+    }
+    match status {
+        InitiativeDeliveryStatus::Delivered => InitiativeFollowUp {
+            record_sent: true,
+            record_silenced: false,
+            emit: true,
+            notify: true,
+        },
+        InitiativeDeliveryStatus::Silenced => InitiativeFollowUp {
+            record_sent: false,
+            record_silenced: true,
+            emit: false,
+            notify: false,
+        },
+        InitiativeDeliveryStatus::Cancelled | InitiativeDeliveryStatus::Failed => {
+            InitiativeFollowUp {
+                record_sent: false,
+                record_silenced: false,
+                emit: false,
+                notify: false,
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConversationError {
     Invalid(String),
@@ -705,7 +751,7 @@ impl ConversationService {
         cancellation: CancellationToken,
     ) -> Result<InitiativeOutcome, ConversationError> {
         validate_initiative_request(&request)?;
-        let transcript = load_or_create_initiative_transcript(vault, &request)?;
+        let (transcript, expected_fingerprint) = load_initiative_baseline(vault, &request)?;
         if initiative_is_stale(&request, current_generation, latest_user_activity_at) {
             return Ok(initiative_outcome(
                 transcript,
@@ -774,7 +820,7 @@ impl ConversationService {
                     max_tokens: generation.max_tokens,
                     json_mode: false,
                 },
-                cancellation,
+                cancellation.clone(),
             )
             .await
         {
@@ -813,6 +859,20 @@ impl ConversationService {
                 },
             ));
         }
+        if initiative_commit_blocked(
+            vault,
+            &request,
+            current_generation,
+            latest_user_activity_at,
+            &cancellation,
+        )? {
+            return Ok(initiative_outcome(
+                transcript,
+                memory_context,
+                InitiativeModelChoice::Silence,
+                InitiativeDeliveryStatus::Cancelled,
+            ));
+        }
         let choice = classify_initiative_response(&content);
         if choice == InitiativeModelChoice::Silence {
             return Ok(initiative_outcome(
@@ -823,7 +883,6 @@ impl ConversationService {
             ));
         }
 
-        let mut transcript = transcript;
         let initiative_turn = TranscriptTurn {
             id: format!("initiative-{}", request.request_id),
             timestamp: now_timestamp(),
@@ -831,8 +890,24 @@ impl ConversationService {
             status: TurnStatus::Complete,
             content: content.clone(),
         };
-        transcript.turns.push(initiative_turn.clone());
-        save_transcript(vault, &mut transcript)?;
+        let Some(transcript) = commit_initiative_transcript(&InitiativeCommit {
+            vault,
+            baseline: &transcript,
+            expected_fingerprint: expected_fingerprint.as_deref(),
+            initiative_turn: &initiative_turn,
+            request: &request,
+            current_generation,
+            latest_user_activity_at,
+            cancellation: &cancellation,
+        })?
+        else {
+            return Ok(initiative_outcome(
+                transcript,
+                memory_context,
+                InitiativeModelChoice::Silence,
+                InitiativeDeliveryStatus::Cancelled,
+            ));
+        };
         remember_session(vault, &request.session_id)?;
         Ok(InitiativeOutcome {
             transcript,
@@ -1403,24 +1478,150 @@ fn load_or_create_transcript(
     }
 }
 
-fn load_or_create_initiative_transcript(
+const INITIATIVE_TRANSCRIPT_CONFLICT: &str =
+    "transcript changed externally during initiative generation; reload before retrying";
+
+fn initiative_commit_blocked(
     vault: &Vault,
     request: &InitiativeRequest,
-) -> Result<TranscriptDocument, ConversationError> {
+    current_generation: u64,
+    latest_user_activity_at: Option<i64>,
+    cancellation: &CancellationToken,
+) -> Result<bool, ConversationError> {
+    if cancellation.is_cancelled() {
+        return Ok(true);
+    }
+    crate::initiative::delivery_revoked(vault, request, current_generation, latest_user_activity_at)
+        .map_err(|error| ConversationError::Storage(error.to_string()))
+}
+
+fn load_initiative_baseline(
+    vault: &Vault,
+    request: &InitiativeRequest,
+) -> Result<(TranscriptDocument, Option<String>), ConversationError> {
     let path = vault.transcript_path(&request.session_id)?;
-    if path.exists() {
-        let transcript = vault.load_transcript(&request.session_id)?;
-        if transcript.character_id != request.character.id {
-            return Err(ConversationError::Invalid(
-                "session belongs to a different character".into(),
-            ));
-        }
-        Ok(transcript)
-    } else {
+    if !path.exists() {
         let mut transcript = TranscriptDocument::new(&request.session_id, &request.character.id);
         transcript.created_at = now_timestamp();
-        Ok(transcript)
+        if path.exists() {
+            return load_existing_initiative_baseline(vault, request);
+        }
+        return Ok((transcript, None));
     }
+    load_existing_initiative_baseline(vault, request)
+}
+
+fn load_existing_initiative_baseline(
+    vault: &Vault,
+    request: &InitiativeRequest,
+) -> Result<(TranscriptDocument, Option<String>), ConversationError> {
+    let path = vault.transcript_path(&request.session_id)?;
+    let fingerprint = Vault::file_fingerprint(&path)?;
+    let transcript = vault.load_transcript(&request.session_id)?;
+    if transcript.character_id != request.character.id {
+        return Err(ConversationError::Invalid(
+            "session belongs to a different character".into(),
+        ));
+    }
+    let current = Vault::file_fingerprint(&path)?;
+    if current != fingerprint {
+        return Err(ConversationError::Storage(
+            INITIATIVE_TRANSCRIPT_CONFLICT.into(),
+        ));
+    }
+    Ok((transcript, Some(fingerprint)))
+}
+
+fn reconcile_initiative_transcript(
+    vault: &Vault,
+    baseline: &TranscriptDocument,
+    expected_fingerprint: Option<&str>,
+) -> Result<(TranscriptDocument, Option<String>), ConversationError> {
+    let path = vault.transcript_path(&baseline.session_id)?;
+    let Some(expected_fingerprint) = expected_fingerprint else {
+        if path.exists() {
+            return Err(ConversationError::Storage(
+                INITIATIVE_TRANSCRIPT_CONFLICT.into(),
+            ));
+        }
+        return Ok((baseline.clone(), None));
+    };
+    if !path.exists() {
+        return Err(ConversationError::Storage(
+            INITIATIVE_TRANSCRIPT_CONFLICT.into(),
+        ));
+    }
+    let current = Vault::file_fingerprint(&path)?;
+    if current == expected_fingerprint {
+        return Ok((baseline.clone(), Some(current)));
+    }
+    let latest = vault.load_transcript(&baseline.session_id)?;
+    let observed = Vault::file_fingerprint(&path)?;
+    if observed != current {
+        return Err(ConversationError::Storage(
+            INITIATIVE_TRANSCRIPT_CONFLICT.into(),
+        ));
+    }
+    if latest.session_id != baseline.session_id
+        || latest.character_id != baseline.character_id
+        || latest.schema_version != baseline.schema_version
+        || latest.turns != baseline.turns
+    {
+        return Err(ConversationError::Storage(
+            INITIATIVE_TRANSCRIPT_CONFLICT.into(),
+        ));
+    }
+    let mut merged = baseline.clone();
+    merged.title = latest.title;
+    merged.archived = latest.archived;
+    merged.local = latest.local;
+    merged.created_at = latest.created_at;
+    Ok((merged, Some(observed)))
+}
+
+struct InitiativeCommit<'a> {
+    vault: &'a Vault,
+    baseline: &'a TranscriptDocument,
+    expected_fingerprint: Option<&'a str>,
+    initiative_turn: &'a TranscriptTurn,
+    request: &'a InitiativeRequest,
+    current_generation: u64,
+    latest_user_activity_at: Option<i64>,
+    cancellation: &'a CancellationToken,
+}
+
+fn commit_initiative_transcript(
+    commit: &InitiativeCommit<'_>,
+) -> Result<Option<TranscriptDocument>, ConversationError> {
+    for _ in 0..8 {
+        let (mut transcript, observed) = reconcile_initiative_transcript(
+            commit.vault,
+            commit.baseline,
+            commit.expected_fingerprint,
+        )?;
+        if initiative_commit_blocked(
+            commit.vault,
+            commit.request,
+            commit.current_generation,
+            commit.latest_user_activity_at,
+            commit.cancellation,
+        )? {
+            return Ok(None);
+        }
+        transcript.turns.push(commit.initiative_turn.clone());
+        apply_auto_title(&mut transcript);
+        transcript.updated_at = now_timestamp();
+        match commit
+            .vault
+            .replace_transcript_if_current(&transcript, observed.as_deref())?
+        {
+            crate::storage::GuardedReplace::Replaced => return Ok(Some(transcript)),
+            crate::storage::GuardedReplace::Rejected => continue,
+        }
+    }
+    Err(ConversationError::Storage(
+        INITIATIVE_TRANSCRIPT_CONFLICT.into(),
+    ))
 }
 
 fn save_transcript(
@@ -2943,6 +3144,398 @@ mod tests {
         assert_eq!(cancelled.status, InitiativeDeliveryStatus::Cancelled);
         assert!(cancelled.transcript.turns.is_empty());
         assert!(fake.requests.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn initiative_follow_up_suppresses_sent_counter_and_notification_when_superseded() {
+        let delivered = initiative_follow_up(InitiativeDeliveryStatus::Delivered, false);
+        assert!(delivered.record_sent);
+        assert!(delivered.emit);
+        assert!(delivered.notify);
+        assert!(!delivered.record_silenced);
+
+        let superseded = initiative_follow_up(InitiativeDeliveryStatus::Delivered, true);
+        assert!(!superseded.record_sent);
+        assert!(!superseded.emit);
+        assert!(!superseded.notify);
+
+        let cancelled = initiative_follow_up(InitiativeDeliveryStatus::Cancelled, false);
+        assert!(!cancelled.record_sent);
+        assert!(!cancelled.notify);
+        assert!(!cancelled.emit);
+
+        let silenced = initiative_follow_up(InitiativeDeliveryStatus::Silenced, false);
+        assert!(silenced.record_silenced);
+        assert!(!silenced.record_sent);
+        assert!(!silenced.notify);
+    }
+
+    #[tokio::test]
+    async fn cancellation_after_completed_initiative_event_is_not_committed() {
+        let root = root("initiative-cancel-after-complete");
+        let vault = Vault::create(&root).unwrap();
+        let mut existing = TranscriptDocument::new("stale-session", "lyra");
+        existing.created_at = "1".into();
+        existing.turns.push(TranscriptTurn {
+            id: "user-1".into(),
+            timestamp: "1".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "Hello".into(),
+        });
+        vault.save_transcript(&existing).unwrap();
+        let path = vault.transcript_path("stale-session").unwrap();
+        let before = fs::read(&path).unwrap();
+        let store = crate::initiative::InitiativeStore::open(&vault, "lyra").unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.enabled = true;
+        settings.notifications_enabled = true;
+        store.save_settings(&settings).unwrap();
+
+        struct CancelBeforeReturn;
+        #[async_trait::async_trait]
+        impl ChatTransport for CancelBeforeReturn {
+            async fn stream_chat(
+                &self,
+                _: &ProviderConfig,
+                _: &ChatRequest,
+                cancellation: CancellationToken,
+            ) -> Result<Vec<ChatStreamEvent>, ProviderError> {
+                cancellation.cancel();
+                Ok(vec![
+                    ChatStreamEvent::Delta {
+                        text: "A late spontaneous message".into(),
+                    },
+                    ChatStreamEvent::Completed {
+                        finish_reason: Some("stop".into()),
+                    },
+                ])
+            }
+        }
+
+        let outcome = ConversationService::new(Arc::new(CancelBeforeReturn))
+            .send_initiative(
+                &vault,
+                initiative_request("stale-session", "request-late"),
+                1,
+                None,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.status, InitiativeDeliveryStatus::Cancelled);
+        assert!(outcome.initiative_turn.is_none());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(
+            vault.load_transcript("stale-session").unwrap().turns.len(),
+            1
+        );
+        assert_eq!(store.state().unwrap().sent_today, 0);
+        assert!(store.state().unwrap().last_initiative_at.is_none());
+        drop(store);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn initiative_preserves_external_metadata_and_refuses_turn_edits() {
+        let root = root("initiative-external-edit");
+        let vault = Vault::create(&root).unwrap();
+        let mut existing = TranscriptDocument::new("edit-session", "lyra");
+        existing.created_at = "1".into();
+        existing.turns.push(TranscriptTurn {
+            id: "user-1".into(),
+            timestamp: "1".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "Hello".into(),
+        });
+        vault.save_transcript(&existing).unwrap();
+
+        struct EditDuringInitiative {
+            vault: Vault,
+            turns: bool,
+        }
+        #[async_trait::async_trait]
+        impl ChatTransport for EditDuringInitiative {
+            async fn stream_chat(
+                &self,
+                _: &ProviderConfig,
+                _: &ChatRequest,
+                _: CancellationToken,
+            ) -> Result<Vec<ChatStreamEvent>, ProviderError> {
+                let mut latest = self.vault.load_transcript("edit-session").unwrap();
+                if self.turns {
+                    latest.turns[0].content = "Hello from outside".into();
+                } else {
+                    latest.title = "External title".into();
+                    latest.archived = true;
+                    latest.local = Some("cafe".into());
+                }
+                self.vault.save_transcript(&latest).unwrap();
+                Ok(vec![
+                    ChatStreamEvent::Delta {
+                        text: "Want to revisit the garden?".into(),
+                    },
+                    ChatStreamEvent::Completed {
+                        finish_reason: Some("stop".into()),
+                    },
+                ])
+            }
+        }
+
+        let metadata = ConversationService::new(Arc::new(EditDuringInitiative {
+            vault: vault.clone(),
+            turns: false,
+        }))
+        .send_initiative(
+            &vault,
+            initiative_request("edit-session", "request-meta"),
+            1,
+            None,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(metadata.status, InitiativeDeliveryStatus::Delivered);
+        assert_eq!(metadata.transcript.turns.len(), 2);
+        assert_eq!(metadata.transcript.turns[0].role, TurnRole::User);
+        assert_eq!(metadata.transcript.turns[1].role, TurnRole::Initiative);
+        assert!(!metadata
+            .transcript
+            .turns
+            .iter()
+            .any(|turn| turn.role == TurnRole::User && turn.id.starts_with("initiative")));
+        let saved = vault.load_transcript("edit-session").unwrap();
+        assert_eq!(saved.title, "External title");
+        assert!(saved.archived);
+        assert_eq!(saved.local.as_deref(), Some("cafe"));
+        assert_eq!(saved.turns.len(), 2);
+        assert_eq!(saved.turns[1].role, TurnRole::Initiative);
+
+        vault.save_transcript(&existing).unwrap();
+        let conflict = ConversationService::new(Arc::new(EditDuringInitiative {
+            vault: vault.clone(),
+            turns: true,
+        }))
+        .send_initiative(
+            &vault,
+            initiative_request("edit-session", "request-turn"),
+            1,
+            None,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+        assert!(conflict.to_string().contains("reload before retrying"));
+        let preserved = vault.load_transcript("edit-session").unwrap();
+        assert_eq!(preserved.turns[0].content, "Hello from outside");
+        assert!(preserved
+            .turns
+            .iter()
+            .all(|turn| turn.role != TurnRole::Initiative));
+
+        vault.save_transcript(&existing).unwrap();
+        struct DeleteDuringInitiative {
+            vault: Vault,
+        }
+        #[async_trait::async_trait]
+        impl ChatTransport for DeleteDuringInitiative {
+            async fn stream_chat(
+                &self,
+                _: &ProviderConfig,
+                _: &ChatRequest,
+                _: CancellationToken,
+            ) -> Result<Vec<ChatStreamEvent>, ProviderError> {
+                fs::remove_file(self.vault.transcript_path("edit-session").unwrap()).unwrap();
+                Ok(complete_reply("Should not return"))
+            }
+        }
+        let deleted = ConversationService::new(Arc::new(DeleteDuringInitiative {
+            vault: vault.clone(),
+        }))
+        .send_initiative(
+            &vault,
+            initiative_request("edit-session", "request-delete"),
+            1,
+            None,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+        assert!(deleted.to_string().contains("reload before retrying"));
+        assert!(!vault.transcript_path("edit-session").unwrap().exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn initiative_replacement_keeps_metadata_and_refuses_turn_edits() {
+        let root = root("initiative-replace-race");
+        let vault = Vault::create(&root).unwrap();
+        let mut existing = TranscriptDocument::new("race-session", "lyra");
+        existing.created_at = "1".into();
+        existing.title = "original-title".into();
+        existing.turns.push(TranscriptTurn {
+            id: "user-1".into(),
+            timestamp: "1".into(),
+            role: TurnRole::User,
+            status: TurnStatus::Complete,
+            content: "Hello".into(),
+        });
+        vault.save_transcript(&existing).unwrap();
+
+        struct ResetGuardedReplaceHook;
+        impl Drop for ResetGuardedReplaceHook {
+            fn drop(&mut self) {
+                crate::storage::set_before_guarded_replace_hook(None);
+            }
+        }
+        let _reset_hook = ResetGuardedReplaceHook;
+
+        struct CompleteDuringInitiative;
+        #[async_trait::async_trait]
+        impl ChatTransport for CompleteDuringInitiative {
+            async fn stream_chat(
+                &self,
+                _: &ProviderConfig,
+                _: &ChatRequest,
+                _: CancellationToken,
+            ) -> Result<Vec<ChatStreamEvent>, ProviderError> {
+                Ok(complete_reply("Want to revisit the garden?"))
+            }
+        }
+
+        let edited = std::sync::atomic::AtomicBool::new(false);
+        let hook_vault = vault.clone();
+        crate::storage::set_before_guarded_replace_hook(Some(std::sync::Arc::new(move |_| {
+            if edited.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            let mut latest = hook_vault.load_transcript("race-session").unwrap();
+            latest.title = "external-title".into();
+            latest.archived = true;
+            latest.local = Some("cafe".into());
+            let bytes = crate::storage::render_transcript(&latest).unwrap();
+            fs::write(hook_vault.transcript_path("race-session").unwrap(), bytes).unwrap();
+        })));
+        let metadata = ConversationService::new(Arc::new(CompleteDuringInitiative))
+            .send_initiative(
+                &vault,
+                initiative_request("race-session", "request-replace-meta"),
+                1,
+                None,
+                CancellationToken::new(),
+            )
+            .await;
+        let metadata = metadata.unwrap();
+        assert_eq!(metadata.status, InitiativeDeliveryStatus::Delivered);
+        let saved = vault.load_transcript("race-session").unwrap();
+        assert_eq!(saved.title, "external-title");
+        assert!(saved.archived);
+        assert_eq!(saved.local.as_deref(), Some("cafe"));
+        assert_eq!(saved.turns.len(), 2);
+        assert_eq!(saved.turns[0].content, "Hello");
+        assert_eq!(saved.turns[1].role, TurnRole::Initiative);
+        assert!(!saved
+            .turns
+            .iter()
+            .any(|turn| turn.role == TurnRole::User && turn.id.starts_with("initiative")));
+
+        vault.save_transcript(&existing).unwrap();
+        let edited_turns = std::sync::atomic::AtomicBool::new(false);
+        let hook_vault = vault.clone();
+        crate::storage::set_before_guarded_replace_hook(Some(std::sync::Arc::new(move |_| {
+            if edited_turns.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            let mut latest = hook_vault.load_transcript("race-session").unwrap();
+            latest.turns[0].content = "Hello from outside".into();
+            let bytes = crate::storage::render_transcript(&latest).unwrap();
+            fs::write(hook_vault.transcript_path("race-session").unwrap(), bytes).unwrap();
+        })));
+        let conflict = ConversationService::new(Arc::new(CompleteDuringInitiative))
+            .send_initiative(
+                &vault,
+                initiative_request("race-session", "request-replace-turn"),
+                1,
+                None,
+                CancellationToken::new(),
+            )
+            .await;
+        let conflict = conflict.unwrap_err();
+        assert!(conflict.to_string().contains("reload before retrying"));
+        let preserved = vault.load_transcript("race-session").unwrap();
+        assert_eq!(preserved.turns[0].content, "Hello from outside");
+        assert!(preserved
+            .turns
+            .iter()
+            .all(|turn| turn.role != TurnRole::Initiative));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn initiative_commit_stops_when_disabled_or_user_activity_arrives() {
+        let root = root("initiative-revoked");
+        let vault = Vault::create(&root).unwrap();
+        let store = crate::initiative::InitiativeStore::open(&vault, "lyra").unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.enabled = true;
+        store.save_settings(&settings).unwrap();
+
+        struct RevokeDuringInitiative {
+            vault: Vault,
+            disable: bool,
+        }
+        #[async_trait::async_trait]
+        impl ChatTransport for RevokeDuringInitiative {
+            async fn stream_chat(
+                &self,
+                _: &ProviderConfig,
+                _: &ChatRequest,
+                _: CancellationToken,
+            ) -> Result<Vec<ChatStreamEvent>, ProviderError> {
+                let store = crate::initiative::InitiativeStore::open(&self.vault, "lyra").unwrap();
+                if self.disable {
+                    let mut settings = store.settings().unwrap();
+                    settings.enabled = false;
+                    store.save_settings(&settings).unwrap();
+                } else {
+                    store.record_user_activity(1_000).unwrap();
+                }
+                Ok(vec![
+                    ChatStreamEvent::Delta {
+                        text: "Still talking".into(),
+                    },
+                    ChatStreamEvent::Completed {
+                        finish_reason: Some("stop".into()),
+                    },
+                ])
+            }
+        }
+
+        for disable in [true, false] {
+            let mut settings = store.settings().unwrap();
+            settings.enabled = true;
+            store.save_settings(&settings).unwrap();
+            let outcome = ConversationService::new(Arc::new(RevokeDuringInitiative {
+                vault: vault.clone(),
+                disable,
+            }))
+            .send_initiative(
+                &vault,
+                initiative_request("revoked-session", "request-revoked"),
+                1,
+                None,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(outcome.status, InitiativeDeliveryStatus::Cancelled);
+            assert!(outcome.initiative_turn.is_none());
+            assert!(!vault.transcript_path("revoked-session").unwrap().exists());
+            assert_eq!(store.state().unwrap().sent_today, 0);
+        }
+        drop(store);
         fs::remove_dir_all(root).unwrap();
     }
 

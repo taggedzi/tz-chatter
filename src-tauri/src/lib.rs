@@ -586,20 +586,18 @@ async fn run_initiative_scheduler(args: InitiativeSchedulerArgs) {
                 request,
                 generation,
                 latest_user_activity_at,
-                cancellation,
+                cancellation.clone(),
             )
             .await;
+        let superseded = cancellation.is_cancelled();
         drop(model_guard);
         runtime.finish(&work_key, generation);
-        match outcome {
-            Ok(outcome)
-                if matches!(
-                    outcome.status,
-                    conversation::InitiativeDeliveryStatus::Delivered
-                ) =>
-            {
-                let _ = store.record_initiative_sent(now);
+        if let Ok(outcome) = outcome {
+            let settled = settle_initiative_outcome(&store, outcome.status, superseded, now);
+            if settled.emit {
                 let _ = app.emit("initiative-delivered", &outcome);
+            }
+            if settled.notify {
                 if let Some(turn) = outcome.initiative_turn {
                     let notifications_enabled = store
                         .settings()
@@ -615,19 +613,33 @@ async fn run_initiative_scheduler(args: InitiativeSchedulerArgs) {
                     }
                 }
             }
-            Ok(outcome)
-                if matches!(
-                    outcome.status,
-                    conversation::InitiativeDeliveryStatus::Silenced
-                ) =>
-            {
-                let _ = store.record_initiative_silenced(now);
-            }
-            _ => {}
         }
     }
     app.state::<RuntimeState>()
         .finish_scheduler(&scheduler_key, scheduler_generation);
+}
+
+struct SettledInitiative {
+    emit: bool,
+    notify: bool,
+}
+
+fn settle_initiative_outcome(
+    store: &initiative::InitiativeStore,
+    status: conversation::InitiativeDeliveryStatus,
+    superseded: bool,
+    now: i64,
+) -> SettledInitiative {
+    let follow_up = conversation::initiative_follow_up(status, superseded);
+    if follow_up.record_sent {
+        let _ = store.record_initiative_sent(now);
+    } else if follow_up.record_silenced {
+        let _ = store.record_initiative_silenced(now);
+    }
+    SettledInitiative {
+        emit: follow_up.emit,
+        notify: follow_up.notify,
+    }
 }
 
 fn unix_now() -> i64 {
@@ -1609,18 +1621,19 @@ async fn initiative_send(
             request,
             current_generation.max(runtime_generation),
             latest_user_activity_at,
-            cancellation,
+            cancellation.clone(),
         )
         .await
         .map_err(String::from);
+    let superseded = cancellation.is_cancelled();
     drop(model_guard);
     state.finish(&key, runtime_generation);
     if let Ok(outcome) = &result {
-        if matches!(
-            outcome.status,
-            conversation::InitiativeDeliveryStatus::Delivered
-        ) {
+        let follow_up = conversation::initiative_follow_up(outcome.status, superseded);
+        if follow_up.emit {
             let _ = app.emit("initiative-delivered", outcome);
+        }
+        if follow_up.notify {
             let notifications_enabled =
                 initiative::InitiativeStore::open(&vault, &notification_character.id)
                     .and_then(|store| store.settings())
@@ -2034,7 +2047,8 @@ pub fn run() {
 mod tests {
     use super::{
         hide_window_instead_of_closing, memory_source_path, memory_upsert, open_character_vault,
-        process_embedding_rebuild, process_extraction_queue, RuntimeState,
+        process_embedding_rebuild, process_extraction_queue, settle_initiative_outcome,
+        RuntimeState,
     };
     use crate::conversation::ChatTransport;
     use crate::extraction::{ProposalOrigin, ProposalStatus};
@@ -2090,6 +2104,53 @@ mod tests {
         assert!(second.is_cancelled());
         assert!(work.is_cancelled());
         assert!(!state.stop_scheduler("initiative:lyra:session"));
+    }
+
+    #[test]
+    fn switching_session_does_not_record_or_surface_a_stale_initiative() {
+        let root = std::env::temp_dir().join(format!(
+            "tz-chatter-initiative-switch-{}",
+            crate::storage::new_stable_id()
+        ));
+        let vault = Vault::create(&root).unwrap();
+        let store = crate::initiative::InitiativeStore::open(&vault, "lyra").unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.enabled = true;
+        settings.notifications_enabled = true;
+        store.save_settings(&settings).unwrap();
+
+        let state = RuntimeState::default();
+        let (_generation, parent) = state.start_scheduler("initiative:lyra:session-a");
+        let (_work_generation, work) = state
+            .try_begin_child("lyra:session-a", &parent)
+            .expect("child work starts");
+        let _ = state.start_scheduler("initiative:lyra:session-b");
+        assert!(parent.is_cancelled());
+        assert!(work.is_cancelled());
+
+        let settled = settle_initiative_outcome(
+            &store,
+            crate::conversation::InitiativeDeliveryStatus::Delivered,
+            work.is_cancelled(),
+            1_000,
+        );
+        assert!(!settled.emit);
+        assert!(!settled.notify);
+        let recorded = store.state().unwrap();
+        assert_eq!(recorded.sent_today, 0);
+        assert!(recorded.last_initiative_at.is_none());
+
+        let delivered = settle_initiative_outcome(
+            &store,
+            crate::conversation::InitiativeDeliveryStatus::Delivered,
+            false,
+            1_000,
+        );
+        assert!(delivered.emit);
+        assert!(delivered.notify);
+        assert_eq!(store.state().unwrap().sent_today, 1);
+        drop(store);
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

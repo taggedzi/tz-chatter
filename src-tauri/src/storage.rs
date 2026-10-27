@@ -3,6 +3,7 @@ use std::{
     fmt, fs,
     io::{self, Write},
     path::{Component, Path, PathBuf},
+    sync::{Mutex, MutexGuard},
 };
 use uuid::Uuid;
 
@@ -419,9 +420,40 @@ impl Vault {
     }
 
     pub fn save_transcript(&self, transcript: &TranscriptDocument) -> Result<(), StorageError> {
+        let _lock = lock_transcript_writes();
+        self.save_transcript_unlocked(transcript)
+    }
+
+    /// Write a transcript without taking the process transcript lock.
+    /// Callers that already hold `lock_transcript_writes` use this. A test hook
+    /// running inside a guarded replace must use it too, or it deadlocks.
+    pub(crate) fn save_transcript_unlocked(
+        &self,
+        transcript: &TranscriptDocument,
+    ) -> Result<(), StorageError> {
         validate_transcript(transcript)?;
         let path = self.transcript_path(&transcript.session_id)?;
         atomic_write(&path, render_transcript(transcript)?)
+    }
+
+    /// Replace a transcript only when its bytes still match `expected_fingerprint`.
+    /// `None` means the file must still be absent. A mismatch leaves the canonical
+    /// file untouched.
+    pub(crate) fn replace_transcript_if_current(
+        &self,
+        transcript: &TranscriptDocument,
+        expected_fingerprint: Option<&str>,
+    ) -> Result<GuardedReplace, StorageError> {
+        let _lock = lock_transcript_writes();
+        validate_transcript(transcript)?;
+        let path = self.transcript_path(&transcript.session_id)?;
+        atomic_write_internal(
+            &path,
+            render_transcript(transcript)?,
+            false,
+            false,
+            ReplaceGuard::Matches(expected_fingerprint.map(str::to_owned)),
+        )
     }
 
     pub fn load_transcript(&self, session_id: &str) -> Result<TranscriptDocument, StorageError> {
@@ -624,7 +656,7 @@ struct TurnHeader {
     content_length: usize,
 }
 
-fn render_transcript(transcript: &TranscriptDocument) -> Result<Vec<u8>, StorageError> {
+pub(crate) fn render_transcript(transcript: &TranscriptDocument) -> Result<Vec<u8>, StorageError> {
     let metadata = TranscriptMetadata {
         schema_version: transcript.schema_version,
         session_id: transcript.session_id.clone(),
@@ -775,7 +807,48 @@ fn read_recovering(path: &Path) -> Result<Vec<u8>, StorageError> {
 }
 
 pub(crate) fn atomic_write(path: &Path, bytes: Vec<u8>) -> Result<(), StorageError> {
-    atomic_write_internal(path, bytes, false, false)
+    match atomic_write_internal(path, bytes, false, false, ReplaceGuard::None)? {
+        GuardedReplace::Replaced => Ok(()),
+        GuardedReplace::Rejected => Err(StorageError::Persistence(
+            "unconditional write was rejected".into(),
+        )),
+    }
+}
+
+fn lock_transcript_writes() -> MutexGuard<'static, ()> {
+    static TRANSCRIPT_WRITES: Mutex<()> = Mutex::new(());
+    TRANSCRIPT_WRITES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[derive(Clone)]
+enum ReplaceGuard {
+    None,
+    /// `None` requires the canonical file to be absent. `Some` must still match.
+    Matches(Option<String>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GuardedReplace {
+    Replaced,
+    Rejected,
+}
+
+#[cfg(test)]
+type GuardedReplaceHook = std::sync::Arc<dyn Fn(&Path) + Send + Sync>;
+
+#[cfg(test)]
+static BEFORE_GUARDED_REPLACE: Mutex<Option<GuardedReplaceHook>> = Mutex::new(None);
+
+/// Test seam. Runs after a guarded replace has finished its temporary file and
+/// before the canonical bytes are checked and replaced. The hook must not call
+/// `Vault::save_transcript`; that waits on the lock already held here.
+#[cfg(test)]
+pub(crate) fn set_before_guarded_replace_hook(hook: Option<GuardedReplaceHook>) {
+    *BEFORE_GUARDED_REPLACE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = hook;
 }
 
 fn atomic_write_internal(
@@ -783,7 +856,8 @@ fn atomic_write_internal(
     bytes: Vec<u8>,
     fail_before_replace: bool,
     fail_after_backup: bool,
-) -> Result<(), StorageError> {
+    guard: ReplaceGuard,
+) -> Result<GuardedReplace, StorageError> {
     recover_missing(path)?;
     let parent = path
         .parent()
@@ -820,6 +894,37 @@ fn atomic_write_internal(
     } else {
         None
     };
+    // Preparation is finished. An edit that landed while the temporary file
+    // existed must still win over replacement.
+    #[cfg(test)]
+    if matches!(guard, ReplaceGuard::Matches(_)) {
+        let hook = BEFORE_GUARDED_REPLACE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        if let Some(hook) = hook {
+            hook(path);
+        }
+    }
+    if let ReplaceGuard::Matches(expected) = &guard {
+        let current = if path.is_file() {
+            Some(Vault::file_fingerprint(path)?)
+        } else {
+            None
+        };
+        let current_matches = match (expected.as_deref(), current.as_deref()) {
+            (None, None) => true,
+            (Some(expected), Some(current)) => expected == current,
+            _ => false,
+        };
+        if !current_matches {
+            if let Some(retained) = retained {
+                let _ = fs::rename(retained, backup_path(path));
+            }
+            let _ = fs::remove_file(&temporary);
+            return Ok(GuardedReplace::Rejected);
+        }
+    }
     let had_previous = path.exists();
     if had_previous {
         if let Err(error) = fs::rename(path, &backup) {
@@ -838,7 +943,7 @@ fn atomic_write_internal(
         ));
     }
     match fs::rename(&temporary, path) {
-        Ok(()) => finish_committed_write(path, retained),
+        Ok(()) => finish_committed_write(path, retained).map(|()| GuardedReplace::Replaced),
         Err(error) => {
             let _ = fs::remove_file(&temporary);
             if had_previous && backup.exists() {
@@ -913,11 +1018,15 @@ mod tests {
         let transcript = TranscriptDocument::new("session-1", "lyra");
         vault.save_transcript(&transcript).unwrap();
         let original = fs::read(&path).unwrap();
-        assert!(atomic_write_internal(&path, b"new".to_vec(), false, true).is_err());
+        assert!(
+            atomic_write_internal(&path, b"new".to_vec(), false, true, ReplaceGuard::None).is_err()
+        );
         assert!(!path.exists());
         assert_eq!(fs::read(backup_path(&path)).unwrap(), original);
         // The low-level writer must protect backups even without a vault reader.
-        assert!(atomic_write_internal(&path, b"new".to_vec(), true, false).is_err());
+        assert!(
+            atomic_write_internal(&path, b"new".to_vec(), true, false, ReplaceGuard::None).is_err()
+        );
         assert_eq!(fs::read(&path).unwrap(), original);
         assert_eq!(vault.load_transcript("session-1").unwrap(), transcript);
         atomic_write(&path, original.clone()).unwrap();
@@ -937,7 +1046,9 @@ mod tests {
         fs::write(&path, render_transcript(&transcript).unwrap()).unwrap();
         assert_eq!(vault.list_transcripts().unwrap(), vec![transcript.clone()]);
         let backup_bytes = fs::read(backup_path(&path)).unwrap();
-        assert!(atomic_write_internal(&path, b"new".to_vec(), false, true).is_err());
+        assert!(
+            atomic_write_internal(&path, b"new".to_vec(), false, true, ReplaceGuard::None).is_err()
+        );
         assert_eq!(vault.load_transcript("session-1").unwrap(), transcript);
         let retained = fs::read_dir(path.parent().unwrap())
             .unwrap()
@@ -974,7 +1085,9 @@ mod tests {
         let path = vault.transcript_path("session-1").unwrap();
         fs::write(&path, b"corrupt canonical").unwrap();
         fs::write(backup_path(&path), &valid).unwrap();
-        assert!(atomic_write_internal(&path, valid.clone(), false, true).is_err());
+        assert!(
+            atomic_write_internal(&path, valid.clone(), false, true, ReplaceGuard::None).is_err()
+        );
         let retained = fs::read_dir(path.parent().unwrap())
             .unwrap()
             .map(|entry| entry.unwrap().path())
@@ -1147,8 +1260,14 @@ mod tests {
         let character = CharacterDefinition::new("lyra", "Lyra", "Original prompt.");
         vault.save_character(&character).unwrap();
         let path = vault.character_path().unwrap();
-        let error = atomic_write_internal(&path, b"partial invalid content".to_vec(), true, false)
-            .unwrap_err();
+        let error = atomic_write_internal(
+            &path,
+            b"partial invalid content".to_vec(),
+            true,
+            false,
+            ReplaceGuard::None,
+        )
+        .unwrap_err();
         assert!(matches!(error, StorageError::Persistence(_)));
         assert_eq!(vault.load_character().unwrap(), character);
         assert!(!path.with_extension("md.bak").exists());

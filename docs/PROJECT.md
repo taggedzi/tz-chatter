@@ -140,7 +140,7 @@ Eligibility checks precede inference: opt-in, active character, conversational i
 
 Eligible events may use unresolved topics or prior memories. The model can choose silence. Generated questions do not count as new factual memories unless later conversation supports them.
 
-Apply backoff after ignored messages, persist counters across restarts, and avoid catch-up bursts after sleep. A new user message, character change, disabled setting, or shutdown cancels stale initiative work before display. Label spontaneous turns and make notification delivery separately configurable.
+Apply backoff after ignored messages, persist counters across restarts, and avoid catch-up bursts after sleep. A new user message, character change, disabled setting, or shutdown cancels stale initiative work before display. Those checks run again after inference and before the transcript is written. A compatible title, archive, or scene edit made during generation is kept, including one that lands while the new transcript file is being prepared. A turn edit or deletion is left unchanged, and the spontaneous message is not written. Label spontaneous turns and make notification delivery separately configurable.
 
 ## Reliability and privacy
 
