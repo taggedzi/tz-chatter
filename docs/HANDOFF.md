@@ -948,3 +948,13 @@ Verification: `cargo build --release` passed. `cargo fmt --all -- --check` passe
 Limitations: UI Automation did not capture the toast banner. The checked binary lives under `target\release`, so the notification plugin uses the PowerShell app id; an installed build sets `com.tzchatter.desktop`. The plain release executable still loads the Vite dev URL because this package does not enable Tauri's production asset feature. No commit, push, or public release was made.
 
 Next concrete action: T18 Windows validation remains open, with the T39 packaged Settings token check and the T38 hosted dry-run still separate. Public release stays on hold.
+
+## 2026-10-27 — Clear the high-severity npm audit
+
+Scope and outcome: GitHub CI `npm audit --audit-level=high` failed on pull request #1. `npm audit fix` updated only `package-lock.json`, inside the ranges already declared by the direct and transitive packages. The vendored glib backport and `src-tauri/Cargo.lock` were not touched.
+
+Locked versions: vite 8.3.0 → 8.3.5 (GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw, GHSA-587h-7wmj-h5pm, GHSA-9jrq-w75r-8gcw, GHSA-rq7h-c2jc-7f22, GHSA-vfpm-58rq-9qcg), zod 4.6.2 → 4.6.7 (GHSA-mrhx-c7xc-m3w5), brace-expansion 5.0.9 → 5.0.12 (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p), source-map-js 1.2.1 → 1.2.2 (GHSA-68fv-2mgg-jv7q). Vite's lock step also moved rolldown 1.2.8 → 1.2.15 (every published platform binding), postcss 8.5.28 → 8.5.32, nanoid 3.3.19 → 3.3.20, and `@oxc-project/types` 0.149.0 → 0.155.0.
+
+Verification: `npm audit --audit-level=high` reports 0 vulnerabilities. `npm run test:unit` passed 49 tests. `npm run lint`, `npm run typecheck`, and `npm run build` passed on vite 8.3.5. A later local `npm ci` could not delete `node_modules` because an already running `npm run dev` had the rolldown native binding open; that process was left running. Rust fmt, tests, Clippy, and `cargo audit` were not rerun because no Rust dependency changed. Linux `npm ci` in CI is the remaining clean-install check.
+
+Next concrete action: unchanged. T18, the T39 packaged Settings token check, and the T38 hosted dry-run remain separate. Public release stays on hold.
