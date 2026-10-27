@@ -442,6 +442,7 @@ fn ensure_metadata_column(
 }
 
 fn discover_memory_files(root: &Path) -> Result<Vec<MemoryFile>, MemoryError> {
+    let vault = Vault::open(root)?;
     let memory_root = root.join("memories");
     if !memory_root.exists() {
         return Ok(Vec::new());
@@ -455,14 +456,7 @@ fn discover_memory_files(root: &Path) -> Result<Vec<MemoryFile>, MemoryError> {
         let Some(memory_type) = parse_memory_type(&type_entry.file_name().to_string_lossy()) else {
             continue;
         };
-        for entry in fs::read_dir(type_entry.path())? {
-            let entry = entry?;
-            if !entry.file_type()?.is_file()
-                || entry.path().extension().and_then(|value| value.to_str()) != Some("md")
-            {
-                continue;
-            }
-            let path = entry.path();
+        for path in vault.markdown_paths(&type_entry.path())? {
             let Some(id) = path
                 .file_stem()
                 .and_then(|value| value.to_str())
@@ -472,7 +466,7 @@ fn discover_memory_files(root: &Path) -> Result<Vec<MemoryFile>, MemoryError> {
             };
             let relative_path = Path::new("memories")
                 .join(memory_type_folder(&memory_type))
-                .join(entry.file_name())
+                .join(path.file_name().expect("discovered file has a name"))
                 .to_string_lossy()
                 .replace('\\', "/");
             files.push(MemoryFile {

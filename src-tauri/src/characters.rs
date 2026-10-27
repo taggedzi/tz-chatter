@@ -319,7 +319,7 @@ fn portrait_is_present(vault_root: impl AsRef<Path>) -> bool {
 
 fn portrait_file(vault_root: &Path) -> Result<Option<PathBuf>, CharacterError> {
     let vault = Vault::open(vault_root)?;
-    let path = vault.root().join("assets").join("portrait.png");
+    let path = vault.resolve_relative(PORTRAIT_RELATIVE)?;
     if !path.exists() {
         return Ok(None);
     }

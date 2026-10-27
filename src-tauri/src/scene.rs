@@ -134,11 +134,7 @@ pub fn list_locals(vault: &Vault) -> Result<Vec<LocalSummary>, StorageError> {
         return Ok(Vec::new());
     }
     let mut locals = Vec::new();
-    for entry in fs::read_dir(&directory)? {
-        let path = entry?.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("md") {
-            continue;
-        }
+    for path in vault.markdown_paths(&directory)? {
         let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else {
             continue;
         };
