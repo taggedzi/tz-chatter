@@ -958,3 +958,13 @@ Locked versions: vite 8.3.0 → 8.3.5 (GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw,
 Verification: `npm audit --audit-level=high` reports 0 vulnerabilities. `npm run test:unit` passed 49 tests. `npm run lint`, `npm run typecheck`, and `npm run build` passed on vite 8.3.5. A later local `npm ci` could not delete `node_modules` because an already running `npm run dev` had the rolldown native binding open; that process was left running. Rust fmt, tests, Clippy, and `cargo audit` were not rerun because no Rust dependency changed. Linux `npm ci` in CI is the remaining clean-install check.
 
 Next concrete action: unchanged. T18, the T39 packaged Settings token check, and the T38 hosted dry-run remain separate. Public release stays on hold.
+
+## 2026-10-27 — Clear the RustSec dependency audit
+
+Scope and outcome: pull request #1's dependency-audit job passed npm and failed `cargo audit` with 10 vulnerabilities. `src-tauri/Cargo.lock` now selects the patched releases named by those advisories. No direct dependency range changed, and the vendored glib backport was not touched. The 11 unmaintained or unsound warnings were already allowed and still do not fail the audit.
+
+Locked versions: ctutils 0.4.2 → 0.4.4 (RUSTSEC-2026-0385), quinn-proto 0.11.17 → 0.11.18 (RUSTSEC-2026-0343, RUSTSEC-2026-0340, RUSTSEC-2026-0338), rustls 0.23.45 → 0.23.46 (RUSTSEC-2026-0347, RUSTSEC-2026-0348, RUSTSEC-2026-0349, RUSTSEC-2026-0346), rustls-webpki 0.103.15 → 0.103.16 (RUSTSEC-2026-0382), webpki-roots 1.0.9 → 1.0.10 (RUSTSEC-2026-0381).
+
+Verification: `cargo audit --file src-tauri/Cargo.lock` reports 0 vulnerabilities and 11 allowed warnings. `cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets` passed on Windows. The full Rust suite, strict Clippy, and the Linux glib regression were not rerun. Hosted CI is the remaining check.
+
+Next concrete action: unchanged. T18, the T39 packaged Settings token check, and the T38 hosted dry-run remain separate. Public release stays on hold.
