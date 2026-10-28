@@ -2,6 +2,14 @@
 
 This document defines work and acceptance criteria. `STATUS.md` is the sole live task-state tracker. Execute dependencies first; task order within a milestone can change when dependencies allow it.
 
+## R09 - Confine initiative state database (GitHub #6)
+
+Depends on: T03, T15. No external dependencies.
+
+Resolve the initiative state database through the vault path resolver before opening SQLite, matching extraction. Audit durable initiative file access while preserving character identity checks and the shared state schema.
+
+Acceptance: external state-directory junctions/symlinks fail before SQLite opens; absent external databases remain absent and existing databases remain byte-for-byte unchanged with no added tables or sidecars. Normal initiative and extraction share `.tz-chatter/state.sqlite3`, and character-scoped identity checks remain intact. Use synthetic Windows junction/Unix symlink regression fixtures with explicit link cleanup; run full Rust tests, fmt, strict Clippy and applicable CI checks. No migration or external-target modification.
+
 ## R08 - Preserve chat replies during metadata edits (GitHub #5)
 
 Depends on: T05, T29. Related: R06, already merged.
