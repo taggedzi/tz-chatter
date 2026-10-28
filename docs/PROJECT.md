@@ -110,7 +110,7 @@ After a completed conversational exchange:
 
 Support user correction, locking, exclusion, and deletion. A deleted memory must not be silently reconstructed from its old transcript by a retried extraction job. Define suppression and explicit reprocessing behavior. Deleting a memory does not implicitly erase its transcript; the UI must distinguish those actions.
 
-External Markdown edits must be detected and reindexed. Use content fingerprints or equivalent checks to prevent background work from overwriting newer edits. A failed extraction or index update must not lose the user conversation. Chat reply commits compare disk turns against the persisted pre-generation baseline, preserve compatible metadata, and recheck the observed file version before replacement. Real turn or identity changes, deletion, and unreadable records return a reload conflict without writing a failure turn.
+External Markdown edits must be detected and reindexed. If a canonical memory fails validation, remove its derived lexical chunks and metadata, retain the file and filename-specific diagnostic, and keep other valid memories usable. Embedding freshness must be checked against valid canonical chunks; repairing the file restores indexing without manual database deletion. Use content fingerprints or equivalent checks to prevent background work from overwriting newer edits. A failed extraction or index update must not lose the user conversation. Chat reply commits compare disk turns against the persisted pre-generation baseline, preserve compatible metadata, and recheck the observed file version before replacement. Real turn or identity changes, deletion, and unreadable records return a reload conflict without writing a failure turn.
 
 ## Retrieval and prompt construction
 

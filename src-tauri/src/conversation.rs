@@ -3903,6 +3903,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn malformed_memory_keeps_chat_available_without_stale_prompt_text() {
+        let root = root("malformed-memory");
+        let vault = Vault::create(&root).unwrap();
+        let mut store = MemoryStore::open(&vault, "lyra").unwrap();
+        for (id, body) in [
+            ("cafe", "Juniper cafe has blue chairs."),
+            ("neighbor", "Mina visits a cafe for tea."),
+        ] {
+            store
+                .create(&crate::storage::MemoryRecord::new(
+                    id,
+                    crate::storage::MemoryType::Semantic,
+                    body,
+                ))
+                .unwrap();
+        }
+        let chunks = chunks_from_memories(&store.list().unwrap());
+        let index = EmbeddingIndex::open(
+            &vault,
+            "lyra",
+            EmbeddingSpace::new("fake", "nomic-embed", 2, "http://127.0.0.1:11434"),
+        )
+        .unwrap();
+        index
+            .rebuild_precomputed(&chunks, &vec![vec![1.0, 0.0]; chunks.len()])
+            .unwrap();
+        drop(index);
+        drop(store);
+        let path = vault
+            .memory_path(&crate::storage::MemoryType::Semantic, "cafe")
+            .unwrap();
+        let malformed = "---\nid: [\n---\nBroken cafe memory";
+        fs::write(&path, malformed).unwrap();
+
+        let fake = Arc::new(FakeTransport::new(vec![Ok(complete_reply("Still here"))]));
+        let outcome = send_hybrid(&vault, fake.clone(), hybrid_snapshot("session", "cafe")).await;
+        assert_eq!(outcome.assistant_turn.status, TurnStatus::Complete);
+        assert_eq!(outcome.context_inspection.retrieval_mode, "lexical");
+        assert!(outcome
+            .context_inspection
+            .fallback_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("rebuilding")));
+        assert!(fake.embeddings.lock().unwrap().is_empty());
+        assert_eq!(outcome.retrieved_memories.len(), 1);
+        assert_eq!(outcome.retrieved_memories[0].memory_id, "neighbor");
+        let requests = fake.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0]
+            .messages
+            .iter()
+            .any(|message| message.content.contains("Mina visits a cafe for tea")));
+        assert!(requests[0]
+            .messages
+            .iter()
+            .all(|message| !message.content.contains("blue chairs")));
+        assert_eq!(fs::read_to_string(path).unwrap(), malformed);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn lexical_fallback_when_index_needs_rebuild_does_not_embed() {
         let root = root("hybrid-rebuild");
         let vault = Vault::create(&root).unwrap();
