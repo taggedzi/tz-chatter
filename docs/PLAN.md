@@ -2,6 +2,14 @@
 
 This document defines work and acceptance criteria. `STATUS.md` is the sole live task-state tracker. Execute dependencies first; task order within a milestone can change when dependencies allow it.
 
+## R08 - Preserve chat replies during metadata edits (GitHub #5)
+
+Depends on: T05, T29. Related: R06, already merged.
+
+Compare external transcript changes against each reply operation's persisted pre-generation baseline. Preserve compatible title, archive, and scene metadata while committing the generated answer. Guard the replacement against changes during temporary-file preparation. A real turn/identity conflict, deletion, unreadable record, or repeated concurrent changes must return a reload error without overwriting the file or appending a failure record.
+
+Acceptance: fresh send, regenerate, edit, retry, and continue preserve successful content and completion status with metadata-only edits; continue retains its assistant ID and prefix; superseded history and edited user content remain correct. Real external turn edits remain unchanged. The strengthened original regression fails on the old implementation. Focused/full Rust tests, fmt, strict Clippy, applicable frontend and audit gates pass; hosted Linux and CodeQL evidence is recorded. No schema migration or provider change.
+
 ## R07 — Require explicitly enabled immutable releases (GitHub #4)
 
 Depends on: T38. Related: GitHub #10 (publish CLI context/lookup errors), independent.

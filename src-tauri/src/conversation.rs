@@ -253,6 +253,7 @@ pub fn initiative_follow_up(
 pub enum ConversationError {
     Invalid(String),
     DuplicateUserTurn(String),
+    TranscriptConflict,
     Storage(String),
 }
 
@@ -263,6 +264,10 @@ impl std::fmt::Display for ConversationError {
             Self::DuplicateUserTurn(id) => write!(
                 f,
                 "user turn already exists without a retry operation: {id}"
+            ),
+            Self::TranscriptConflict => write!(
+                f,
+                "transcript changed externally during generation; reload before retrying"
             ),
             Self::Storage(message) => write!(f, "conversation storage failed: {message}"),
         }
@@ -545,6 +550,9 @@ impl ConversationService {
             .await
         {
             Ok(outcome) => Ok(outcome),
+            Err(ConversationError::TranscriptConflict) => {
+                Err(ConversationError::TranscriptConflict)
+            }
             Err(error) => persist_failed_reply(vault, &snapshot, transcript, error),
         }
     }
@@ -923,7 +931,7 @@ impl ConversationService {
         &self,
         vault: &Vault,
         snapshot: RequestSnapshot,
-        mut transcript: TranscriptDocument,
+        transcript: TranscriptDocument,
         cancellation: CancellationToken,
         sink: Option<StreamSink>,
         mode: ReplyMode,
@@ -1118,25 +1126,13 @@ impl ConversationService {
             status,
             content,
         };
-        if spec.continue_from {
-            if let Some(existing) = transcript
-                .turns
-                .iter_mut()
-                .find(|turn| turn.id == spec.assistant_id)
-            {
-                *existing = assistant_turn.clone();
-            } else {
-                transcript.turns.push(assistant_turn.clone());
-            }
-        } else {
-            transcript.turns.push(assistant_turn.clone());
-        }
-        merge_external_transcript_metadata(
+        let transcript = commit_chat_reply(
             vault,
-            &mut transcript,
+            &transcript,
             snapshot.expected_transcript_fingerprint.as_deref(),
+            &assistant_turn,
+            spec.continue_from,
         )?;
-        save_transcript(vault, &mut transcript)?;
         if assistant_turn.status == TurnStatus::Complete {
             enqueue_extraction(vault, &transcript, &assistant_turn.id);
         }
@@ -1634,29 +1630,59 @@ fn save_transcript(
     Ok(())
 }
 
-fn merge_external_transcript_metadata(
+// The baseline contains this operation's persisted user edit/supersession/retry
+// preparation, but never the generated answer (or continued replacement).
+fn commit_chat_reply(
     vault: &Vault,
-    transcript: &mut TranscriptDocument,
+    baseline: &TranscriptDocument,
     expected_fingerprint: Option<&str>,
-) -> Result<(), ConversationError> {
-    let Some(expected_fingerprint) = expected_fingerprint else {
-        return Ok(());
-    };
-    let latest = vault.load_transcript(&transcript.session_id)?;
-    let current_fingerprint = transcript_fingerprint(vault, &transcript.session_id)
-        .ok_or_else(|| ConversationError::Storage("transcript fingerprint unavailable".into()))?;
-    if current_fingerprint == expected_fingerprint {
-        return Ok(());
+    assistant_turn: &TranscriptTurn,
+    continue_from: bool,
+) -> Result<TranscriptDocument, ConversationError> {
+    for _ in 0..8 {
+        let path = vault.transcript_path(&baseline.session_id)?;
+        let observed =
+            Vault::file_fingerprint(&path).map_err(|_| ConversationError::TranscriptConflict)?;
+        let mut transcript = baseline.clone();
+        if Some(observed.as_str()) != expected_fingerprint {
+            let latest = vault
+                .load_transcript(&baseline.session_id)
+                .map_err(|_| ConversationError::TranscriptConflict)?;
+            let current = Vault::file_fingerprint(&path)
+                .map_err(|_| ConversationError::TranscriptConflict)?;
+            if current != observed {
+                continue;
+            }
+            if latest.session_id != baseline.session_id
+                || latest.character_id != baseline.character_id
+                || latest.schema_version != baseline.schema_version
+                || latest.turns != baseline.turns
+            {
+                return Err(ConversationError::TranscriptConflict);
+            }
+            transcript.title = latest.title;
+            transcript.archived = latest.archived;
+            transcript.local = latest.local;
+            transcript.created_at = latest.created_at;
+        }
+        if continue_from {
+            let existing = transcript
+                .turns
+                .iter_mut()
+                .find(|turn| turn.id == assistant_turn.id)
+                .ok_or(ConversationError::TranscriptConflict)?;
+            *existing = assistant_turn.clone();
+        } else {
+            transcript.turns.push(assistant_turn.clone());
+        }
+        apply_auto_title(&mut transcript);
+        transcript.updated_at = now_timestamp();
+        match vault.replace_transcript_if_current(&transcript, Some(&observed))? {
+            crate::storage::GuardedReplace::Replaced => return Ok(transcript),
+            crate::storage::GuardedReplace::Rejected => continue,
+        }
     }
-    if latest.turns != transcript.turns {
-        return Err(ConversationError::Storage(
-            "transcript changed externally during generation; reload before retrying".into(),
-        ));
-    }
-    transcript.title = latest.title;
-    transcript.archived = latest.archived;
-    transcript.local = latest.local;
-    Ok(())
+    Err(ConversationError::TranscriptConflict)
 }
 
 fn transcript_fingerprint(vault: &Vault, session_id: &str) -> Option<String> {
@@ -3078,7 +3104,7 @@ mod tests {
         let service = ConversationService::new(Arc::new(EditDuringReply {
             vault: vault.clone(),
         }));
-        service
+        let outcome = service
             .send(
                 &vault,
                 snapshot("session-send", "lyra", "user-new", "Hello"),
@@ -3086,11 +3112,235 @@ mod tests {
             )
             .await
             .unwrap();
+        assert_eq!(outcome.assistant_turn.status, TurnStatus::Complete);
+        assert_eq!(outcome.assistant_turn.content, "Reply");
         assert_eq!(
             vault.load_transcript("session-send").unwrap().title,
             "External title during generation"
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn chat_reply_modes_preserve_metadata_and_refuse_external_turn_changes() {
+        #[derive(Clone, Copy, Debug)]
+        enum Change {
+            Metadata,
+            Turns,
+            Delete,
+            Identity,
+            Invalid,
+        }
+        struct EditDuringReply {
+            vault: Vault,
+            change: Change,
+        }
+        #[async_trait::async_trait]
+        impl ChatTransport for EditDuringReply {
+            async fn stream_chat(
+                &self,
+                _: &ProviderConfig,
+                _: &ChatRequest,
+                _: CancellationToken,
+            ) -> Result<Vec<ChatStreamEvent>, ProviderError> {
+                let path = self.vault.transcript_path("session-modes").unwrap();
+                let mut latest = self.vault.load_transcript("session-modes").unwrap();
+                match self.change {
+                    Change::Metadata => {
+                        latest.title = "External title".into();
+                        latest.archived = true;
+                        latest.local = Some("cafe".into());
+                        self.vault.save_transcript(&latest).unwrap();
+                    }
+                    Change::Turns => {
+                        latest.turns[0].content = "Externally edited user turn".into();
+                        self.vault.save_transcript(&latest).unwrap();
+                    }
+                    Change::Identity => {
+                        latest.character_id = "other-character".into();
+                        self.vault.save_transcript(&latest).unwrap();
+                    }
+                    Change::Delete => fs::remove_file(path).unwrap(),
+                    Change::Invalid => fs::write(path, "invalid transcript").unwrap(),
+                }
+                Ok(complete_reply("Successful model answer"))
+            }
+        }
+        for mode in ["send", "regenerate", "edit", "retry", "continue"] {
+            for change in [
+                Change::Metadata,
+                Change::Turns,
+                Change::Delete,
+                Change::Identity,
+                Change::Invalid,
+            ] {
+                let root = root(&format!("reply-{mode}-{change:?}"));
+                let vault = Vault::create(&root).unwrap();
+                let request = snapshot("session-modes", "lyra", "user-1", "Hello");
+                let seed_events = match mode {
+                    "continue" => vec![
+                        ChatStreamEvent::Delta {
+                            text: "Partial: ".into(),
+                        },
+                        ChatStreamEvent::Cancelled,
+                    ],
+                    "retry" => vec![ChatStreamEvent::Failed {
+                        message: "Provider failed".into(),
+                    }],
+                    _ => complete_reply("Original answer"),
+                };
+                let seed = if mode != "send" {
+                    Some(
+                        ConversationService::new(Arc::new(FakeTransport::new(vec![Ok(
+                            seed_events,
+                        )])))
+                        .send(&vault, request.clone(), CancellationToken::new())
+                        .await
+                        .unwrap(),
+                    )
+                } else {
+                    None
+                };
+                let mut request = request;
+                request.expected_transcript_fingerprint =
+                    transcript_fingerprint(&vault, "session-modes");
+                if mode == "edit" {
+                    request.user_content = "Edited question".into();
+                }
+                let service = ConversationService::new(Arc::new(EditDuringReply {
+                    vault: vault.clone(),
+                    change,
+                }));
+                let result = match mode {
+                    "send" => {
+                        service
+                            .send(&vault, request, CancellationToken::new())
+                            .await
+                    }
+                    "regenerate" => {
+                        service
+                            .regenerate(&vault, request, CancellationToken::new())
+                            .await
+                    }
+                    "edit" => {
+                        service
+                            .edit_last_user(&vault, request, CancellationToken::new())
+                            .await
+                    }
+                    "retry" => {
+                        service
+                            .retry(&vault, request, CancellationToken::new())
+                            .await
+                    }
+                    "continue" => {
+                        service
+                            .continue_reply(&vault, request, CancellationToken::new())
+                            .await
+                    }
+                    _ => unreachable!(),
+                };
+                let path = vault.transcript_path("session-modes").unwrap();
+                match change {
+                    Change::Metadata => {
+                        let outcome = result.unwrap();
+                        assert_eq!(
+                            outcome.assistant_turn.status,
+                            TurnStatus::Complete,
+                            "{mode}"
+                        );
+                        let expected = if mode == "continue" {
+                            "Partial: Successful model answer"
+                        } else {
+                            "Successful model answer"
+                        };
+                        assert_eq!(outcome.assistant_turn.content, expected, "{mode}");
+                        let saved = vault.load_transcript("session-modes").unwrap();
+                        assert_eq!(saved, outcome.transcript);
+                        assert_eq!(saved.title, "External title");
+                        assert!(saved.archived);
+                        assert_eq!(saved.local.as_deref(), Some("cafe"));
+                        assert_eq!(
+                            saved
+                                .turns
+                                .iter()
+                                .filter(|t| t.role == TurnRole::User)
+                                .count(),
+                            1
+                        );
+                        assert_eq!(
+                            saved.turns[0].content,
+                            if mode == "edit" {
+                                "Edited question"
+                            } else {
+                                "Hello"
+                            }
+                        );
+                        assert_eq!(
+                            saved
+                                .turns
+                                .iter()
+                                .filter(|t| t.role == TurnRole::Assistant)
+                                .count(),
+                            if matches!(mode, "regenerate" | "edit" | "retry") {
+                                2
+                            } else {
+                                1
+                            }
+                        );
+                        if let Some(seed) = seed {
+                            if mode == "continue" {
+                                assert_eq!(outcome.assistant_turn.id, seed.assistant_turn.id);
+                            }
+                            if matches!(mode, "regenerate" | "edit" | "retry") {
+                                assert_eq!(saved.turns[1].status, TurnStatus::Superseded);
+                            }
+                        }
+                        assert_eq!(
+                            outcome.transcript_fingerprint,
+                            transcript_fingerprint(&vault, "session-modes")
+                        );
+                        let mut queue = ExtractionQueue::open(&vault, "lyra").unwrap();
+                        let job = queue
+                            .enqueue_transcript(&saved, &outcome.assistant_turn.id, 100)
+                            .unwrap();
+                        assert!(job.source_turn_ids.contains(&outcome.assistant_turn.id));
+                    }
+                    _ => {
+                        assert!(
+                            matches!(result, Err(ConversationError::TranscriptConflict)),
+                            "{mode}: {result:?}"
+                        );
+                        match change {
+                            Change::Delete => assert!(!path.exists()),
+                            Change::Invalid => {
+                                assert_eq!(fs::read_to_string(path).unwrap(), "invalid transcript")
+                            }
+                            _ => {
+                                let saved = vault.load_transcript("session-modes").unwrap();
+                                if matches!(change, Change::Turns) {
+                                    assert_eq!(
+                                        saved.turns[0].content,
+                                        "Externally edited user turn"
+                                    );
+                                }
+                                if matches!(change, Change::Identity) {
+                                    assert_eq!(saved.character_id, "other-character");
+                                }
+                                assert!(!saved
+                                    .turns
+                                    .iter()
+                                    .any(|t| t.content.contains("Successful model answer")));
+                                assert!(!saved
+                                    .turns
+                                    .iter()
+                                    .any(|t| t.content.contains("reload before retrying")));
+                            }
+                        }
+                    }
+                }
+                fs::remove_dir_all(root).unwrap();
+            }
+        }
     }
 
     #[tokio::test]
@@ -3407,7 +3657,10 @@ mod tests {
 
         let edited = std::sync::atomic::AtomicBool::new(false);
         let hook_vault = vault.clone();
-        crate::storage::set_before_guarded_replace_hook(Some(std::sync::Arc::new(move |_| {
+        crate::storage::set_before_guarded_replace_hook(Some(std::sync::Arc::new(move |path| {
+            if path != hook_vault.transcript_path("race-session").unwrap() {
+                return;
+            }
             if edited.swap(true, std::sync::atomic::Ordering::SeqCst) {
                 return;
             }
@@ -3444,7 +3697,10 @@ mod tests {
         vault.save_transcript(&existing).unwrap();
         let edited_turns = std::sync::atomic::AtomicBool::new(false);
         let hook_vault = vault.clone();
-        crate::storage::set_before_guarded_replace_hook(Some(std::sync::Arc::new(move |_| {
+        crate::storage::set_before_guarded_replace_hook(Some(std::sync::Arc::new(move |path| {
+            if path != hook_vault.transcript_path("race-session").unwrap() {
+                return;
+            }
             if edited_turns.swap(true, std::sync::atomic::Ordering::SeqCst) {
                 return;
             }
@@ -3470,6 +3726,63 @@ mod tests {
             .turns
             .iter()
             .all(|turn| turn.role != TurnRole::Initiative));
+        for change in ["metadata", "turns", "delete", "churn"] {
+            vault.save_transcript(&existing).unwrap();
+            let expected = transcript_fingerprint(&vault, "race-session").unwrap();
+            let hook_vault = vault.clone();
+            let edited = std::sync::atomic::AtomicBool::new(false);
+            crate::storage::set_before_guarded_replace_hook(Some(Arc::new(move |path| {
+                if path != hook_vault.transcript_path("race-session").unwrap() {
+                    return;
+                }
+                if edited.swap(true, std::sync::atomic::Ordering::SeqCst) && change != "churn" {
+                    return;
+                }
+                if change == "delete" {
+                    fs::remove_file(path).unwrap();
+                    return;
+                }
+                let mut latest = hook_vault.load_transcript("race-session").unwrap();
+                if change == "turns" {
+                    latest.turns[0].content = "Late external turn edit".into();
+                } else {
+                    latest.title.push_str("-external");
+                    latest.archived = true;
+                    latest.local = Some("cafe".into());
+                }
+                fs::write(path, crate::storage::render_transcript(&latest).unwrap()).unwrap();
+            })));
+            let reply = TranscriptTurn {
+                id: "assistant-1".into(),
+                timestamp: "2".into(),
+                role: TurnRole::Assistant,
+                status: TurnStatus::Complete,
+                content: "Successful model answer".into(),
+            };
+            let result = commit_chat_reply(&vault, &existing, Some(&expected), &reply, false);
+            if change == "metadata" {
+                let saved = result.unwrap();
+                assert_eq!(saved.title, "original-title-external");
+                assert!(saved.archived);
+                assert_eq!(saved.local.as_deref(), Some("cafe"));
+                assert_eq!(saved.turns.last(), Some(&reply));
+                assert_eq!(vault.load_transcript("race-session").unwrap(), saved);
+            } else {
+                assert!(matches!(result, Err(ConversationError::TranscriptConflict)));
+                if change == "delete" {
+                    assert!(!vault.transcript_path("race-session").unwrap().exists());
+                } else {
+                    let saved = vault.load_transcript("race-session").unwrap();
+                    assert_eq!(saved.turns.len(), 1);
+                    if change == "turns" {
+                        assert_eq!(saved.turns[0].content, "Late external turn edit");
+                    }
+                    if change == "churn" {
+                        assert_eq!(saved.title.matches("-external").count(), 8);
+                    }
+                }
+            }
+        }
         fs::remove_dir_all(root).unwrap();
     }
 
