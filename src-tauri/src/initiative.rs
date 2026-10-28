@@ -275,10 +275,10 @@ impl InitiativeStore {
                 "character_id cannot be empty".into(),
             ));
         }
-        let state_dir = vault.root().join(".tz-chatter");
-        std::fs::create_dir_all(&state_dir)
+        let path = vault
+            .resolve_relative(std::path::Path::new(".tz-chatter").join("state.sqlite3"))
             .map_err(|error| InitiativeError::Storage(error.to_string()))?;
-        let connection = Connection::open(state_dir.join("state.sqlite3"))?;
+        let connection = Connection::open(path)?;
         connection.execute_batch(
             "CREATE TABLE IF NOT EXISTS initiative_settings (
                  character_id TEXT PRIMARY KEY,
@@ -619,6 +619,109 @@ mod tests {
             resource_available: true,
             utc_offset_minutes: 0,
         }
+    }
+
+    // Remove the link itself before recursive cleanup, including on assertion failure.
+    #[cfg(any(unix, windows))]
+    struct LinkedStateFixture {
+        root: PathBuf,
+        link: PathBuf,
+    }
+
+    #[cfg(any(unix, windows))]
+    impl Drop for LinkedStateFixture {
+        fn drop(&mut self) {
+            #[cfg(windows)]
+            fs::remove_dir(&self.link).unwrap();
+            #[cfg(unix)]
+            fs::remove_file(&self.link).unwrap();
+            fs::remove_dir_all(&self.root).unwrap();
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn external_state_directory_is_rejected_without_database_writes() {
+        for existing_database in [false, true] {
+            let root = root();
+            let vault = Vault::create(root.join("vault")).unwrap();
+            let external = root.join("external");
+            fs::create_dir(&external).unwrap();
+            let database = external.join("state.sqlite3");
+            if existing_database {
+                let connection = Connection::open(&database).unwrap();
+                connection
+                    .execute_batch("CREATE TABLE sentinel (value TEXT); INSERT INTO sentinel VALUES ('unchanged');")
+                    .unwrap();
+            }
+            let before = existing_database.then(|| fs::read(&database).unwrap());
+            let link = vault.root().join(".tz-chatter");
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&external, &link).unwrap();
+            #[cfg(windows)]
+            {
+                let result = std::process::Command::new("cmd")
+                    .args(["/C", "mklink", "/J"])
+                    .arg(&link)
+                    .arg(&external)
+                    .output()
+                    .unwrap();
+                assert!(result.status.success(), "{result:?}");
+            }
+            let _fixture = LinkedStateFixture { root, link };
+            let error = InitiativeStore::open(&vault, "lyra")
+                .err()
+                .expect("external state directory must be rejected");
+            assert!(
+                error.to_string().contains("escapes the selected vault"),
+                "{error}"
+            );
+            assert!(crate::extraction::ExtractionQueue::open(&vault, "lyra").is_err());
+            if let Some(before) = before {
+                assert_eq!(fs::read(&database).unwrap(), before);
+                let connection = Connection::open(&database).unwrap();
+                let tables: i64 = connection
+                    .query_row(
+                        "SELECT count(*) FROM sqlite_master WHERE type = 'table'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(tables, 1);
+                let value: String = connection
+                    .query_row("SELECT value FROM sentinel", [], |row| row.get(0))
+                    .unwrap();
+                assert_eq!(value, "unchanged");
+            } else {
+                assert!(!database.exists());
+            }
+            assert_eq!(
+                fs::read_dir(&external).unwrap().count(),
+                usize::from(existing_database)
+            );
+        }
+    }
+
+    #[test]
+    fn initiative_and_extraction_share_state_database_and_isolate_characters() {
+        let root = root();
+        let vault = Vault::create(&root).unwrap();
+        let queue = crate::extraction::ExtractionQueue::open(&vault, "lyra").unwrap();
+        let store = InitiativeStore::open(&vault, "lyra").unwrap();
+        store.save_settings(&eligible_settings()).unwrap();
+        store.record_user_activity(123).unwrap();
+        let tables: i64 = store.connection.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('initiative_settings', 'initiative_state', 'extraction_jobs')",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(tables, 3);
+        let other = InitiativeStore::open(&vault, "nova").unwrap();
+        assert_eq!(other.saved_settings().unwrap(), None);
+        assert_eq!(other.state().unwrap().last_user_activity_at, None);
+        assert_eq!(store.state().unwrap().last_user_activity_at, Some(123));
+        assert!(InitiativeStore::open(&vault, " ").is_err());
+        drop((other, store, queue));
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn eligible_settings() -> InitiativeSettings {

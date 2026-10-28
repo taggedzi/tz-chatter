@@ -148,6 +148,7 @@ Linux was tested on Ubuntu 24.04.5 LTS GNOME/Wayland (T33). That run produced `t
 - Opening a vault fails: select the vault directory itself, not its parent; it must contain a valid `character.md`. Use Characters → Add, or portable-pack import, to restore a validated vault into a new directory.
 - Provider failures: verify the endpoint and model name in Settings → Provider, and confirm the local server is running. tz-chatter does not download models or silently fall back to a cloud provider.
 - Credential-vault failures: unlock or repair the signed-in user's OS credential service, then retry. On Windows this is Credential Manager; macOS uses Keychain; Linux requires a working Secret Service session. tz-chatter does not fall back to a plaintext token. Existing schema-1 settings migrate on first load only after the secure write succeeds.
+- Initiative state storage: `.tz-chatter/state.sqlite3` uses the same vault path checks as extraction. A state directory redirected outside the vault by a junction or symlink is rejected before SQLite opens. Keep this directory inside the selected vault; preserve any external data before repairing a redirected directory. Normal vaults need no migration.
 - Notifications are opt-in in Settings and can also be restricted by Windows notification permissions. Initiative is disabled by default.
 - Windows release packages are intentionally unsigned and may show the normal SmartScreen warning. Download only from the official GitHub Releases page and follow `VERIFYING.md` before running them.
 
