@@ -1144,3 +1144,13 @@ Scope: branch codex/10-publish-repository from main aae7d64. The publish checkou
 Verification: from an empty directory, authenticated gh release view reported a missing probe release and the paginated API command succeeded. Stubbed Bash runs of the workflow blocks passed six version-check cases and three create/edit cases, covering exact matches, API and tag failures, draft creation, stable publication flags and prerelease flags. npm run test:unit passed all 55 tests. git diff --check passed. No hosted release dispatch or real release mutation was performed.
 
 Files: .github/workflows/release.yml, docs/PLAN.md, docs/STATUS.md and this append. No architectural decisions changed. Next action: review the issue #10 PR and inspect hosted checks.
+
+## 2026-11-16 - R15 / GitHub #18: replace the vault YAML parser
+
+Based on main 9b82a71. Evaluated serde-saphyr 2.1.1, whose typed string parser rejects plain null-like values, and selected the YAML Organization's maintained `yaml_serde` 0.10.7 fork for compatibility. It uses `libyaml-rs` 0.3.0. The lockfile removes `serde_yaml` and `unsafe-libyaml`. Vault reads require no migration, and transcript writes share the existing Markdown renderer. No schema or architecture changes.
+
+The same storage tests ran on both parsers. The new fixture asserts the exact interpretation of an empty scalar, plain and quoted null-like scalars, quoted punctuation, literal and folded blocks, CRLF input, and delimiter lines inside the metadata and Markdown body. It verifies that reading leaves the original bytes intact and that saving preserves the interpreted values.
+
+Verification: 17 storage tests passed on the original parser. With the replacement, `cargo test --locked --manifest-path src-tauri/Cargo.toml` passed 218 tests with four existing live tests ignored, plus binary and doc targets. The suite includes bundled vault, transcript, and portable pack regressions. Rustfmt, strict all-target Clippy, and `git diff --check` passed. `cargo audit --file src-tauri/Cargo.lock` passed with zero vulnerabilities and four existing maintenance warnings (`proc-macro-error`, `zbus_names`, `zvariant`, and `zvariant_derive`). The prior `unsafe-libyaml` warning is gone.
+
+Files: src-tauri/Cargo.toml, src-tauri/Cargo.lock, src-tauri/src/storage.rs, docs/PLAN.md, docs/STATUS.md, and this entry. Next action: review the R15 PR and inspect its hosted checks.
