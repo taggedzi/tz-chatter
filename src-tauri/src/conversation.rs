@@ -3344,6 +3344,117 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn repair_command_recovers_search_and_chat_from_corrupt_memory_indexes() {
+        let root = root("repair-memory-chat");
+        let vault = Vault::create(&root).unwrap();
+        vault
+            .save_character(&CharacterDefinition::new("lyra", "Lyra", "Stay grounded."))
+            .unwrap();
+        let mut memory = crate::storage::MemoryRecord::new(
+            "cafe",
+            crate::storage::MemoryType::Semantic,
+            "The cafe serves lavender tea.",
+        );
+        let mut store = MemoryStore::open(&vault, "lyra").unwrap();
+        store.create(&memory).unwrap();
+        let root_string = root.to_string_lossy().into_owned();
+        let repair = || crate::memory_repair_index(root_string.clone(), "lyra".into());
+        assert!(repair().unwrap_err().contains("in use"));
+        drop(store);
+
+        // A Markdown edit made outside the store must be picked up by repair.
+        memory.body = "The cafe serves cardamom tea.".into();
+        vault.save_memory(&memory).unwrap();
+        let memory_path = vault.memory_path(&memory.memory_type, &memory.id).unwrap();
+        let memory_bytes = fs::read(&memory_path).unwrap();
+        let mut transcript = TranscriptDocument::new("existing", "lyra");
+        transcript.turns.push(TranscriptTurn {
+            id: "existing-answer".into(),
+            timestamp: "1".into(),
+            role: TurnRole::Assistant,
+            status: TurnStatus::Complete,
+            content: "Welcome back.".into(),
+        });
+        vault.save_transcript(&transcript).unwrap();
+        let transcript_path = vault.transcript_path("existing").unwrap();
+        let transcript_bytes = fs::read(&transcript_path).unwrap();
+        let mut queue = crate::extraction::ExtractionQueue::open(&vault, "lyra").unwrap();
+        let job = queue
+            .enqueue_transcript(&transcript, "existing-answer", 100)
+            .unwrap();
+        drop(queue);
+        let state_path = root.join(".tz-chatter/state.sqlite3");
+        let state_bytes = fs::read(&state_path).unwrap();
+        let db_path = root.join(".tz-chatter/memory-index.sqlite3");
+        let wal_path = db_path.with_file_name("memory-index.sqlite3-wal");
+
+        fs::write(&db_path, b"not a SQLite database").unwrap();
+        assert!(MemoryStore::open(&vault, "lyra").is_err());
+        fs::create_dir(&wal_path).unwrap();
+        let error = repair().unwrap_err();
+        assert!(error.contains("expected a regular index file"));
+        assert!(error.contains("retry repair"));
+        assert!(!error.contains("could not be restored"));
+        assert_eq!(fs::read(&db_path).unwrap(), b"not a SQLite database");
+        fs::remove_dir(&wal_path).unwrap();
+        fs::write(&wal_path, b"stale sidecar").unwrap();
+        repair().unwrap();
+        assert!(!wal_path.exists());
+
+        // This file opens, but its incompatible table prevents normal indexing.
+        let connection = rusqlite::Connection::open(&db_path).unwrap();
+        let indexed: String = connection
+            .query_row("SELECT body FROM memory_fts", [], |row| row.get(0))
+            .unwrap();
+        assert!(indexed.contains("cardamom"));
+        connection
+            .execute_batch("DROP TABLE memory_files; CREATE TABLE memory_files (wrong TEXT);")
+            .unwrap();
+        drop(connection);
+        assert!(MemoryStore::open(&vault, "lyra")
+            .unwrap()
+            .search("cardamom", 10)
+            .is_err());
+        repair().unwrap();
+        let mut store = MemoryStore::open(&vault, "lyra").unwrap();
+        assert_eq!(store.search("cardamom", 10).unwrap()[0].memory_id, "cafe");
+        assert!(store.search("lavender", 10).unwrap().is_empty());
+        drop(store);
+        assert_eq!(fs::read(&memory_path).unwrap(), memory_bytes);
+        assert_eq!(fs::read(&transcript_path).unwrap(), transcript_bytes);
+        assert_eq!(fs::read(&state_path).unwrap(), state_bytes);
+        let mut queue = crate::extraction::ExtractionQueue::open(&vault, "lyra").unwrap();
+        assert_eq!(queue.claim_next().unwrap().unwrap().id, job.id);
+        drop(queue);
+
+        let fake = Arc::new(FakeTransport::new(vec![Ok(complete_reply(
+            "Tea is ready.",
+        ))]));
+        let outcome = ConversationService::new(fake.clone())
+            .send(
+                &vault,
+                snapshot(
+                    "new-chat",
+                    "lyra",
+                    "user-new",
+                    "What tea does the cafe serve?",
+                ),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            outcome.transcript.turns.last().unwrap().status,
+            TurnStatus::Complete
+        );
+        assert!(fake.requests.lock().unwrap()[0]
+            .messages
+            .iter()
+            .any(|message| { message.content.contains("The cafe serves cardamom tea.") }));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn invalid_memory_does_not_leave_a_lone_user_turn() {
         let root = root("invalid-memory-send");
         let vault = Vault::create(&root).unwrap();

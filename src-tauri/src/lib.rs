@@ -1907,8 +1907,7 @@ fn memory_reject_proposal(
 #[tauri::command]
 fn memory_repair_index(vault_root: String, character_id: String) -> Result<(), String> {
     let (vault, _) = open_character_vault(vault_root, &character_id)?;
-    let mut store = memory::MemoryStore::open(&vault, &character_id).map_err(String::from)?;
-    store.rebuild().map_err(String::from)
+    memory::MemoryStore::repair(&vault, &character_id).map_err(String::from)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

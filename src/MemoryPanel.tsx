@@ -39,7 +39,7 @@ export function MemoryPanel({ active }: { active: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function refresh() {
+  async function refresh(repairIndex = false) {
     if (!vaultRoot.trim()) return;
     const generation = ++refreshGeneration.current;
     const scopedCharacter = characterId.trim();
@@ -47,6 +47,12 @@ export function MemoryPanel({ active }: { active: boolean }) {
     setError(null);
     try {
       if (!scopedCharacter) throw new Error("Load a character conversation before opening memories.");
+      if (repairIndex) {
+        await memoryClient.repairIndex(vaultRoot.trim(), scopedCharacter);
+        if (generation !== refreshGeneration.current
+          || localStorage.getItem(activeSessionStorageKeys.vaultRoot) !== vaultRoot
+          || activeCharacterId() !== scopedCharacter) return;
+      }
       const canonicalMemories = await memoryClient.browse(vaultRoot.trim(), scopedCharacter);
       const queuedProposals = await memoryClient.reviewQueue(vaultRoot.trim(), scopedCharacter);
       const openConflicts = await memoryClient.conflictPairs(vaultRoot.trim(), scopedCharacter);
@@ -247,10 +253,12 @@ export function MemoryPanel({ active }: { active: boolean }) {
       <div className="memory-toolbar">
         <label>
           <span>Search memories</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void refresh(); }} placeholder="Try a name or fact" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !busy) void refresh(); }} placeholder="Try a name or fact" />
         </label>
         <button className="outline-button" disabled={busy || !vaultRoot.trim() || !characterId.trim()} onClick={() => void refresh()} type="button">{busy ? "Loading…" : "Refresh"}</button>
+        <button className="outline-button" disabled={busy || !vaultRoot.trim() || !characterId.trim()} onClick={() => void refresh(true)} type="button">Repair index</button>
       </div>
+      {error && <p className="conversation-error" role="alert">{error}</p>}
       {!characterId.trim() && <p className="inline-status">Open a character vault from the sidebar to browse memories.</p>}
 
       <div className="memory-layout">
@@ -335,7 +343,6 @@ export function MemoryPanel({ active }: { active: boolean }) {
         ))}
         {conflicts.length === 0 && <p className="muted compact-empty">No open conflicts.</p>}
       </section>
-      {error && <p className="conversation-error" role="alert">{error}</p>}
     </section>
   );
 }

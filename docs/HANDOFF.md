@@ -1094,3 +1094,34 @@ Files: src-tauri/src/memory.rs (production + regression), retrieval.rs and conve
 
 
 R10 completion: implementation 2926312 is committed/pushed in ready-for-review PR https://github.com/taggedzi/tz-chatter/pull/16, targeting main (Closes #7), attached to this chat. GitHub connector creation returned 403 Resource not accessible by integration; authenticated gh pr create succeeded. All implementation-head checks passed: CI 40618599560 (frontend, dependency audits, Linux Rust tests, optimized GLib, fmt and strict Clippy) and CodeQL 40618599497 (Rust/TypeScript). No introduced CI failures. R10 is done. This follow-up changes only STATUS/HANDOFF; git diff --check is the applicable local check, and source tests are not repeated. New-head hosted checks may rerun after push; inspect current-head results rather than assuming the implementation SHA covers newer docs. Next executable action: gh pr checks 16 --repo taggedzi/tz-chatter, then review without merging or manually closing #7. Release hold and T39/T18/T38 remain separate.
+
+
+## 2026-11-16 - R11 / GitHub #8: recreate a corrupt memory index
+
+Scope: base 3da1471, branch codex/8-repair-memory-index. The Memories toolbar exposes Repair index and refreshes the current query when repair succeeds. The Rust command stages a fresh lexical database in the same vault, reads canonical Markdown, closes the staged SQLite connection, and replaces the old file. A per-vault lock shared by app index users prevents repair while another app connection is open. Old SQLite sidecars are moved aside before replacement and restored on failure when possible. Durable state, transcripts, Markdown, and the embedding cache are outside the operation. No dependencies or schema change.
+
+Regression: directly invokes the repair command with invalid SQLite bytes and with an incompatible table. Verifies the new FTS rows before a normal sync, preserves an external Markdown edit and exact transcript/state bytes, retains a claimable extraction job, and completes a deterministic chat reply whose provider request contains the recovered memory. Also exercises a busy store, rejected sidecar path, preserved original bytes, and successful retry with a stale WAL file.
+
+Verification: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib (216 passed / 4 existing live tests ignored, including portability recovery), cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check, cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings, npm run test:unit (55 passed), npm run lint, npm run typecheck, npm run build, and git diff --check passed. One earlier full run hit Windows access denied in the existing transcript replacement test. The final rerun passed. Native UI click, live model, and local Linux checks were not run.
+
+Files: src-tauri/src/memory.rs, lib.rs, conversation.rs; src/MemoryPanel.tsx, App.css; README.md, docs/PLAN.md, STATUS.md and this handoff. Next action: review the R11 PR and inspect hosted CI and CodeQL. Release remains on hold.
+
+
+## 2026-11-16 - R12: Rust dependency audit remediation for PR #17
+
+Updated rusqlite to 0.41.1 (bundled libsqlite3-sys 0.39.1), quinn-proto to 0.11.19, and quinn-udp to 0.5.16. These clear RUSTSEC-2026-0459, RUSTSEC-2026-0523, RUSTSEC-2026-0524, and RUSTSEC-2026-0538. Updated Tokio to 1.53.3, rustix (1.x) to 1.1.6, and async-executor to 1.14.1 to clear two unsoundness warnings and the yanked version. Updated tauri-utils to 2.10.3, which selects urlpattern 0.6.0 and removes all five unmaintained UNIC crates. The audit passes with zero vulnerabilities and five unmaintained warnings. No audit exceptions added.
+
+Remaining warnings and follow-up:
+
+- proc-macro-error 1.0.4 (RUSTSEC-2024-0370) is required by glib-macros 0.18.5 and gtk3-macros 0.18.2 in Tauri's Linux desktop stack. There is no patched release. Upgrade when Tauri/Wry adopts a GTK/GLib stack using maintained macro tooling. Recheck the vendored GLib patch and the optimized variant regression as part of that upgrade.
+- unsafe-libyaml 0.2.11 (RUSTSEC-2024-0449) is required by serde_yaml, which is deprecated. There is no maintained version to select in this graph. A parser change can affect valid existing hand-edited vaults. For example, serde-saphyr 2 treats an unquoted YAML null as null where serde_yaml accepts it in a string field. Evaluate a maintained parser such as serde-saphyr with legacy vault fixtures, null-like strings and multiline values, then verify portable pack and transcript round trips before replacing the parser.
+- zbus_names 4.3.4, zvariant 5.15.0, and zvariant_derive 5.15.0 (RUSTSEC-2026-0371, -0370 and -0372) were folded into zbus 6. The current Linux keyring store requires zbus 5, and even Tauri opener 2.7.3 still requires zbus 5. notify-rust 4.19.0 has moved to zbus 6, but updating it alone leaves the other paths. Move the opener and keyring store to versions supporting zbus 6 when available, align the notification stack, and verify Secret Service, notifications, and source opening on Linux.
+
+Files: src-tauri/Cargo.toml and Cargo.lock, docs/PLAN.md, STATUS.md and HANDOFF.md. Next action: review the hosted checks on the dependency-update head of PR #17.
+
+
+## 2026-11-16 - R11: PR #17 review follow-up
+
+Both inline suggestions were valid. The repair command now tracks each successfully moved SQLite sidecar and gives the staging path only when rollback cannot restore one. Early failures retain the underlying error and retry guidance. When a shared index open is blocked by repair, it says to wait for repair to finish. A blocked repair attempt gives guidance to wait for other index users.
+
+Files: src-tauri/src/memory.rs, src-tauri/src/conversation.rs, docs/STATUS.md and HANDOFF.md. Tests cover the early repair error and an index open blocked by a live exclusive lock, including successful open after release. Windows locked Rust suite passed (217 tests, 4 existing live tests ignored, binary/doc targets passed), as did fmt, strict all-target Clippy, and diff check. No changes to frontend code, dependencies, or SQLite schema. Next action: review PR #17 and inspect hosted checks on the follow-up head.
