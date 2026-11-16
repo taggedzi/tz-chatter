@@ -2,6 +2,10 @@
 
 This document defines work and acceptance criteria. `STATUS.md` is the sole live task-state tracker. Execute dependencies first; task order within a milestone can change when dependencies allow it.
 
+## R12 - Update Rust dependencies flagged on PR #17
+
+Depends on: R11. Apply compatible upgrades for the RustSec findings in the hosted audit. Verify the locked dependency graph and Rust tests, and record remaining advisories and next actions.
+
 ## R11 - Recreate a corrupt memory index (GitHub #8)
 
 Depends on: T07. No external dependencies.

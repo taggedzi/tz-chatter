@@ -1105,3 +1105,16 @@ Regression: directly invokes the repair command with invalid SQLite bytes and wi
 Verification: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib (216 passed / 4 existing live tests ignored, including portability recovery), cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check, cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings, npm run test:unit (55 passed), npm run lint, npm run typecheck, npm run build, and git diff --check passed. One earlier full run hit Windows access denied in the existing transcript replacement test. The final rerun passed. Native UI click, live model, and local Linux checks were not run.
 
 Files: src-tauri/src/memory.rs, lib.rs, conversation.rs; src/MemoryPanel.tsx, App.css; README.md, docs/PLAN.md, STATUS.md and this handoff. Next action: review the R11 PR and inspect hosted CI and CodeQL. Release remains on hold.
+
+
+## 2026-11-16 - R12: Rust dependency audit remediation for PR #17
+
+Updated rusqlite to 0.41.1 (bundled libsqlite3-sys 0.39.1), quinn-proto to 0.11.19, and quinn-udp to 0.5.16. These clear RUSTSEC-2026-0459, RUSTSEC-2026-0523, RUSTSEC-2026-0524, and RUSTSEC-2026-0538. Updated Tokio to 1.53.3, rustix (1.x) to 1.1.6, and async-executor to 1.14.1 to clear two unsoundness warnings and the yanked version. Updated tauri-utils to 2.10.3, which selects urlpattern 0.6.0 and removes all five unmaintained UNIC crates. The audit passes with zero vulnerabilities and five unmaintained warnings. No audit exceptions added.
+
+Remaining warnings and follow-up:
+
+- proc-macro-error 1.0.4 (RUSTSEC-2024-0370) is required by glib-macros 0.18.5 and gtk3-macros 0.18.2 in Tauri's Linux desktop stack. There is no patched release. Upgrade when Tauri/Wry adopts a GTK/GLib stack using maintained macro tooling. Recheck the vendored GLib patch and the optimized variant regression as part of that upgrade.
+- unsafe-libyaml 0.2.11 (RUSTSEC-2024-0449) is required by serde_yaml, which is deprecated. There is no maintained version to select in this graph. A parser change can affect valid existing hand-edited vaults. For example, serde-saphyr 2 treats an unquoted YAML null as null where serde_yaml accepts it in a string field. Evaluate a maintained parser such as serde-saphyr with legacy vault fixtures, null-like strings and multiline values, then verify portable pack and transcript round trips before replacing the parser.
+- zbus_names 4.3.4, zvariant 5.15.0, and zvariant_derive 5.15.0 (RUSTSEC-2026-0371, -0370 and -0372) were folded into zbus 6. The current Linux keyring store requires zbus 5, and even Tauri opener 2.7.3 still requires zbus 5. notify-rust 4.19.0 has moved to zbus 6, but updating it alone leaves the other paths. Move the opener and keyring store to versions supporting zbus 6 when available, align the notification stack, and verify Secret Service, notifications, and source opening on Linux.
+
+Files: src-tauri/Cargo.toml and Cargo.lock, docs/PLAN.md, STATUS.md and HANDOFF.md. Next action: review the hosted checks on the dependency-update head of PR #17.
