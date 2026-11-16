@@ -1062,6 +1062,7 @@ impl ConversationService {
                     prompt_budget,
                 ) {
                     Ok(reduced) => {
+                        request.max_tokens = Some(reduced.reserved_output_tokens as u32);
                         prompt = reduced;
                         request.messages = prompt.messages.clone();
                         request.cancellation_id = spec.assistant_id.clone();
@@ -2473,10 +2474,76 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[derive(Default)]
+    struct ContextLimitedTransport {
+        requests: Mutex<Vec<ChatRequest>>,
+    }
+
+    fn wire_output_cap(kind: &ProviderKind, request: &ChatRequest) -> Option<usize> {
+        let payload = crate::connections::test_chat_payload(kind, request);
+        let limit = match kind {
+            ProviderKind::Ollama => &payload["options"]["num_predict"],
+            _ => &payload["max_tokens"],
+        };
+        limit.as_u64().map(|value| value as usize)
+    }
+
+    #[async_trait]
+    impl ChatTransport for ContextLimitedTransport {
+        async fn stream_chat(
+            &self,
+            config: &ProviderConfig,
+            request: &ChatRequest,
+            _cancellation: CancellationToken,
+        ) -> Result<Vec<ChatStreamEvent>, ProviderError> {
+            let mut requests = self.requests.lock().unwrap();
+            requests.push(request.clone());
+            // Force the initial rejection, then enforce the reduced context on the retry.
+            let fits_retry = || {
+                wire_output_cap(&config.kind, request).is_some_and(|cap| {
+                    crate::prompt::estimate_messages(&request.messages) + cap <= 2048
+                })
+            };
+            match requests.len() {
+                2 if fits_retry() => Ok(complete_reply("Recovered with less history")),
+                3 => Ok(complete_reply("Independent reply")),
+                _ => Err(ProviderError::Unavailable(
+                    "maximum context length token limit exceeded".into(),
+                )),
+            }
+        }
+    }
+
     #[tokio::test]
     async fn provider_context_limit_retries_once_with_a_smaller_prompt() {
+        for kind in [ProviderKind::Ollama, ProviderKind::OpenAiCompatible] {
+            for (max_tokens, expected_retry_cap) in
+                [(Some(2048), 512), (None, 512), (Some(128), 128)]
+            {
+                check_context_recovery(kind.clone(), max_tokens, expected_retry_cap).await;
+            }
+        }
+    }
+
+    async fn check_context_recovery(
+        kind: ProviderKind,
+        max_tokens: Option<u32>,
+        expected_retry_cap: usize,
+    ) {
         let root = root("context-recovery");
         let vault = Vault::create(&root).unwrap();
+        if max_tokens.is_some() {
+            crate::generation::save(
+                &vault,
+                &crate::generation::CharacterGeneration {
+                    schema_version: 1,
+                    chat_model: Some("lyra-voice".into()),
+                    temperature: Some(0.85),
+                    max_tokens,
+                },
+            )
+            .unwrap();
+        }
         let mut history = TranscriptDocument::new("session", "lyra");
         for index in 0..40 {
             history.turns.push(TranscriptTurn {
@@ -2499,45 +2566,57 @@ mod tests {
             });
         }
         vault.save_transcript(&history).unwrap();
-        let fake = Arc::new(FakeTransport::new(vec![
-            Err(ProviderError::Unavailable(
-                "maximum context length token limit exceeded".into(),
-            )),
-            Ok(vec![
-                ChatStreamEvent::Delta {
-                    text: "Recovered with less history".into(),
-                },
-                ChatStreamEvent::Completed {
-                    finish_reason: Some("stop".into()),
-                },
-            ]),
-        ]));
+        let fake = Arc::new(ContextLimitedTransport::default());
         let service = ConversationService::new(fake.clone());
+        let mut request = snapshot("session", "lyra", "user", "Please continue");
+        request.provider.kind = kind.clone();
         let outcome = service
-            .send(
-                &vault,
-                snapshot("session", "lyra", "user", "Please continue"),
-                CancellationToken::new(),
-            )
+            .send(&vault, request, CancellationToken::new())
             .await
             .unwrap();
-        assert_eq!(outcome.assistant_turn.status, TurnStatus::Complete);
-        let requests = fake.requests.lock().unwrap();
-        assert_eq!(requests.len(), 2);
-        let first_chars: usize = requests[0]
-            .messages
-            .iter()
-            .map(|message| message.content.len())
-            .sum();
-        let second_chars: usize = requests[1]
-            .messages
-            .iter()
-            .map(|message| message.content.len())
-            .sum();
-        assert!(
-            second_chars < first_chars,
-            "retry prompt should be smaller than the rejected prompt ({second_chars} >= {first_chars})"
+        assert_eq!(
+            outcome.assistant_turn.status,
+            TurnStatus::Complete,
+            "{kind:?}, configured output cap {max_tokens:?}"
         );
+        assert_eq!(
+            outcome.assistant_turn.content,
+            "Recovered with less history"
+        );
+        assert_eq!(fake.requests.lock().unwrap().len(), 2);
+
+        let mut independent = snapshot("new-session", "lyra", "new-user", "Hello again");
+        independent.provider.kind = kind.clone();
+        let independent_outcome = service
+            .send(&vault, independent, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(
+            independent_outcome.assistant_turn.status,
+            TurnStatus::Complete
+        );
+
+        let requests = fake.requests.lock().unwrap();
+        let [initial, retry, independent] = requests.as_slice() else {
+            panic!("expected one initial request, one retry, and one independent request");
+        };
+        let initial_cap = max_tokens.map(|value| value as usize);
+        assert_eq!(wire_output_cap(&kind, initial), initial_cap);
+        assert_eq!(wire_output_cap(&kind, independent), initial_cap);
+        assert_eq!(wire_output_cap(&kind, retry), Some(expected_retry_cap));
+        assert_eq!(retry.model, initial.model);
+        assert_eq!(retry.temperature, initial.temperature);
+        let retry_input = crate::prompt::estimate_messages(&retry.messages);
+        assert!(retry_input < crate::prompt::estimate_messages(&initial.messages));
+        assert_eq!(
+            outcome.context_inspection.estimated_input_tokens,
+            retry_input
+        );
+        assert_eq!(
+            outcome.context_inspection.reserved_output_tokens,
+            expected_retry_cap
+        );
+        assert!(retry_input + expected_retry_cap <= 2048);
         assert!(outcome
             .context_inspection
             .fallback_reason

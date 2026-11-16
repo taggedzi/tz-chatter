@@ -424,6 +424,15 @@ fn build_openai_chat_payload(request: &ChatRequest) -> OpenAiChatPayload<'_> {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn test_chat_payload(kind: &ProviderKind, request: &ChatRequest) -> serde_json::Value {
+    if kind.uses_openai_compatible_http() {
+        serde_json::to_value(build_openai_chat_payload(request)).unwrap()
+    } else {
+        serde_json::to_value(build_ollama_chat_payload(request)).unwrap()
+    }
+}
+
 fn parse_ollama_discovery(
     config: &ProviderConfig,
     body: Value,

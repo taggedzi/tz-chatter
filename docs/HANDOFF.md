@@ -1125,3 +1125,14 @@ Files: src-tauri/Cargo.toml and Cargo.lock, docs/PLAN.md, STATUS.md and HANDOFF.
 Both inline suggestions were valid. The repair command now tracks each successfully moved SQLite sidecar and gives the staging path only when rollback cannot restore one. Early failures retain the underlying error and retry guidance. When a shared index open is blocked by repair, it says to wait for repair to finish. A blocked repair attempt gives guidance to wait for other index users.
 
 Files: src-tauri/src/memory.rs, src-tauri/src/conversation.rs, docs/STATUS.md and HANDOFF.md. Tests cover the early repair error and an index open blocked by a live exclusive lock, including successful open after release. Windows locked Rust suite passed (217 tests, 4 existing live tests ignored, binary/doc targets passed), as did fmt, strict all-target Clippy, and diff check. No changes to frontend code, dependencies, or SQLite schema. Next action: review PR #17 and inspect hosted checks on the follow-up head.
+
+
+## 2026-11-16 - R13 / GitHub #9: cap retry output to the reduced reservation
+
+Based on main a744ad4 after PR #17 merged. The single context-limit retry sets the request max_tokens from the rebuilt prompt's output reservation. The request keeps the original model and temperature. Subsequent sends resolve generation settings normally.
+
+The capturing transport serializes the actual Ollama and OpenAI-compatible payloads and requires the retry's estimated input plus requested output to fit 2,048 tokens. It reproduced the failure at a saved 2,048-token limit before the fix, then passed for 2,048, inherited, and 128-token limits on both formats. The test also verifies the inspector, exactly two attempts per recovery, and a later independent send.
+
+Files: src-tauri/src/conversation.rs, connections.rs, prompt.rs, docs/PLAN.md, STATUS.md and this append. The focused issue regression and full locked Rust library suite passed on Windows (217 passed, 4 existing live tests ignored). Rustfmt, strict all-target Clippy and git diff --check passed. Hosted and live-provider checks were not run. No architectural decisions changed.
+
+Next action: inspect git diff on codex/9-context-retry-output for submission. Release remains on hold.

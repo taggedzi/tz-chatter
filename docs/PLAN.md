@@ -2,6 +2,14 @@
 
 This document defines work and acceptance criteria. `STATUS.md` is the sole live task-state tracker. Execute dependencies first; task order within a milestone can change when dependencies allow it.
 
+## R13 - Align output limits on context recovery (GitHub #9)
+
+Depends on: T06, T30.
+
+Use the reduced prompt's output reservation as the provider request cap for the single context-limit retry.
+
+Acceptance: the retry input estimate plus requested output fits the reduced budget, both provider payloads carry the cap for explicit and inherited limits, and later independent requests still use the saved generation settings.
+
 ## R12 - Update Rust dependencies flagged on PR #17
 
 Depends on: R11. Apply compatible upgrades for the RustSec findings in the hosted audit. Verify the locked dependency graph and Rust tests, and record remaining advisories and next actions.
