@@ -3,11 +3,18 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
-    fs, io,
+    fs::{self, File, OpenOptions, TryLockError},
+    io,
     path::{Path, PathBuf},
 };
 
 const CHUNK_CHARS: usize = 1200;
+const INDEX_FILE: &str = "memory-index.sqlite3";
+const INDEX_SIDECARS: [&str; 3] = [
+    "memory-index.sqlite3-journal",
+    "memory-index.sqlite3-wal",
+    "memory-index.sqlite3-shm",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoryError {
@@ -69,24 +76,98 @@ pub struct MemoryStore {
     vault: Vault,
     character_id: String,
     connection: Connection,
+    // Drop the SQLite connection before releasing the shared file lock.
+    _index_lock: Option<File>,
 }
 
 impl MemoryStore {
     pub fn open(vault: &Vault, character_id: impl Into<String>) -> Result<Self, MemoryError> {
-        let character_id = character_id.into();
+        let directory = Path::new(".tz-chatter");
+        let lock = lock_index(vault, false)?;
+        let db_path = vault.resolve_relative(directory.join(INDEX_FILE))?;
+        regular_file_exists(&db_path)?;
+        Self::open_at(vault, character_id.into(), &db_path, Some(lock))
+    }
+
+    fn open_at(
+        vault: &Vault,
+        character_id: String,
+        path: &Path,
+        index_lock: Option<File>,
+    ) -> Result<Self, MemoryError> {
         if character_id.trim().is_empty() {
             return Err(MemoryError::Storage("character id is required".into()));
         }
-        let db_path =
-            vault.resolve_relative(Path::new(".tz-chatter").join("memory-index.sqlite3"))?;
-        let connection = Connection::open(db_path)?;
+        let connection = Connection::open(path)?;
         let store = Self {
             vault: vault.clone(),
             character_id,
             connection,
+            _index_lock: index_lock,
         };
         store.initialize()?;
         Ok(store)
+    }
+
+    pub fn repair(vault: &Vault, character_id: &str) -> Result<(), MemoryError> {
+        let _lock = lock_index(vault, true)?;
+        let relative = Path::new(".tz-chatter");
+        let db_path = vault.resolve_relative(relative.join(INDEX_FILE))?;
+        regular_file_exists(&db_path)?;
+        let directory = db_path.parent().expect("index has a parent directory");
+        let staging = directory.join(format!(
+            "memory-index-repair-{}",
+            crate::storage::new_stable_id()
+        ));
+        fs::create_dir(&staging).map_err(|error| {
+            MemoryError::Database(format!(
+                "could not stage a replacement in {}: {error}. Check vault permissions and free space, then retry repair",
+                directory.display()
+            ))
+        })?;
+        // Keep the replacement's SQLite sidecars separate from the old set.
+        let staged_db = staging.join("replacement.sqlite3");
+        let result = (|| {
+            let mut store = Self::open_at(vault, character_id.to_owned(), &staged_db, None)?;
+            store.sync()?;
+            store.connection.close().map_err(|(_, error)| error)?;
+
+            // The old SQLite sidecars must never be replayed against the replacement.
+            for name in INDEX_SIDECARS {
+                regular_file_exists(&directory.join(name))?;
+            }
+            for name in INDEX_SIDECARS {
+                let sidecar = directory.join(name);
+                if regular_file_exists(&sidecar)? {
+                    fs::rename(sidecar, staging.join(name))?;
+                }
+            }
+            fs::rename(&staged_db, &db_path)?;
+            Ok::<(), MemoryError>(())
+        })();
+
+        if result.is_ok() {
+            for name in INDEX_SIDECARS {
+                let _ = fs::remove_file(staging.join(name));
+            }
+        } else {
+            let _ = fs::remove_file(&staged_db);
+            for name in INDEX_SIDECARS {
+                let saved = staging.join(name);
+                let original = directory.join(name);
+                if saved.is_file() && !original.exists() {
+                    let _ = fs::rename(saved, original);
+                }
+            }
+        }
+        let _ = fs::remove_dir(&staging);
+        result.map_err(|error| {
+            MemoryError::Database(format!(
+                "could not recreate {}: {error}. Check vault permissions and free space, then retry repair. Any sidecars that could not be restored are in {}",
+                db_path.display(),
+                staging.display()
+            ))
+        })
     }
 
     pub fn create(&mut self, memory: &MemoryRecord) -> Result<(), MemoryError> {
@@ -414,6 +495,41 @@ impl MemoryStore {
             return Err(MemoryError::Storage(format!("memory does not exist: {id}")));
         }
         Ok(fingerprint(&fs::read(path)?))
+    }
+}
+
+fn lock_index(vault: &Vault, exclusive: bool) -> Result<File, MemoryError> {
+    let path = vault.resolve_relative(".tz-chatter/memory-index.lock")?;
+    regular_file_exists(&path)?;
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)?;
+    let result = if exclusive {
+        lock.try_lock()
+    } else {
+        lock.try_lock_shared()
+    };
+    match result {
+        Ok(()) => Ok(lock),
+        Err(TryLockError::WouldBlock) => Err(MemoryError::Database(
+            "the memory index is in use. Wait for chat or background memory work to finish and retry".into(),
+        )),
+        Err(TryLockError::Error(error)) => Err(error.into()),
+    }
+}
+
+fn regular_file_exists(path: &Path) -> Result<bool, MemoryError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() => Ok(true),
+        Ok(_) => Err(MemoryError::Storage(format!(
+            "expected a regular index file at {}",
+            path.display()
+        ))),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
     }
 }
 

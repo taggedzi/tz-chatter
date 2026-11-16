@@ -2,6 +2,14 @@
 
 This document defines work and acceptance criteria. `STATUS.md` is the sole live task-state tracker. Execute dependencies first; task order within a milestone can change when dependencies allow it.
 
+## R11 - Recreate a corrupt memory index (GitHub #8)
+
+Depends on: T07. No external dependencies.
+
+Expose the existing repair command in Memories. Recreate the lexical SQLite index from canonical Markdown in a staged file and replace the old cache once rebuilding succeeds. Coordinate with open memory stores for the same vault.
+
+Acceptance: repair handles invalid SQLite bytes and incompatible schema, restores memory search and chat retrieval, and preserves Markdown edits, transcripts, and durable extraction state. A busy or failed repair returns a retryable error. Run the Rust library suite including portability recovery, fmt, strict Clippy, and frontend checks.
+
 ## R10 - Invalidate malformed canonical memories (GitHub #7)
 
 Depends on: T07, T08, T13, T14. No external dependencies; database corruption recovery (#8) is separate.
