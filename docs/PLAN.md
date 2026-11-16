@@ -2,6 +2,14 @@
 
 This document defines work and acceptance criteria. `STATUS.md` is the sole live task-state tracker. Execute dependencies first; task order within a milestone can change when dependencies allow it.
 
+## R15 - Replace the unmaintained vault YAML parser (GitHub #18)
+
+Depends on: T03, R12.
+
+Compare legacy and replacement parsing for existing vault records, including empty and null-like strings, quotes, multiline YAML metadata, and the Markdown delimiter. Preserve the on-disk format and read existing vaults without a bulk rewrite.
+
+Acceptance: legacy character, memory, and transcript fixtures retain their values, new records round-trip, portable pack import/export passes, and the locked Rust suite and Cargo Audit pass with `unsafe-libyaml` absent from the lockfile.
+
 ## R14 - Make release publish preflight fail closed (GitHub #10)
 
 Depends on: T38. Related: R07 for the immutable-release gate.

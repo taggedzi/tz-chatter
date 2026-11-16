@@ -608,7 +608,7 @@ pub(crate) fn render_markdown<T: Serialize>(
     body: &str,
 ) -> Result<Vec<u8>, StorageError> {
     let yaml =
-        serde_yaml::to_string(metadata).map_err(|error| StorageError::Parse(error.to_string()))?;
+        yaml_serde::to_string(metadata).map_err(|error| StorageError::Parse(error.to_string()))?;
     Ok(format!("---\n{yaml}---\n{body}").into_bytes())
 }
 
@@ -627,7 +627,7 @@ pub(crate) fn parse_markdown<T: DeserializeOwned>(
     let separator = remainder
         .find("\n---\n")
         .ok_or_else(|| StorageError::Parse("YAML frontmatter is not closed".into()))?;
-    let metadata = serde_yaml::from_str(&remainder[..separator])
+    let metadata = yaml_serde::from_str(&remainder[..separator])
         .map_err(|error| StorageError::Parse(error.to_string()))?;
     Ok((metadata, remainder[separator + 5..].to_string()))
 }
@@ -667,8 +667,6 @@ pub(crate) fn render_transcript(transcript: &TranscriptDocument) -> Result<Vec<u
         title: transcript.title.clone(),
         archived: transcript.archived,
     };
-    let yaml =
-        serde_yaml::to_string(&metadata).map_err(|error| StorageError::Parse(error.to_string()))?;
     let mut body = String::new();
     for (index, turn) in transcript.turns.iter().enumerate() {
         let header = TurnHeader {
@@ -688,7 +686,7 @@ pub(crate) fn render_transcript(transcript: &TranscriptDocument) -> Result<Vec<u
             body.push('\n');
         }
     }
-    Ok(format!("---\n{yaml}---\n{body}").into_bytes())
+    render_markdown(&metadata, &body)
 }
 
 fn parse_transcript_body(
@@ -1302,6 +1300,54 @@ mod tests {
             .resolve_relative(".tz-chatter/generation.json")
             .unwrap();
         assert!(generation.starts_with(vault.root()));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_frontmatter_preserves_empty_null_like_and_multiline_strings() {
+        let root = test_root("legacy-frontmatter");
+        let vault = Vault::create(&root).unwrap();
+        let path = vault.character_path().unwrap();
+        let source = r##"---
+schema_version: 1
+id: lyra
+name: "Lyra: Vale"
+summary: # Hand-edited empty string
+system_prompt: |-
+  First line
+  ---
+  Last line
+traits: [null, Null, NULL, ~, "null", '']
+boundaries:
+- >-
+  Keep first and
+  second lines together.
+tags: ["#quoted", 'true']
+---
+First line
+---
+Last line
+"##
+        .replace('\n', "\r\n");
+        fs::write(&path, &source).unwrap();
+
+        let mut expected =
+            CharacterDefinition::new("lyra", "Lyra: Vale", "First line\n---\nLast line");
+        expected.traits = ["null", "Null", "NULL", "~", "null", ""]
+            .map(str::to_owned)
+            .to_vec();
+        expected.boundaries = vec!["Keep first and second lines together.".into()];
+        expected.tags = vec!["#quoted".into(), "true".into()];
+
+        let (metadata, body): (CharacterDefinition, String) =
+            parse_markdown(source.as_bytes()).unwrap();
+        assert_eq!(metadata, expected);
+        assert_eq!(body, "First line\n---\nLast line\n");
+        assert_eq!(vault.load_character().unwrap(), expected);
+        assert_eq!(fs::read(&path).unwrap(), source.as_bytes());
+
+        vault.save_character(&expected).unwrap();
+        assert_eq!(vault.load_character().unwrap(), expected);
         fs::remove_dir_all(root).unwrap();
     }
 
