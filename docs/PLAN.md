@@ -2,6 +2,12 @@
 
 This document defines work and acceptance criteria. `STATUS.md` is the sole live task-state tracker. Execute dependencies first; task order within a milestone can change when dependencies allow it.
 
+## R14 - Make release publish preflight fail closed (GitHub #10)
+
+Depends on: T38. Related: R07 for the immutable-release gate.
+
+Target the workflow repository explicitly for release reads and writes. Reject existing releases and tags, and stop publication when either lookup fails. Verify with read-only GitHub CLI commands outside a checkout, stubbed write commands, and release helper tests. Preserve dry-run and immutable-release gates.
+
 ## R13 - Align output limits on context recovery (GitHub #9)
 
 Depends on: T06, T30.

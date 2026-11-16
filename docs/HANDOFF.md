@@ -1136,3 +1136,11 @@ The capturing transport serializes the actual Ollama and OpenAI-compatible paylo
 Files: src-tauri/src/conversation.rs, connections.rs, prompt.rs, docs/PLAN.md, STATUS.md and this append. The focused issue regression and full locked Rust library suite passed on Windows (217 passed, 4 existing live tests ignored). Rustfmt, strict all-target Clippy and git diff --check passed. Hosted and live-provider checks were not run. No architectural decisions changed.
 
 Next action: inspect git diff on codex/9-context-retry-output for submission. Release remains on hold.
+
+## 2026-11-16 - R14 / GitHub #10: explicit publish repository and fail-closed version check
+
+Scope: branch codex/10-publish-repository from main aae7d64. The publish checkout already exists for the immutable-release helper. GH_REPO explicitly targets the workflow repository for API lookup and release create/edit, including outside a checkout. The preflight lists all visible releases, including drafts visible to the publish token, and matches exact tags after a successful paginated response. Any API failure stops the job. The separate remote tag check accepts only the no-match exit status. The existing publication mode and immutability gates remain in place.
+
+Verification: from an empty directory, authenticated gh release view reported a missing probe release and the paginated API command succeeded. Stubbed Bash runs of the workflow blocks passed six version-check cases and three create/edit cases, covering exact matches, API and tag failures, draft creation, stable publication flags and prerelease flags. npm run test:unit passed all 55 tests. git diff --check passed. No hosted release dispatch or real release mutation was performed.
+
+Files: .github/workflows/release.yml, docs/PLAN.md, docs/STATUS.md and this append. No architectural decisions changed. Next action: review the issue #10 PR and inspect hosted checks.

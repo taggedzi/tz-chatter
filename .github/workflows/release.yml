@@ -370,6 +370,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+    env:
+      GH_REPO: ${{ github.repository }}
 
     steps:
       - name: Check out repository
@@ -398,13 +400,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: v${{ inputs.version }}
         run: |
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+          # A successful list includes drafts and avoids treating an API error as a missing release.
+          if ! release_tags=$(gh api --paginate 'repos/{owner}/{repo}/releases?per_page=100' --jq '.[].tag_name'); then
+            echo "Could not verify existing releases in $GH_REPO." >&2
+            exit 1
+          fi
+          if grep -Fxq -- "$TAG_NAME" <<< "$release_tags"; then
             echo "Release $TAG_NAME already exists." >&2
             exit 1
           fi
-          if git ls-remote --exit-code --tags "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$TAG_NAME" >/dev/null 2>&1; then
+          if git ls-remote --exit-code --tags "${GITHUB_SERVER_URL}/${GH_REPO}.git" "refs/tags/$TAG_NAME" >/dev/null; then
             echo "Tag $TAG_NAME already exists." >&2
             exit 1
+          else
+            tag_status=$?
+            if [[ "$tag_status" -ne 2 ]]; then
+              echo "Could not verify existing tags in $GH_REPO." >&2
+              exit 1
+            fi
           fi
 
       - name: Write release notice
