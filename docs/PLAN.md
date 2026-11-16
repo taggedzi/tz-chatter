@@ -2,6 +2,14 @@
 
 This document defines work and acceptance criteria. `STATUS.md` is the sole live task-state tracker. Execute dependencies first; task order within a milestone can change when dependencies allow it.
 
+## R10 - Invalidate malformed canonical memories (GitHub #7)
+
+Depends on: T07, T08, T13, T14. No external dependencies; database corruption recovery (#8) is separate.
+
+Remove derived lexical chunks and metadata when a discovered canonical memory fails validation. Preserve the malformed bytes and filename-specific diagnostic; valid neighbors remain usable. Verify that existing embedding freshness checks reject stale chunks and repaired files reindex automatically.
+
+Acceptance: valid → malformed → repaired sequences cover memory search and lexical/hybrid retrieval; invalid text cannot enter prompts, valid neighbors remain available, canonical bytes remain untouched, embedding freshness requires rebuild as appropriate, and repair restores retrieval without deleting databases. Run focused/full Rust tests, fmt, strict Clippy and applicable frontend/audit/hosted checks. No schema migration or Markdown rewriting.
+
 ## R09 - Confine initiative state database (GitHub #6)
 
 Depends on: T03, T15. No external dependencies.

@@ -498,6 +498,93 @@ mod tests {
     }
 
     #[test]
+    fn malformed_memory_drops_out_of_lexical_and_hybrid_retrieval_until_repaired() {
+        use crate::embeddings::{chunks_from_memories, EmbeddingIndex, EmbeddingSpace};
+
+        let root = root();
+        let vault = Vault::create(&root).unwrap();
+        let mut store = MemoryStore::open(&vault, "lyra").unwrap();
+        store
+            .create(&memory("cafe", "Juniper cafe has blue chairs.", 0.8, false))
+            .unwrap();
+        store
+            .create(&memory(
+                "neighbor",
+                "Mina visits a cafe for tea.",
+                0.7,
+                false,
+            ))
+            .unwrap();
+        let chunks = chunks_from_memories(&store.list().unwrap());
+        let space = EmbeddingSpace::new("ollama", "test", 2, "http://127.0.0.1:11434");
+        let mut embeddings = EmbeddingIndex::open(&vault, "lyra", space).unwrap();
+        embeddings
+            .rebuild(&chunks, |input| Ok(vec![vec![1.0, 0.0]; input.len()]))
+            .unwrap();
+        assert!(!embeddings.needs_rebuild(&chunks).unwrap());
+        let stale = embeddings.search(&[1.0, 0.0], 10).unwrap();
+        let budget = RetrievalBudget::default();
+        assert_eq!(retrieve(&mut store, "cafe", budget, &[]).unwrap().len(), 2);
+        assert_eq!(
+            hybrid_retrieve(&mut store, "cafe", &stale, &[], &[], budget)
+                .unwrap()
+                .len(),
+            2
+        );
+
+        let path = vault.memory_path(&MemoryType::Semantic, "cafe").unwrap();
+        let malformed = "---\nid: [\n---\nBroken cafe memory";
+        fs::write(&path, malformed).unwrap();
+        // Both paths must drop old text even with precomputed stale semantic candidates.
+        let lexical = retrieve(&mut store, "cafe", budget, &[]).unwrap();
+        let hybrid = hybrid_retrieve(&mut store, "cafe", &stale, &[], &[], budget).unwrap();
+        for selected in [lexical, hybrid] {
+            assert_eq!(selected.len(), 1);
+            assert_eq!(selected[0].memory_id, "neighbor");
+            assert!(!selected[0].content.contains("blue chairs"));
+        }
+        let valid_chunks = chunks_from_memories(&store.list().unwrap());
+        assert!(embeddings.needs_rebuild(&valid_chunks).unwrap());
+        embeddings
+            .rebuild(&valid_chunks, |input| Ok(vec![vec![1.0, 0.0]; input.len()]))
+            .unwrap();
+        assert!(!embeddings.needs_rebuild(&valid_chunks).unwrap());
+        assert_eq!(
+            embeddings.search(&[1.0, 0.0], 10).unwrap()[0].memory_id,
+            "neighbor"
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), malformed);
+
+        vault
+            .save_memory(&memory("cafe", "Juniper cafe has green sofas.", 0.8, false))
+            .unwrap();
+        assert!(retrieve(&mut store, "chairs", budget, &[])
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            retrieve(&mut store, "sofas", budget, &[]).unwrap()[0].memory_id,
+            "cafe"
+        );
+        let repaired_chunks = chunks_from_memories(&store.list().unwrap());
+        assert!(embeddings.needs_rebuild(&repaired_chunks).unwrap());
+        embeddings
+            .rebuild(&repaired_chunks, |input| {
+                Ok(vec![vec![1.0, 0.0]; input.len()])
+            })
+            .unwrap();
+        assert!(!embeddings.needs_rebuild(&repaired_chunks).unwrap());
+        let semantic = embeddings.search(&[1.0, 0.0], 10).unwrap();
+        let repaired = hybrid_retrieve(&mut store, "cafe", &semantic, &[], &[], budget).unwrap();
+        assert_eq!(repaired.len(), 2);
+        assert!(repaired
+            .iter()
+            .any(|item| item.memory_id == "cafe" && item.content.contains("green sofas")));
+        drop(embeddings);
+        drop(store);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn natural_language_queries_still_retrieve_matching_memories() {
         let root = root();
         let vault = Vault::create(&root).unwrap();

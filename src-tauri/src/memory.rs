@@ -164,6 +164,8 @@ impl MemoryStore {
                 Ok(memory) => memory,
                 Err(error) => {
                     eprintln!("skipping invalid memory {}: {error}", file.relative_path);
+                    // Canonical validation failed: old derived text is no longer usable.
+                    self.remove_indexed_memory(&key)?;
                     continue;
                 }
             };
@@ -828,6 +830,49 @@ mod tests {
         let records = index.search_records("needle", 10).unwrap();
         assert_eq!(records, vec![expected]);
 
+        drop(index);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn indexed_memory_becoming_invalid_is_removed_and_repaired_automatically() {
+        let root = root("invalid-transition");
+        let vault = Vault::create(&root).unwrap();
+        let mut index = MemoryStore::open(&vault, "lyra").unwrap();
+        index
+            .create(&memory("fact", "Juniper cafe has blue chairs."))
+            .unwrap();
+        index
+            .create(&memory("neighbor", "Mina likes tea."))
+            .unwrap();
+        assert_eq!(index.search("chairs", 10).unwrap().len(), 1);
+        let path = vault.memory_path(&MemoryType::Semantic, "fact").unwrap();
+        let original = fs::read(&path).unwrap();
+        for malformed in [
+            b"---\nid: [\n---\nBroken record".as_slice(),
+            b"invalid markdown",
+        ] {
+            fs::write(&path, malformed).unwrap();
+            assert!(index.search("chairs", 10).unwrap().is_empty());
+            assert_eq!(index.search("tea", 10).unwrap()[0].memory_id, "neighbor");
+            assert_eq!(index.list().unwrap().len(), 1);
+            for table in ["memory_files", "memory_fts"] {
+                let count: i64 = index
+                    .connection
+                    .query_row(
+                        &format!("SELECT COUNT(*) FROM {table} WHERE memory_key = ?1"),
+                        params![memory_key(&MemoryType::Semantic, "fact")],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(count, 0, "stale rows in {table}");
+            }
+            assert_eq!(fs::read(&path).unwrap(), malformed);
+            // Restoring identical bytes must work too: the old fingerprint cannot hide it.
+            fs::write(&path, &original).unwrap();
+            assert_eq!(index.search("chairs", 10).unwrap().len(), 1);
+            assert_eq!(index.list().unwrap().len(), 2);
+        }
         drop(index);
         fs::remove_dir_all(root).unwrap();
     }
