@@ -1118,3 +1118,10 @@ Remaining warnings and follow-up:
 - zbus_names 4.3.4, zvariant 5.15.0, and zvariant_derive 5.15.0 (RUSTSEC-2026-0371, -0370 and -0372) were folded into zbus 6. The current Linux keyring store requires zbus 5, and even Tauri opener 2.7.3 still requires zbus 5. notify-rust 4.19.0 has moved to zbus 6, but updating it alone leaves the other paths. Move the opener and keyring store to versions supporting zbus 6 when available, align the notification stack, and verify Secret Service, notifications, and source opening on Linux.
 
 Files: src-tauri/Cargo.toml and Cargo.lock, docs/PLAN.md, STATUS.md and HANDOFF.md. Next action: review the hosted checks on the dependency-update head of PR #17.
+
+
+## 2026-11-16 - R11: PR #17 review follow-up
+
+Both inline suggestions were valid. The repair command now tracks each successfully moved SQLite sidecar and gives the staging path only when rollback cannot restore one. Early failures retain the underlying error and retry guidance. When a shared index open is blocked by repair, it says to wait for repair to finish. A blocked repair attempt gives guidance to wait for other index users.
+
+Files: src-tauri/src/memory.rs, src-tauri/src/conversation.rs, docs/STATUS.md and HANDOFF.md. Tests cover the early repair error and an index open blocked by a live exclusive lock, including successful open after release. Windows locked Rust suite passed (217 tests, 4 existing live tests ignored, binary/doc targets passed), as did fmt, strict all-target Clippy, and diff check. No changes to frontend code, dependencies, or SQLite schema. Next action: review PR #17 and inspect hosted checks on the follow-up head.

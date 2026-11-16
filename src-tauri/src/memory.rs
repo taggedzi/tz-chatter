@@ -127,6 +127,7 @@ impl MemoryStore {
         })?;
         // Keep the replacement's SQLite sidecars separate from the old set.
         let staged_db = staging.join("replacement.sqlite3");
+        let mut moved_sidecars = Vec::new();
         let result = (|| {
             let mut store = Self::open_at(vault, character_id.to_owned(), &staged_db, None)?;
             store.sync()?;
@@ -140,33 +141,41 @@ impl MemoryStore {
                 let sidecar = directory.join(name);
                 if regular_file_exists(&sidecar)? {
                     fs::rename(sidecar, staging.join(name))?;
+                    moved_sidecars.push(name);
                 }
             }
             fs::rename(&staged_db, &db_path)?;
             Ok::<(), MemoryError>(())
         })();
 
+        let mut sidecars_left_in_staging = false;
         if result.is_ok() {
-            for name in INDEX_SIDECARS {
+            for name in moved_sidecars {
                 let _ = fs::remove_file(staging.join(name));
             }
         } else {
             let _ = fs::remove_file(&staged_db);
-            for name in INDEX_SIDECARS {
+            for name in moved_sidecars {
                 let saved = staging.join(name);
                 let original = directory.join(name);
-                if saved.is_file() && !original.exists() {
-                    let _ = fs::rename(saved, original);
-                }
+                let original_is_missing = matches!(
+                    fs::symlink_metadata(&original),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound
+                );
+                sidecars_left_in_staging |=
+                    !original_is_missing || fs::rename(saved, original).is_err();
             }
         }
         let _ = fs::remove_dir(&staging);
         result.map_err(|error| {
-            MemoryError::Database(format!(
-                "could not recreate {}: {error}. Check vault permissions and free space, then retry repair. Any sidecars that could not be restored are in {}",
-                db_path.display(),
-                staging.display()
-            ))
+            let mut message = format!(
+                "could not recreate {}: {error}. Check vault permissions and free space, then retry repair.",
+                db_path.display()
+            );
+            if sidecars_left_in_staging {
+                message.push_str(&format!(" Sidecars that could not be restored are in {}.", staging.display()));
+            }
+            MemoryError::Database(message)
         })
     }
 
@@ -514,9 +523,14 @@ fn lock_index(vault: &Vault, exclusive: bool) -> Result<File, MemoryError> {
     };
     match result {
         Ok(()) => Ok(lock),
-        Err(TryLockError::WouldBlock) => Err(MemoryError::Database(
-            "the memory index is in use. Wait for chat or background memory work to finish and retry".into(),
-        )),
+        Err(TryLockError::WouldBlock) => {
+            let message = if exclusive {
+                "the memory index is in use. Wait for chat, background memory work, or another repair to finish and retry"
+            } else {
+                "memory index repair is running. Wait for it to finish and retry"
+            };
+            Err(MemoryError::Database(message.into()))
+        }
         Err(TryLockError::Error(error)) => Err(error.into()),
     }
 }
@@ -712,6 +726,21 @@ mod tests {
         memory.created_at = "1".into();
         memory.updated_at = "1".into();
         memory
+    }
+
+    #[test]
+    fn opening_an_index_during_repair_explains_when_to_retry() {
+        let root = root("repair-lock");
+        let vault = Vault::create(&root).unwrap();
+        let repair_lock = lock_index(&vault, true).unwrap();
+
+        let error = MemoryStore::open(&vault, "lyra").unwrap_err();
+        assert!(error.to_string().contains("memory index repair is running"));
+        assert!(!root.join(".tz-chatter").join(INDEX_FILE).exists());
+
+        drop(repair_lock);
+        assert!(MemoryStore::open(&vault, "lyra").is_ok());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

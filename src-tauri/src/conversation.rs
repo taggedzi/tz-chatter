@@ -3391,7 +3391,10 @@ mod tests {
         fs::write(&db_path, b"not a SQLite database").unwrap();
         assert!(MemoryStore::open(&vault, "lyra").is_err());
         fs::create_dir(&wal_path).unwrap();
-        assert!(repair().unwrap_err().contains("retry repair"));
+        let error = repair().unwrap_err();
+        assert!(error.contains("expected a regular index file"));
+        assert!(error.contains("retry repair"));
+        assert!(!error.contains("could not be restored"));
         assert_eq!(fs::read(&db_path).unwrap(), b"not a SQLite database");
         fs::remove_dir(&wal_path).unwrap();
         fs::write(&wal_path, b"stale sidecar").unwrap();
