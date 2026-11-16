@@ -243,7 +243,7 @@ fn to_chat_message(turn: &TranscriptTurn) -> Option<ChatMessage> {
     })
 }
 
-fn estimate_messages(messages: &[ChatMessage]) -> usize {
+pub(crate) fn estimate_messages(messages: &[ChatMessage]) -> usize {
     messages
         .iter()
         .map(|message| estimate_tokens(&message.content) + 4)
